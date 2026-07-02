@@ -47,6 +47,16 @@ pub struct ArtistInfo {
     pub image_url: Option<String>,
 }
 
+/// Enrichment data pulled from `album.getInfo` — same shape as
+/// `ArtistInfo` but sourced from the album entry.
+#[derive(Debug, Clone, Default)]
+pub struct AlbumInfo {
+    pub mbid: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub image_url: Option<String>,
+}
+
 /// Handle to the Last.fm API. Cheap to clone — the underlying
 /// `reqwest::Client` uses an `Arc` for connection reuse.
 #[derive(Clone)]
@@ -129,6 +139,48 @@ impl LastFm {
         // Last.fm's image list is ordered small → mega; pick the
         // largest non-empty entry so clients get a hero-sized image.
         info.image_url = artist
+            .image
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+            .find(|img| !img.text.is_empty())
+            .map(|img| img.text);
+        Ok(info)
+    }
+
+    /// `album.getInfo` — description (wiki summary), tags, and the
+    /// largest available cover URL. Prefers MBID over `(artist, album)`
+    /// when provided.
+    pub async fn album_info(
+        &self,
+        artist: Option<&str>,
+        album: Option<&str>,
+        mbid: Option<&str>,
+    ) -> anyhow::Result<AlbumInfo> {
+        let mut extra: Vec<(&str, &str)> = vec![("autocorrect", "1")];
+        if let Some(m) = mbid {
+            extra.push(("mbid", m));
+        } else if let (Some(a), Some(al)) = (artist, album) {
+            extra.push(("artist", a));
+            extra.push(("album", al));
+        } else {
+            return Ok(AlbumInfo::default());
+        }
+        let body: AlbumInfoBody = self.call("album.getInfo", &extra).await?;
+        let mut info = AlbumInfo::default();
+        let Some(album) = body.album else {
+            return Ok(info);
+        };
+        info.mbid = album.mbid.filter(|s| !s.is_empty());
+        info.description = album
+            .wiki
+            .and_then(|w| w.content.or(w.summary))
+            .map(|s| clean_bio(&s));
+        info.tags = album
+            .tags
+            .map(|t| t.tag.into_iter().map(|row| row.name).collect())
+            .unwrap_or_default();
+        info.image_url = album
             .image
             .unwrap_or_default()
             .into_iter()
@@ -310,6 +362,32 @@ struct ArtistTagEntry {
 struct ArtistImageRow {
     #[serde(default, rename = "#text")]
     text: String,
+}
+
+#[derive(Deserialize)]
+struct AlbumInfoBody {
+    #[serde(default)]
+    album: Option<AlbumInfoRow>,
+}
+
+#[derive(Deserialize)]
+struct AlbumInfoRow {
+    #[serde(default)]
+    mbid: Option<String>,
+    #[serde(default)]
+    wiki: Option<AlbumWikiRow>,
+    #[serde(default)]
+    tags: Option<ArtistTagsRow>,
+    #[serde(default)]
+    image: Option<Vec<ArtistImageRow>>,
+}
+
+#[derive(Deserialize)]
+struct AlbumWikiRow {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 /// Strip the trailing `<a href="https://www.last.fm/…">Read more on Last.fm</a>`

@@ -99,6 +99,10 @@ pub async fn start() -> anyhow::Result<()> {
         "../../migrations/20260702000002_add_jf_artist_enrichment.sql"
     ))
     .await?;
+    pool.execute(include_str!(
+        "../../migrations/20260702000003_add_jf_album_enrichment.sql"
+    ))
+    .await?;
 
     let server_id = auth::ensure_server_id(&pool).await?;
     let user_id = mapping::user_guid(&username);

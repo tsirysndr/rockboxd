@@ -513,6 +513,14 @@ async fn album_to_dto(state: &JellyfinState, al: &Album) -> BaseItemDto {
     let song_count = tracks.len() as i32;
     let duration_ms: i64 = tracks.iter().map(|t| t.length as i64).sum();
     let user_data = user_data_for(state, mapping::KIND_ALBUM, &al.id, &id).await;
+    // Cache-only enrichment on the list path — the detail handlers
+    // refresh from Last.fm before falling through to us.
+    let enrichment = super::enrichment::get_album(&state.pool, &al.id).await;
+    let overview = enrichment.as_ref().and_then(|e| e.description.clone());
+    let genres = enrichment
+        .as_ref()
+        .filter(|e| !e.tags.is_empty())
+        .map(|e| e.tags.clone());
     BaseItemDto {
         id: id.clone(),
         server_id: Some(state.server_id.clone()),
@@ -551,6 +559,8 @@ async fn album_to_dto(state: &JellyfinState, al: &Album) -> BaseItemDto {
         image_tags: Some(ImageTags {
             primary: al.album_art.clone().map(|_| al.id.clone()),
         }),
+        overview,
+        genres,
         user_data: Some(user_data),
         ..Default::default()
     }
@@ -1068,7 +1078,19 @@ pub async fn item_by_id(
             _ => HttpResponse::NotFound().finish(),
         },
         "album" => match repo::album::find(state.pool.clone(), &native).await {
-            Ok(Some(a)) => HttpResponse::Ok().json(album_to_dto(&state, &a).await),
+            Ok(Some(a)) => {
+                // Detail view: refresh the enrichment cache from Last.fm
+                // first so the DTO carries a fresh description + tags.
+                let _ = super::enrichment::refresh_album(
+                    &state.pool,
+                    state.lastfm.as_ref(),
+                    &a.id,
+                    &a.artist,
+                    &a.title,
+                )
+                .await;
+                HttpResponse::Ok().json(album_to_dto(&state, &a).await)
+            }
             _ => HttpResponse::NotFound().finish(),
         },
         "artist" => match repo::artist::find(state.pool.clone(), &native).await {
@@ -1117,7 +1139,19 @@ pub async fn user_item_by_id(
             _ => HttpResponse::NotFound().finish(),
         },
         "album" => match repo::album::find(state.pool.clone(), &native).await {
-            Ok(Some(a)) => HttpResponse::Ok().json(album_to_dto(&state, &a).await),
+            Ok(Some(a)) => {
+                // Detail view: refresh the enrichment cache from Last.fm
+                // first so the DTO carries a fresh description + tags.
+                let _ = super::enrichment::refresh_album(
+                    &state.pool,
+                    state.lastfm.as_ref(),
+                    &a.id,
+                    &a.artist,
+                    &a.title,
+                )
+                .await;
+                HttpResponse::Ok().json(album_to_dto(&state, &a).await)
+            }
             _ => HttpResponse::NotFound().finish(),
         },
         "artist" => match repo::artist::find(state.pool.clone(), &native).await {
