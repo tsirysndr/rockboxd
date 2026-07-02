@@ -236,8 +236,14 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route("/Library/Refresh", web::post().to(handlers::no_content))
         // Items — specific paths before /Items/{id}.
         .route("/Items", web::get().to(handlers::items))
-        .route("/Items/Suggestions", web::get().to(handlers::empty_items))
-        .route("/Items/Resume", web::get().to(handlers::empty_items))
+        // Home rails — Resume / Suggestions / Latest. Real handlers
+        // replace the earlier empty stubs so the client's home screen
+        // gets populated.
+        .route(
+            "/Items/Suggestions",
+            web::get().to(handlers::items_suggestions),
+        )
+        .route("/Items/Resume", web::get().to(handlers::items_resume))
         .route("/Items/Latest", web::get().to(handlers::items_latest))
         .route("/Items/Prefixes", web::get().to(handlers::items_prefixes))
         // Item-detail rails that clients probe. We have no extras / similar /
@@ -336,7 +342,11 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route("/Users/{id}/Items", web::get().to(handlers::user_items))
         .route(
             "/Users/{id}/Items/Resume",
-            web::get().to(handlers::empty_items),
+            web::get().to(handlers::items_resume),
+        )
+        .route(
+            "/Users/{id}/Items/Suggestions",
+            web::get().to(handlers::items_suggestions),
         )
         .route(
             "/Users/{id}/Items/Latest",
@@ -346,9 +356,17 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             "/Users/{uid}/Items/{id}",
             web::get().to(handlers::user_item_by_id),
         )
-        // Legacy /UserItems/* aliases.
-        .route("/UserItems/Resume", web::get().to(handlers::empty_items))
-        .route("/UserItems/Latest", web::get().to(handlers::empty_array))
+        // Legacy /UserItems/* aliases — Findroid still hits these.
+        // Response shape is a plain array (not ItemsResult), matching
+        // what the legacy path returned.
+        .route(
+            "/UserItems/Resume",
+            web::get().to(handlers::user_items_resume_array),
+        )
+        .route(
+            "/UserItems/Latest",
+            web::get().to(handlers::user_items_latest_array),
+        )
         // Search
         .route("/Search/Hints", web::get().to(handlers::search_hints))
         // /Shows/* — no series concept here.

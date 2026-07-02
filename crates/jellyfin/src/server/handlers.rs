@@ -983,6 +983,56 @@ async fn items_impl(state: web::Data<JellyfinState>, q: ItemsQuery) -> HttpRespo
     list_artists_or_albums_or_tracks(&state, &q).await
 }
 
+/// Recognize the `sortBy` values home rails use to build "Most
+/// Played" / "Recently Played". Returns `Some((sql_order_clause,))` when
+/// the client asked for something we can honour; otherwise falls back to
+/// the default alphabetic ordering.
+fn track_sort_order(q: &ItemsQuery) -> Option<&'static str> {
+    let sort_by = q.sort_by.as_deref()?;
+    let first = sort_by.split(',').next()?.trim();
+    let descending = q
+        .sort_order
+        .as_deref()
+        .map(|s| s.eq_ignore_ascii_case("Descending"))
+        .unwrap_or(false);
+    match first.to_ascii_lowercase().as_str() {
+        "playcount" => Some(if descending {
+            "t.play_count DESC, LOWER(track.title) ASC"
+        } else {
+            "t.play_count ASC, LOWER(track.title) ASC"
+        }),
+        "dateplayed" | "datelastplayed" => Some(if descending {
+            "t.last_played DESC, LOWER(track.title) ASC"
+        } else {
+            "t.last_played ASC, LOWER(track.title) ASC"
+        }),
+        _ => None,
+    }
+}
+
+/// Serve the "Most Played" / "Recently Played" rails via the /Items
+/// generic endpoint. Joins `track` with `track_stats` so clients don't
+/// need to bounce through /Users/UserData first.
+async fn tracks_sorted_by_stats(
+    state: &JellyfinState,
+    order: &str,
+    limit: i64,
+    offset: i64,
+) -> Vec<Track> {
+    let sql = format!(
+        "SELECT track.* FROM track LEFT JOIN track_stats t ON track.id = t.track_id
+         WHERE track.is_remote = 0
+         ORDER BY {order}
+         LIMIT ?1 OFFSET ?2"
+    );
+    sqlx::query_as(&sql)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default()
+}
+
 async fn list_artists_or_albums_or_tracks(state: &JellyfinState, q: &ItemsQuery) -> HttpResponse {
     let limit = q.limit.unwrap_or(100).max(1);
     let offset = q.start_index.unwrap_or(0).max(0);
@@ -991,6 +1041,24 @@ async fn list_artists_or_albums_or_tracks(state: &JellyfinState, q: &ItemsQuery)
     let lt = q.name_less_than.as_deref();
 
     if includes(&q.include_item_types, "Audio") {
+        // Route through track_stats when a supported sortBy is set —
+        // the MostPlayed / RecentlyPlayed rails are just /Items calls
+        // with `sortBy=PlayCount|DatePlayed&sortOrder=Descending`.
+        if let Some(order) = track_sort_order(q) {
+            let tracks = tracks_sorted_by_stats(state, order, limit, offset).await;
+            let total = repo::track::count_filtered(state.pool.clone(), None, None, None)
+                .await
+                .unwrap_or(0) as i32;
+            let mut dtos = Vec::with_capacity(tracks.len());
+            for t in &tracks {
+                dtos.push(track_to_dto(state, t).await);
+            }
+            return HttpResponse::Ok().json(ItemsResult {
+                items: dtos,
+                total_record_count: total,
+                start_index: offset as i32,
+            });
+        }
         let tracks = repo::track::filtered(state.pool.clone(), starts, geq, lt, limit, offset)
             .await
             .unwrap_or_default();
@@ -3378,6 +3446,169 @@ pub async fn items_latest(
         dtos.push(album_to_dto(&state, a).await);
     }
     HttpResponse::Ok().json(dtos)
+}
+
+// ── Home rails ──────────────────────────────────────────────────────────────
+
+fn home_rail_limit(q: &ItemsQuery, default: i64) -> i64 {
+    q.limit.unwrap_or(default).max(1)
+}
+
+/// Resolve every track whose `jf_user_data.playback_position_ticks > 0`
+/// into a full `Track`. Ordered by `updated_at DESC` so the most
+/// recently-touched item leads.
+async fn resume_tracks(state: &JellyfinState, limit: i64) -> Vec<Track> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT native_id FROM jf_user_data
+         WHERE kind = 'track' AND playback_position_ticks > 0
+         ORDER BY updated_at DESC
+         LIMIT ?1",
+    )
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (tid,) in rows {
+        if let Ok(Some(t)) = repo::track::find(state.pool.clone(), &tid).await {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// `/Items/Resume` and `/Users/{uid}/Items/Resume` — tracks with
+/// non-zero `PlaybackPositionTicks`. Response is a full
+/// `BaseItemDtoQueryResult` (`ItemsResult`), not the plain array used
+/// by `/UserItems/Resume`.
+pub async fn items_resume(
+    _user: AuthedUser,
+    state: web::Data<JellyfinState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let q = parse_items_query(&req);
+    let limit = home_rail_limit(&q, 12);
+    let tracks = resume_tracks(&state, limit).await;
+    let mut dtos = Vec::with_capacity(tracks.len());
+    for t in &tracks {
+        dtos.push(track_to_dto(&state, t).await);
+    }
+    let total = dtos.len() as i32;
+    HttpResponse::Ok().json(ItemsResult {
+        items: dtos,
+        total_record_count: total,
+        start_index: 0,
+    })
+}
+
+/// `/UserItems/Resume` — Findroid's legacy path, plain array of DTOs.
+pub async fn user_items_resume_array(
+    _user: AuthedUser,
+    state: web::Data<JellyfinState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let q = parse_items_query(&req);
+    let limit = home_rail_limit(&q, 12);
+    let tracks = resume_tracks(&state, limit).await;
+    let mut dtos = Vec::with_capacity(tracks.len());
+    for t in &tracks {
+        dtos.push(track_to_dto(&state, t).await);
+    }
+    HttpResponse::Ok().json(dtos)
+}
+
+/// `/UserItems/Latest` — Findroid asks for a plain array of the
+/// newest items across all libraries. Mirrors `items_latest`'s music
+/// branch: the newest albums come back so the home page has a
+/// populated "Recently Added" rail without the client having to know
+/// about the music library GUID.
+pub async fn user_items_latest_array(
+    _user: AuthedUser,
+    state: web::Data<JellyfinState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let q = parse_items_query(&req);
+    let limit = home_rail_limit(&q, 16) as usize;
+    let mut albums = repo::album::all(state.pool.clone())
+        .await
+        .unwrap_or_default();
+    albums.truncate(limit);
+    let mut dtos = Vec::with_capacity(albums.len());
+    for a in &albums {
+        dtos.push(album_to_dto(&state, a).await);
+    }
+    HttpResponse::Ok().json(dtos)
+}
+
+/// `/Items/Suggestions` and `/Users/{uid}/Items/Suggestions` — the
+/// "You might like" rail. Real Jellyfin routes this through a
+/// recommendation engine; we return a random slice of the library
+/// filtered by `mediaType` / `type` when supplied, defaulting to
+/// audio tracks.
+///
+/// Order comes from SQLite's `RANDOM()` which gives a deterministic
+/// shuffle per request but different results across calls — matches
+/// how clients expect the rail to freshen each session.
+pub async fn items_suggestions(
+    _user: AuthedUser,
+    state: web::Data<JellyfinState>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let q = parse_items_query(&req);
+    let limit = home_rail_limit(&q, 12);
+    let query = collect_query(&req);
+    let media_type = query
+        .get("mediaType")
+        .or_else(|| query.get("MediaType"))
+        .and_then(|v| v.first())
+        .cloned()
+        .unwrap_or_default();
+    let want_audio = media_type.eq_ignore_ascii_case("Audio")
+        || media_type.is_empty()
+        || includes(&q.include_item_types, "Audio");
+    let want_album = includes(&q.include_item_types, "MusicAlbum");
+    let want_artist = includes(&q.include_item_types, "MusicArtist");
+
+    let mut dtos: Vec<BaseItemDto> = Vec::new();
+
+    if want_album {
+        let rows: Vec<rockbox_library::entity::album::Album> =
+            sqlx::query_as("SELECT * FROM album ORDER BY RANDOM() LIMIT ?1")
+                .bind(limit)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default();
+        for a in &rows {
+            dtos.push(album_to_dto(&state, a).await);
+        }
+    } else if want_artist {
+        let rows: Vec<Artist> = sqlx::query_as("SELECT * FROM artist ORDER BY RANDOM() LIMIT ?1")
+            .bind(limit)
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
+        for a in &rows {
+            dtos.push(artist_to_dto(&state, a).await);
+        }
+    } else if want_audio {
+        let rows: Vec<Track> =
+            sqlx::query_as("SELECT * FROM track WHERE is_remote = 0 ORDER BY RANDOM() LIMIT ?1")
+                .bind(limit)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap_or_default();
+        for t in &rows {
+            dtos.push(track_to_dto(&state, t).await);
+        }
+    }
+
+    let total = dtos.len() as i32;
+    HttpResponse::Ok().json(ItemsResult {
+        items: dtos,
+        total_record_count: total,
+        start_index: 0,
+    })
 }
 
 // ── /Search/Hints ────────────────────────────────────────────────────────────
