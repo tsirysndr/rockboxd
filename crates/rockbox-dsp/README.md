@@ -1,0 +1,71 @@
+# rockbox-dsp
+
+The Rockbox DSP pipeline (`lib/rbcodec/dsp/`) extracted into a standalone
+static library with Rust bindings — no firmware, no kernel, no SDL. Drop
+Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
+
+## Pipeline stages
+
+Fixed order, each individually enable-able:
+
+| Stage             | Source            | Notes                                  |
+| ----------------- | ----------------- | -------------------------------------- |
+| Pre-gain (PGA)    | `pga.c`           | replaygain / EQ precut                 |
+| Timestretch       | `tdspeed.c`       | pitch/speed control                    |
+| Resampler         | `resample.c`      | engages when input rate ≠ output rate  |
+| Crossfeed         | `crossfeed.c`     | headphone stereo crossfeed             |
+| 10-band EQ        | `eq.c`            | band 0 low shelf, band 9 high shelf    |
+| Tone controls     | `tone_controls.c` | bass / treble                          |
+| Bass enhancement  | `pbe.c`           | perceptual bass enhancement            |
+| Fatigue reduction | `afr.c`           | auditory fatigue reduction             |
+| Haas surround     | `surround.c`      |                                        |
+| Channel modes     | `channel_mode.c`  | mono / karaoke / swap / custom width   |
+| Compressor        | `compressor.c`    | dynamic-range compressor               |
+
+All fixed-point C — no floats in the audio path, no allocations in the
+hot path, no OS dependencies.
+
+## How it's built
+
+`build.rs` compiles the DSP sources directly from `lib/rbcodec/dsp/` plus
+`lib/fixedpoint/fixedpoint.c` with `cc`. The `shim/` directory supplies
+stub headers (`settings.h`, `config.h`, `sound.h`, `core_alloc.h`,
+`replaygain.h`, `logf.h`, `debug.h`) that shadow the firmware ones, and
+`rbdsp_shim.c` provides a malloc-backed `core_alloc`, `find_first_set_bit`,
+and `get_replaygain_int`. This mirrors what upstream Rockbox's standalone
+test player (`lib/rbcodec/test/warble.c`) does.
+
+## Units — everything is tenths
+
+Per `dsp_filter.c`, gain and Q values are fixed-point ×10:
+
+| Field                    | Unit         | Example        |
+| ------------------------ | ------------ | -------------- |
+| `eq_band_setting.gain`   | dB × 10      | −125 = −12.5 dB|
+| `eq_band_setting.q`      | Q × 10       | 70 = Q 7.0     |
+| `eq_band_setting.cutoff` | Hz (raw)     | 4000 = 4 kHz   |
+| `dsp_set_eq_precut`      | dB × 10      | 120 = 12.0 dB  |
+
+The safe wrapper's `set_eq_band(band, hz, q, gain_db)` takes plain units
+and applies the ×10 internally; `set_eq_band_raw` takes native units
+(e.g. straight from rockboxd's `[[eq_band_settings]]`).
+
+## Examples
+
+```sh
+# Sine → EQ → verify -12 dB attenuation (no audio device needed)
+cargo run --release -p rockbox-dsp --example eq_sine
+
+# Real player: symphonia decode → Rockbox DSP (EQ from
+# ~/.config/rockbox.org/settings.toml, resample to device rate) → cpal
+cargo run --release -p rockbox-dsp --example play -- /path/to/track.flac
+```
+
+## Caveats
+
+- **License**: the compiled C sources are GPL-2.0-or-later; linking them
+  makes the consuming binary GPL.
+- **Singleton**: `dsp_core.c` holds static instances (audio + voice). One
+  processing stream per instance, single-threaded — `Dsp` is not `Send`.
+- The safe wrapper covers interleaved S16 stereo; the raw FFI supports
+  everything `dsp_core.h` does (mono, non-interleaved, up to 32-bit depth).
