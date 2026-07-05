@@ -207,6 +207,8 @@ These values map 1:1 onto `eq_band_setting` and are passed through
 
 - [fin](https://github.com/tsirysndr/fin) — a neon-electric TUI Jellyfin
   client for mpv, Chromecast & UPnP MediaRenderer
+- [tunein-cli](https://github.com/tsirysndr/tunein-cli) — browse and listen
+  to thousands of radio stations across the globe right from your terminal
 
 ## Caveats
 
