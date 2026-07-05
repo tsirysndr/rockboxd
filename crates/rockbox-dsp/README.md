@@ -61,6 +61,73 @@ cargo run --release -p rockbox-dsp --example eq_sine
 cargo run --release -p rockbox-dsp --example play -- /path/to/track.flac
 ```
 
+## EQ settings format
+
+The `play` example reads rockboxd's settings file at
+`~/.config/rockbox.org/settings.toml`. Only these keys are used:
+
+```toml
+eq_enabled = true
+
+# Up to 10 bands, in pipeline order: band 0 is a low shelf,
+# band 9 a high shelf, bands 1-8 are peaking filters.
+# q and gain are in native Rockbox tenths: q = 70 → Q 7.0,
+# gain = -125 → -12.5 dB. cutoff is plain Hz.
+
+[[eq_band_settings]]
+cutoff = 60
+q = 70
+gain = 20      # +2.0 dB
+
+[[eq_band_settings]]
+cutoff = 200
+q = 70
+gain = 35      # +3.5 dB
+
+[[eq_band_settings]]
+cutoff = 500
+q = 70
+gain = -25     # -2.5 dB
+
+[[eq_band_settings]]
+cutoff = 1000
+q = 70
+gain = -125    # -12.5 dB
+
+[[eq_band_settings]]
+cutoff = 2000
+q = 70
+gain = -135    # -13.5 dB
+
+[[eq_band_settings]]
+cutoff = 4000
+q = 70
+gain = -95     # -9.5 dB
+
+[[eq_band_settings]]
+cutoff = 7000
+q = 70
+gain = -50     # -5.0 dB
+
+[[eq_band_settings]]
+cutoff = 10000
+q = 70
+gain = -15     # -1.5 dB
+
+[[eq_band_settings]]
+cutoff = 14000
+q = 70
+gain = 5       # +0.5 dB
+
+[[eq_band_settings]]
+cutoff = 20000
+q = 70
+gain = -10     # -1.0 dB
+```
+
+These values map 1:1 onto `eq_band_setting` and are passed through
+`Dsp::set_eq_band_raw` untouched — no unit conversion.
+
 ## Caveats
 
 - **License**: the compiled C sources are GPL-2.0-or-later; linking them
