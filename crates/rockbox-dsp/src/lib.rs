@@ -2,7 +2,7 @@
 //! standalone by `build.rs` — no firmware, no kernel, no SDL.
 //!
 //! Pipeline stages (fixed order, each individually enable-able):
-//! pre-gain → timestretch → resampler → crossfeed → 10-band EQ →
+//! pre-gain (replaygain / EQ precut) → timestretch → resampler → crossfeed → 10-band EQ →
 //! tone controls → bass enhancement (PBE) → auditory fatigue reduction →
 //! Haas surround → channel modes → compressor.
 //!
@@ -15,7 +15,7 @@
 
 #![allow(non_camel_case_types)]
 
-use std::ffi::{c_int, c_uint, c_void};
+use std::ffi::{c_int, c_long, c_uint, c_void};
 use std::sync::Once;
 
 /* enum dsp_ids */
@@ -38,6 +38,12 @@ pub const STEREO_NONINTERLEAVED: isize = 1;
 pub const STEREO_MONO: isize = 2;
 
 pub const EQ_NUM_BANDS: usize = 10;
+
+/* enum replaygain_types (dsp_misc.h) */
+pub const REPLAYGAIN_TRACK: c_int = 0;
+pub const REPLAYGAIN_ALBUM: c_int = 1;
+pub const REPLAYGAIN_SHUFFLE: c_int = 2; /* track gain if shuffling, else album */
+pub const REPLAYGAIN_OFF: c_int = 3;
 
 /// `struct sample_format` (dsp_core.h)
 #[repr(C)]
@@ -98,6 +104,17 @@ pub struct compressor_settings {
     pub attack_time: c_int,
 }
 
+/// `struct replaygain_settings` (dsp_misc.h) — `type_` is one of the
+/// `REPLAYGAIN_*` constants, `preamp` in dB × 10, `noclip` scales down
+/// to prevent clipping (works even without gain tags if a peak is known)
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct replaygain_settings {
+    pub noclip: bool,
+    pub type_: c_int,
+    pub preamp: c_int,
+}
+
 /* enum AUDIOHW_CHANNEL_CONFIG (shim/sound.h) — channel_config values */
 pub const SOUND_CHAN_STEREO: c_int = 0;
 pub const SOUND_CHAN_MONO: c_int = 1;
@@ -156,10 +173,23 @@ extern "C" {
     pub fn dsp_set_compressor(settings: *const compressor_settings);
 
     /* dsp_misc.c */
+    pub fn dsp_replaygain_set_settings(settings: *const replaygain_settings);
     pub fn dsp_set_pitch(pitch: i32);
     pub fn dsp_get_pitch() -> i32;
     pub fn dsp_set_all_output_frequency(samplerate: c_uint);
     pub fn dsp_get_output_frequency(dsp: *mut dsp_config) -> c_uint;
+
+    /* shim/rbdsp_shim.c — sends REPLAYGAIN_SET_GAINS to the audio DSP.
+     * Gains/peaks are Q7.24 linear factors (get_replaygain_int output);
+     * 0 = not tagged. */
+    pub fn rbdsp_replaygain_set_gains(
+        track_gain: c_long,
+        album_gain: c_long,
+        track_peak: c_long,
+        album_peak: c_long,
+    );
+    /* dB × 100 → Q7.24 linear scale factor */
+    pub fn get_replaygain_int(int_gain: c_long) -> c_long;
 }
 
 static DSP_INIT: Once = Once::new();
@@ -264,6 +294,61 @@ impl Dsp {
         unsafe { dsp_set_compressor(settings) };
     }
 
+    /// Replaygain mode (`REPLAYGAIN_TRACK` / `_ALBUM` / `_SHUFFLE` /
+    /// `_OFF`), clipping prevention, and preamp in plain dB. This is the
+    /// per-player setting; the per-track values come from
+    /// [`Dsp::set_replaygain_gains`] — both are needed before the
+    /// pre-gain stage engages.
+    pub fn set_replaygain(&mut self, mode: i32, noclip: bool, preamp_db: f32) {
+        let settings = replaygain_settings {
+            noclip,
+            type_: mode,
+            preamp: (preamp_db * 10.0).round() as c_int,
+        };
+        unsafe { dsp_replaygain_set_settings(&settings) };
+    }
+
+    /// Per-track replaygain values as tagged in the file's metadata:
+    /// gains in plain dB, peaks as linear peak amplitude (1.0 = full
+    /// scale), `None` = tag absent. Call on every track change — the
+    /// `DSP_RESET` issued by [`Dsp::new`] zeroes the gains but keeps the
+    /// mode from [`Dsp::set_replaygain`].
+    pub fn set_replaygain_gains(
+        &mut self,
+        track_gain_db: Option<f32>,
+        album_gain_db: Option<f32>,
+        track_peak: Option<f32>,
+        album_peak: Option<f32>,
+    ) {
+        let gain = |db: Option<f32>| {
+            db.map_or(0, |db| unsafe {
+                get_replaygain_int((db * 100.0).round() as c_long)
+            })
+        };
+        let peak = |p: Option<f32>| p.map_or(0, |p| (p * (1 << 24) as f32).round() as c_long);
+        unsafe {
+            rbdsp_replaygain_set_gains(
+                gain(track_gain_db),
+                gain(album_gain_db),
+                peak(track_peak),
+                peak(album_peak),
+            )
+        };
+    }
+
+    /// Native-unit variant of [`Dsp::set_replaygain_gains`]: Q7.24 linear
+    /// factors exactly as Rockbox's metadata parser stores them in
+    /// `mp3entry` (`get_replaygain_int` output), 0 = not tagged.
+    pub fn set_replaygain_gains_raw(
+        &mut self,
+        track_gain: c_long,
+        album_gain: c_long,
+        track_peak: c_long,
+        album_peak: c_long,
+    ) {
+        unsafe { rbdsp_replaygain_set_gains(track_gain, album_gain, track_peak, album_peak) };
+    }
+
     /// Configure one EQ band. Band 0 is a low shelf, band `EQ_NUM_BANDS-1`
     /// a high shelf, the rest are peaking filters. `q` and `gain_db` are in
     /// plain units here; the ×10 fixed-point convention is applied inside.
@@ -331,5 +416,46 @@ impl Dsp {
             }
         }
         produced
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /* The underlying dsp_config is a static singleton, so all assertions
+     * against it live in one test. */
+    #[test]
+    fn replaygain_track_gain_scales_amplitude() {
+        let mut dsp = Dsp::new(44100);
+        dsp.set_replaygain(REPLAYGAIN_TRACK, false, 0.0);
+        dsp.set_replaygain_gains(Some(-6.0206), None, None, None); /* ×0.5 */
+
+        let input: Vec<i16> = (0..44100)
+            .flat_map(|i| {
+                let s = ((i as f32 * 2.0 * std::f32::consts::PI * 1000.0 / 44100.0).sin() * 16000.0)
+                    as i16;
+                [s, s]
+            })
+            .collect();
+        let mut out = Vec::new();
+        dsp.process(&input, &mut out);
+
+        let peak = out.iter().map(|s| (*s as i32).abs()).max().unwrap();
+        assert!(
+            (7600..=8400).contains(&peak),
+            "expected ~8000 after -6.02 dB track gain, got peak {peak}"
+        );
+
+        /* REPLAYGAIN_OFF restores unity */
+        dsp.set_replaygain(REPLAYGAIN_OFF, false, 0.0);
+        dsp.flush();
+        out.clear();
+        dsp.process(&input, &mut out);
+        let peak = out.iter().map(|s| (*s as i32).abs()).max().unwrap();
+        assert!(
+            (15200..=16000).contains(&peak),
+            "expected ~16000 with replaygain off, got peak {peak}"
+        );
     }
 }

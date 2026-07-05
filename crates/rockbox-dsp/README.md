@@ -16,6 +16,7 @@ Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
 - [Install](#install)
 - [How it's built](#how-its-built)
 - [Units — everything is tenths](#units--everything-is-tenths)
+- [Replaygain](#replaygain)
 - [Examples](#examples)
 - [Settings read by the `play` example](#settings-read-by-the-play-example)
   - [EQ band format](#eq-band-format)
@@ -61,8 +62,9 @@ published crate from the self-contained `vendor/` copy (re-synced with
 stub headers (`settings.h`, `config.h`, `sound.h`, `core_alloc.h`,
 `replaygain.h`, `logf.h`, `debug.h`) that shadow the firmware ones, and
 `rbdsp_shim.c` provides a malloc-backed `core_alloc`, `find_first_set_bit`,
-and `get_replaygain_int`. This mirrors what upstream Rockbox's standalone
-test player (`lib/rbcodec/test/warble.c`) does.
+`get_replaygain_int`, and the `REPLAYGAIN_SET_GAINS` message sender. This
+mirrors what upstream Rockbox's standalone test player
+(`lib/rbcodec/test/warble.c`) does.
 
 ## Units — everything is tenths
 
@@ -78,6 +80,33 @@ Per `dsp_filter.c`, gain and Q values are fixed-point ×10:
 The safe wrapper's `set_eq_band(band, hz, q, gain_db)` takes plain units
 and applies the ×10 internally; `set_eq_band_raw` takes native units
 (e.g. straight from rockboxd's `[[eq_band_settings]]`).
+
+## Replaygain
+
+Replaygain is applied by the pre-gain (PGA) stage. Two calls, both
+required before it engages:
+
+```rust
+use rockbox_dsp::{Dsp, REPLAYGAIN_TRACK};
+
+let mut dsp = Dsp::new(44100);
+
+// Once, from player settings: mode, clipping prevention, preamp in dB
+dsp.set_replaygain(REPLAYGAIN_TRACK, true, 0.0);
+
+// On every track change, from the file's tags: gains in dB,
+// peaks as linear amplitude (1.0 = full scale), None = tag absent
+dsp.set_replaygain_gains(Some(-8.97), Some(-9.04), Some(0.988), Some(1.0));
+```
+
+Modes are `REPLAYGAIN_TRACK`, `REPLAYGAIN_ALBUM`, `REPLAYGAIN_SHUFFLE`
+(track gain when shuffling, album gain otherwise) and `REPLAYGAIN_OFF`.
+With `noclip = true` the gain is capped so `gain × peak` never exceeds
+full scale — this works even on gainless tracks if a peak is tagged.
+
+`set_replaygain_gains_raw` takes native Q7.24 linear factors instead —
+the exact values Rockbox's metadata parser stores in `mp3entry`
+(`get_replaygain_int` output, also re-exported by this crate).
 
 ## Examples
 
