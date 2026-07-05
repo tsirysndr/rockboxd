@@ -4,6 +4,8 @@ The Rockbox DSP pipeline (`lib/rbcodec/dsp/`) extracted into a standalone
 static library with Rust bindings — no firmware, no kernel, no SDL. Drop
 Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
 
+![play example: symphonia decode → Rockbox 10-band EQ + tone controls → cpal](preview.png)
+
 ## Pipeline stages
 
 Fixed order, each individually enable-able:

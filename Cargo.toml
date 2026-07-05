@@ -12,7 +12,7 @@ exclude = ["rmpc", "crates/controls", "gpui"]
 panic = "abort"
 
 [workspace.package]
-authors = ["Tsiry Sandratraina <tsiry.sndr@fluentci.io"]
+authors = ["Tsiry Sandratraina <tsiry.sndr@rocksky.app"]
 edition = "2021"
 license = "LGPL-2.1"
 repository = "https://github.com/tsirysndr/rockboxd"
