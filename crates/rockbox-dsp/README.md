@@ -4,7 +4,7 @@
 [![docs.rs](https://img.shields.io/docsrs/rockbox-dsp)](https://docs.rs/rockbox-dsp)
 [![license](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 
-The Rockbox DSP pipeline (`lib/rbcodec/dsp/`) extracted into a standalone
+The Rockbox DSP pipeline ([lib/rbcodec/dsp/](https://github.com/tsirysndr/rockboxd/tree/master/lib/rbcodec/dsp)) extracted into a standalone
 static library with Rust bindings — no firmware, no kernel, no SDL. Drop
 Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
 
