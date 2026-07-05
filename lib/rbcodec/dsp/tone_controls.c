@@ -30,9 +30,11 @@
 /* These apply to all DSP streams to remain as consistant as possible with
  * the behavior of hardware tone controls */
 
-/* Cutoffs in HZ - not adjustable for now */
-static const unsigned int tone_bass_cutoff = 200;
-static const unsigned int tone_treble_cutoff = 3500;
+/* Cutoffs in HZ - defaults match hardware tone controls */
+#define TONE_BASS_CUTOFF_DEFAULT   200
+#define TONE_TREBLE_CUTOFF_DEFAULT 3500
+static unsigned int tone_bass_cutoff = TONE_BASS_CUTOFF_DEFAULT;
+static unsigned int tone_treble_cutoff = TONE_TREBLE_CUTOFF_DEFAULT;
 
 /* Current bass and treble gain values */
 static int tone_bass = 0;
@@ -78,6 +80,18 @@ void tone_set_prescale(int prescale)
 
 /* Prescaler is always set after setting bass/treble, so we wait with
  * calculating coefs until such time. */
+
+/* Change the bass/treble cutoff frequencies in Hz (0 = default).
+ * Takes effect on the next tone_set_prescale() call. */
+void tone_set_bass_cutoff(int hz)
+{
+    tone_bass_cutoff = hz > 0 ? (unsigned int)hz : TONE_BASS_CUTOFF_DEFAULT;
+}
+
+void tone_set_treble_cutoff(int hz)
+{
+    tone_treble_cutoff = hz > 0 ? (unsigned int)hz : TONE_TREBLE_CUTOFF_DEFAULT;
+}
 
 /* Change the bass setting */
 void tone_set_bass(int bass)

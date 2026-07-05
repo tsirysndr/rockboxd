@@ -61,10 +61,27 @@ cargo run --release -p rockbox-dsp --example eq_sine
 cargo run --release -p rockbox-dsp --example play -- /path/to/track.flac
 ```
 
-## EQ settings format
+## Settings read by the `play` example
 
 The `play` example reads rockboxd's settings file at
-`~/.config/rockbox.org/settings.toml`. Only these keys are used:
+`~/.config/rockbox.org/settings.toml`:
+
+| Key                     | DSP stage      | Meaning                                    |
+| ----------------------- | -------------- | ------------------------------------------ |
+| `eq_enabled`            | equalizer      | bool                                       |
+| `[[eq_band_settings]]`  | equalizer      | up to 10 bands (see below)                 |
+| `bass` / `treble`       | tone controls  | shelf gain in dB                           |
+| `bass_cutoff`           | tone controls  | shelf cutoff in Hz, 0 = default 200        |
+| `treble_cutoff`         | tone controls  | shelf cutoff in Hz, 0 = default 3500       |
+| `surround_enabled`      | Haas surround  | delay in ms, 0 = off                       |
+| `surround_balance`      | Haas surround  | percent                                    |
+| `surround_fx1` / `fx2`  | Haas surround  | band-split cutoffs in Hz                   |
+| `channel_config`        | channel modes  | 0 stereo, 1 mono, 2 custom, 5 karaoke, …   |
+| `stereo_width`          | channel modes  | percent; audible with `channel_config = 2` |
+| `[compressor_settings]` | compressor     | threshold dB (0 = off), ratio/knee idx, ms |
+
+
+### EQ band format
 
 ```toml
 eq_enabled = true

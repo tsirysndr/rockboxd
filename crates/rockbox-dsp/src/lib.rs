@@ -84,6 +84,29 @@ pub struct eq_band_setting {
     pub gain: c_int,
 }
 
+/// `struct compressor_settings` (compressor.h) — threshold in dB (0 = off),
+/// makeup_gain 0 = off / 1 = auto, ratio index (0 = 2:1 … 4 = limit),
+/// knee index (0 = hard … 2 = soft), attack/release in ms
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct compressor_settings {
+    pub threshold: c_int,
+    pub makeup_gain: c_int,
+    pub ratio: c_int,
+    pub knee: c_int,
+    pub release_time: c_int,
+    pub attack_time: c_int,
+}
+
+/* enum AUDIOHW_CHANNEL_CONFIG (shim/sound.h) — channel_config values */
+pub const SOUND_CHAN_STEREO: c_int = 0;
+pub const SOUND_CHAN_MONO: c_int = 1;
+pub const SOUND_CHAN_CUSTOM: c_int = 2;
+pub const SOUND_CHAN_MONO_LEFT: c_int = 3;
+pub const SOUND_CHAN_MONO_RIGHT: c_int = 4;
+pub const SOUND_CHAN_KARAOKE: c_int = 5;
+pub const SOUND_CHAN_SWAP: c_int = 6;
+
 /// Opaque `struct dsp_config`
 #[repr(C)]
 pub struct dsp_config {
@@ -109,6 +132,28 @@ extern "C" {
 
     /* dsp_sample_output.c */
     pub fn dsp_dither_enable(enable: bool);
+
+    /* tone_controls.c — gains in dB×10; prescale must be set LAST: it
+     * recomputes the filter coefficients and enables/disables the stage */
+    pub fn tone_set_bass(bass: c_int);
+    pub fn tone_set_treble(treble: c_int);
+    pub fn tone_set_bass_cutoff(hz: c_int);
+    pub fn tone_set_treble_cutoff(hz: c_int);
+    pub fn tone_set_prescale(prescale: c_int);
+
+    /* surround.c — Haas surround. enable takes the delay in ms (>0 = on) */
+    pub fn dsp_surround_enable(delay_ms: c_int);
+    pub fn dsp_surround_set_balance(balance: c_int);
+    pub fn dsp_surround_set_cutoff(frq_l: c_int, frq_h: c_int);
+    pub fn dsp_surround_side_only(side_only: bool);
+    pub fn dsp_surround_mix(mix: c_int);
+
+    /* channel_mode.c — SOUND_CHAN_* config + custom stereo width in % */
+    pub fn channel_mode_set_config(value: c_int);
+    pub fn channel_mode_custom_set_width(value: c_int);
+
+    /* compressor.c */
+    pub fn dsp_set_compressor(settings: *const compressor_settings);
 
     /* dsp_misc.c */
     pub fn dsp_set_pitch(pitch: i32);
@@ -161,6 +206,62 @@ impl Dsp {
 
     pub fn eq_enable(&mut self, enable: bool) {
         unsafe { dsp_eq_enable(enable) };
+    }
+
+    /// Bass/treble tone controls — shelving filters at fixed cutoffs
+    /// (200 Hz bass, 3.5 kHz treble). Gains in plain dB, matching
+    /// rockboxd's `bass` / `treble` settings.toml keys. 0/0 disables
+    /// the stage. Mirrors firmware sound.c: values ×10, prescale by
+    /// the larger boost to avoid clipping.
+    pub fn set_tone(&mut self, bass_db: i32, treble_db: i32) {
+        let bass = bass_db * 10;
+        let treble = treble_db * 10;
+        unsafe {
+            tone_set_bass(bass);
+            tone_set_treble(treble);
+            tone_set_prescale(bass.max(treble).max(0));
+        }
+    }
+
+    /// Override the tone-control shelf cutoffs in Hz (0 = defaults:
+    /// 200 Hz bass, 3500 Hz treble). Call before [`Dsp::set_tone`] — the
+    /// coefficients are recomputed by its prescale step.
+    pub fn set_tone_cutoffs(&mut self, bass_hz: i32, treble_hz: i32) {
+        unsafe {
+            tone_set_bass_cutoff(bass_hz);
+            tone_set_treble_cutoff(treble_hz);
+        }
+    }
+
+    /// Haas surround. `delay_ms` > 0 enables the stage (rockboxd's
+    /// `surround_enabled` key IS the delay in ms, 0 = off); `balance` in
+    /// percent, `fx1`/`fx2` are the band-split cutoffs in Hz. Argument
+    /// order mirrors apps/settings.c: balance, cutoffs, then enable.
+    pub fn set_surround(&mut self, delay_ms: i32, balance: i32, fx1: i32, fx2: i32) {
+        unsafe {
+            dsp_surround_set_balance(balance);
+            if fx1 > 0 && fx2 > 0 {
+                dsp_surround_set_cutoff(fx1, fx2);
+            }
+            dsp_surround_enable(delay_ms);
+        }
+    }
+
+    /// Channel configuration (`SOUND_CHAN_*`: stereo / mono / custom /
+    /// karaoke / swap …).
+    pub fn set_channel_config(&mut self, mode: i32) {
+        unsafe { channel_mode_set_config(mode) };
+    }
+
+    /// Stereo width in percent — only audible when the channel config is
+    /// `SOUND_CHAN_CUSTOM` (100 = unchanged, 0 = mono, >100 = wider).
+    pub fn set_stereo_width(&mut self, percent: i32) {
+        unsafe { channel_mode_custom_set_width(percent) };
+    }
+
+    /// Dynamic-range compressor; `threshold` of 0 disables the stage.
+    pub fn set_compressor(&mut self, settings: &compressor_settings) {
+        unsafe { dsp_set_compressor(settings) };
     }
 
     /// Configure one EQ band. Band 0 is a low shelf, band `EQ_NUM_BANDS-1`

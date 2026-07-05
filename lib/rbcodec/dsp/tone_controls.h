@@ -24,5 +24,7 @@
 void tone_set_prescale(int prescale);
 void tone_set_bass(int bass);
 void tone_set_treble(int treble);
+void tone_set_bass_cutoff(int hz);
+void tone_set_treble_cutoff(int hz);
 
 #endif /* TONE_CONTROLS_H */

@@ -19,7 +19,7 @@ use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::probe::Hint;
 
-use rockbox_dsp::{eq_band_setting, Dsp, EQ_NUM_BANDS};
+use rockbox_dsp::{compressor_settings, eq_band_setting, Dsp, EQ_NUM_BANDS};
 
 /* ~/.config/rockbox.org/settings.toml — only the EQ part matters here */
 
@@ -29,6 +29,50 @@ struct Settings {
     eq_enabled: bool,
     #[serde(default)]
     eq_band_settings: Vec<EqBand>,
+    #[serde(default)]
+    bass: i32, // dB (tone control low shelf)
+    #[serde(default)]
+    treble: i32, // dB (tone control high shelf)
+    #[serde(default)]
+    bass_cutoff: i32, // Hz, 0 = default 200
+    #[serde(default)]
+    treble_cutoff: i32, // Hz, 0 = default 3500
+    #[serde(default)]
+    surround_enabled: i32, // Haas delay in ms, 0 = off
+    #[serde(default)]
+    surround_balance: i32, // %
+    #[serde(default)]
+    surround_fx1: i32, // Hz
+    #[serde(default)]
+    surround_fx2: i32, // Hz
+    #[serde(default = "default_stereo_width")]
+    stereo_width: i32, // %, audible with channel_config = custom (2)
+    #[serde(default)]
+    channel_config: i32, // SOUND_CHAN_*: 0 stereo, 1 mono, 2 custom, …
+    #[serde(default)]
+    stereosw_mode: i32, // no DSP backing — read and reported only
+    #[serde(default)]
+    compressor_settings: CompressorToml,
+}
+
+fn default_stereo_width() -> i32 {
+    100
+}
+
+#[derive(serde::Deserialize, Default, Clone, Copy)]
+struct CompressorToml {
+    #[serde(default)]
+    threshold: i32, // dB, 0 = compressor off
+    #[serde(default)]
+    makeup_gain: i32, // 0 = off, 1 = auto
+    #[serde(default)]
+    ratio: i32, // index: 2:1, 4:1, 6:1, 10:1, limit
+    #[serde(default)]
+    knee: i32, // index: hard … soft
+    #[serde(default)]
+    release_time: i32, // ms
+    #[serde(default)]
+    attack_time: i32, // ms
 }
 
 #[derive(serde::Deserialize, Clone, Copy)]
@@ -180,6 +224,84 @@ fn decode_loop(
         dsp.eq_enable(true);
     } else {
         println!("eq    : off");
+    }
+
+    if settings.bass != 0 || settings.treble != 0 {
+        let bass_hz = if settings.bass_cutoff > 0 {
+            settings.bass_cutoff
+        } else {
+            200
+        };
+        let treble_hz = if settings.treble_cutoff > 0 {
+            settings.treble_cutoff
+        } else {
+            3500
+        };
+        println!(
+            "tone  : bass {:+} dB @ {bass_hz} Hz, treble {:+} dB @ {treble_hz} Hz",
+            settings.bass, settings.treble
+        );
+        dsp.set_tone_cutoffs(settings.bass_cutoff, settings.treble_cutoff);
+        dsp.set_tone(settings.bass, settings.treble);
+    } else {
+        println!("tone  : off");
+    }
+
+    if settings.surround_enabled > 0 {
+        println!(
+            "srnd  : {} ms delay, balance {}%, fx1 {} Hz, fx2 {} Hz",
+            settings.surround_enabled,
+            settings.surround_balance,
+            settings.surround_fx1,
+            settings.surround_fx2
+        );
+        dsp.set_surround(
+            settings.surround_enabled,
+            settings.surround_balance,
+            settings.surround_fx1,
+            settings.surround_fx2,
+        );
+    } else {
+        println!("srnd  : off");
+    }
+
+    /* stereo_width only takes effect with channel_config = custom (2) */
+    dsp.set_stereo_width(settings.stereo_width);
+    dsp.set_channel_config(settings.channel_config);
+    println!(
+        "chan  : config {} , stereo width {}%{}",
+        settings.channel_config,
+        settings.stereo_width,
+        if settings.channel_config == 2 {
+            ""
+        } else {
+            " (width needs config = 2/custom)"
+        }
+    );
+    if settings.stereosw_mode != 0 {
+        println!(
+            "        stereosw_mode = {} (no DSP effect, ignored)",
+            settings.stereosw_mode
+        );
+    }
+
+    let comp = settings.compressor_settings;
+    if comp.threshold != 0 {
+        println!(
+            "comp  : threshold {} dB, ratio idx {}, knee idx {}, attack {} ms, release {} ms, makeup {}",
+            comp.threshold, comp.ratio, comp.knee, comp.attack_time, comp.release_time,
+            if comp.makeup_gain == 1 { "auto" } else { "off" }
+        );
+        dsp.set_compressor(&compressor_settings {
+            threshold: comp.threshold,
+            makeup_gain: comp.makeup_gain,
+            ratio: comp.ratio,
+            knee: comp.knee,
+            release_time: comp.release_time,
+            attack_time: comp.attack_time,
+        });
+    } else {
+        println!("comp  : off");
     }
 
     let mut sample_buf: Option<SampleBuffer<i16>> = None;
