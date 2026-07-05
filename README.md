@@ -26,6 +26,33 @@ and Squeezelite.
 
 ---
 
+## 📑 Table of Contents
+
+- [✨ Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+- [🔌 Ports](#-ports)
+- [⚙️ Audio Output Configuration](#️-audio-output-configuration)
+  - [Built-in CPAL — default](#built-in-cpal--default)
+  - [HLS + MPEG-DASH (CMAF)](#hls--mpeg-dash-cmaf)
+  - [Snapcast](#snapcast)
+  - [AirPlay (RAOP) — single or multi-room](#airplay-raop--single-or-multi-room)
+  - [Squeezelite (Slim Protocol — multi-room)](#squeezelite-slim-protocol--multi-room)
+  - [Chromecast](#chromecast)
+  - [UPnP / DLNA](#upnp--dlna)
+- [🚚 Installation](#-installation)
+- [📦 Downloads](#-downloads)
+- [🧙‍♂️ Systemd Service](#️-systemd-service)
+- [🏗️ Compiling from Source](#️-compiling-from-source)
+- [🧑‍🔬 Architecture](#-architecture)
+- [📚 APIs](#-apis)
+  - [GraphQL](#graphql)
+  - [HTTP REST](#http-rest)
+  - [gRPC](#grpc)
+  - [S3-compatible API](#s3-compatible-api)
+- [📖 Documentation](#-documentation)
+
+---
+
 ## ✨ Features
 
 ### Audio output
