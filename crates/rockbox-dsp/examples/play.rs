@@ -139,11 +139,7 @@ fn decode_loop(
     let track = format.default_track().expect("no audio track").clone();
     let track_id = track.id;
     let track_rate = track.codec_params.sample_rate.expect("unknown sample rate");
-    let track_channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count())
-        .unwrap_or(2);
+    let track_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &Default::default())
@@ -156,7 +152,10 @@ fn decode_loop(
     dsp.set_input_frequency(track_rate);
 
     if settings.eq_enabled && !settings.eq_band_settings.is_empty() {
-        println!("eq    : enabled ({} bands)", settings.eq_band_settings.len());
+        println!(
+            "eq    : enabled ({} bands)",
+            settings.eq_band_settings.len()
+        );
         for (i, band) in settings
             .eq_band_settings
             .iter()
@@ -204,10 +203,9 @@ fn decode_loop(
         };
 
         let spec = *decoded.spec();
-        if sample_buf
-            .as_ref()
-            .map_or(true, |b| b.capacity() < decoded.capacity() * spec.channels.count())
-        {
+        if sample_buf.as_ref().map_or(true, |b| {
+            b.capacity() < decoded.capacity() * spec.channels.count()
+        }) {
             sample_buf = Some(SampleBuffer::new(decoded.capacity() as u64, spec));
         }
         let buf = sample_buf.as_mut().unwrap();
@@ -271,10 +269,11 @@ where
                     }
                     let l = pending.pop_front().unwrap_or(0);
                     let r = pending.pop_front().unwrap_or(0);
-                    queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |q| {
-                        Some(q.saturating_sub(2))
-                    })
-                    .ok();
+                    queued
+                        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |q| {
+                            Some(q.saturating_sub(2))
+                        })
+                        .ok();
                     frame[0] = T::from_sample(l);
                     if channels > 1 {
                         frame[1] = T::from_sample(r);
