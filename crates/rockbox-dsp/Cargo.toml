@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-dsp"
-version = "0.1.1"
+version = "0.2.0"
 description = "Rockbox DSP (EQ, crossfeed, compressor, timestretch, …) as a reusable static library"
 authors = { workspace = true }
 edition = { workspace = true }

@@ -9622,7 +9622,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-dsp"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "cc",
  "cpal",
