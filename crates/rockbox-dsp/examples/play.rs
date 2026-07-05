@@ -1,6 +1,6 @@
 //! Minimal symphonia + cpal player running the Rockbox DSP pipeline, with
-//! the 10-band EQ loaded from rockboxd's settings file
-//! (`~/.config/rockbox.org/settings.toml`, `eq_enabled` + `[[eq_band_settings]]`).
+//! EQ / tone / surround / channel / compressor settings loaded from
+//! `./settings.toml` if present, else `~/.config/rockbox.org/settings.toml`.
 //!
 //!     cargo run --release -p rockbox-dsp --example play -- /path/to/track.flac
 //!
@@ -82,13 +82,23 @@ struct EqBand {
     gain: i32,   // dB × 10
 }
 
-fn settings_path() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME not set");
-    Path::new(&home).join(".config/rockbox.org/settings.toml")
+/// `./settings.toml` takes precedence over `~/.config/rockbox.org/settings.toml`.
+fn settings_path() -> Option<PathBuf> {
+    let local = PathBuf::from("settings.toml");
+    if local.is_file() {
+        return Some(local);
+    }
+    let home = std::env::var("HOME").ok()?;
+    let global = Path::new(&home).join(".config/rockbox.org/settings.toml");
+    global.is_file().then_some(global)
 }
 
 fn load_settings() -> Settings {
-    let path = settings_path();
+    let Some(path) = settings_path() else {
+        eprintln!("warning: no settings.toml here or in ~/.config/rockbox.org, DSP flat");
+        return Settings::default();
+    };
+    println!("config: {}", path.display());
     match std::fs::read_to_string(&path) {
         Ok(text) => match toml::from_str(&text) {
             Ok(s) => s,
@@ -97,8 +107,8 @@ fn load_settings() -> Settings {
                 Settings::default()
             }
         },
-        Err(_) => {
-            eprintln!("warning: {} not found, EQ off", path.display());
+        Err(e) => {
+            eprintln!("warning: cannot read {}: {e}", path.display());
             Settings::default()
         }
     }

@@ -1,5 +1,9 @@
 # rockbox-dsp
 
+[![crates.io](https://img.shields.io/crates/v/rockbox-dsp.svg)](https://crates.io/crates/rockbox-dsp)
+[![docs.rs](https://img.shields.io/docsrs/rockbox-dsp)](https://docs.rs/rockbox-dsp)
+[![license](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+
 The Rockbox DSP pipeline (`lib/rbcodec/dsp/`) extracted into a standalone
 static library with Rust bindings — no firmware, no kernel, no SDL. Drop
 Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
@@ -26,6 +30,15 @@ Fixed order, each individually enable-able:
 
 All fixed-point C — no floats in the audio path, no allocations in the
 hot path, no OS dependencies.
+
+## Install
+
+```sh
+cargo add rockbox-dsp
+```
+
+A C compiler is required at build time (`cc` crate). No other system
+dependencies — the DSP is freestanding fixed-point C.
 
 ## How it's built
 
@@ -65,8 +78,8 @@ cargo run --release -p rockbox-dsp --example play -- /path/to/track.flac
 
 ## Settings read by the `play` example
 
-The `play` example reads rockboxd's settings file at
-`~/.config/rockbox.org/settings.toml`:
+The `play` example reads `./settings.toml` from the current directory if
+present, falling back to rockboxd's `~/.config/rockbox.org/settings.toml`:
 
 | Key                     | DSP stage      | Meaning                                    |
 | ----------------------- | -------------- | ------------------------------------------ |

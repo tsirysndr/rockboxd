@@ -7,6 +7,9 @@ edition = { workspace = true }
 # The compiled C sources are Rockbox firmware code
 license = "GPL-2.0-or-later"
 repository = { workspace = true }
+readme = "README.md"
+keywords = ["dsp", "audio", "equalizer", "rockbox", "resampler"]
+categories = ["multimedia::audio", "external-ffi-bindings"]
 links = "rockboxdsp"
 build = "build.rs"
 
