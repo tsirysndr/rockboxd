@@ -10,6 +10,17 @@ Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
 
 ![play example: symphonia decode → Rockbox 10-band EQ + tone controls → cpal](preview.png)
 
+## Table of Contents
+
+- [Pipeline stages](#pipeline-stages)
+- [Install](#install)
+- [How it's built](#how-its-built)
+- [Units — everything is tenths](#units--everything-is-tenths)
+- [Examples](#examples)
+- [Settings read by the `play` example](#settings-read-by-the-play-example)
+  - [EQ band format](#eq-band-format)
+- [Caveats](#caveats)
+
 ## Pipeline stages
 
 Fixed order, each individually enable-able:
