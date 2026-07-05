@@ -19,6 +19,7 @@ Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
 - [Examples](#examples)
 - [Settings read by the `play` example](#settings-read-by-the-play-example)
   - [EQ band format](#eq-band-format)
+- [Real-world projects using this library](#real-world-projects-using-this-library)
 - [Caveats](#caveats)
 
 ## Pipeline stages
@@ -170,6 +171,11 @@ gain = -10     # -1.0 dB
 
 These values map 1:1 onto `eq_band_setting` and are passed through
 `Dsp::set_eq_band_raw` untouched — no unit conversion.
+
+## Real-world projects using this library
+
+- [fin](https://github.com/tsirysndr/fin) — a neon-electric TUI Jellyfin
+  client for mpv, Chromecast & UPnP MediaRenderer
 
 ## Caveats
 
