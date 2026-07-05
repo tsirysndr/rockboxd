@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
-/// Rockbox DSP pipeline sources (lib/rbcodec/dsp/) — portable fixed-point C,
-/// no OS dependencies. The .S files in that directory are ARM32/ColdFire
-/// only; on host targets the generic C paths compile instead.
+/// Rockbox DSP pipeline sources — portable fixed-point C, no OS
+/// dependencies. The .S files in the upstream directory are
+/// ARM32/ColdFire only; on host targets the generic C paths compile
+/// instead.
 const DSP_SOURCES: &[&str] = &[
     "afr.c",
     "channel_mode.c",
@@ -26,45 +27,73 @@ const DSP_SOURCES: &[&str] = &[
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest.join("../..");
-    let dsp = root.join("lib/rbcodec/dsp");
+
+    // Inside the rockbox source tree, build straight from lib/rbcodec so
+    // development stays live. In the published package (crates.io,
+    // docs.rs) those paths don't exist — build from the vendor/ copy
+    // (re-sync with ./sync-vendor.sh before publishing).
+    let in_repo = root.join("lib/rbcodec/dsp/dsp_core.c").is_file();
+
+    let (dsp, fixedpoint_c, platform_h, extra_includes): (PathBuf, PathBuf, PathBuf, Vec<PathBuf>) =
+        if in_repo {
+            (
+                root.join("lib/rbcodec/dsp"),
+                root.join("lib/fixedpoint/fixedpoint.c"),
+                root.join("lib/rbcodec/platform.h"),
+                vec![
+                    root.join("lib/rbcodec"),
+                    root.join("lib/fixedpoint"),
+                    // fracmul.h only (settings.h is shadowed by shim/). Do
+                    // NOT add firmware/include here — its assert.h shadows
+                    // the system one; gcc_extensions.h is vendored into
+                    // shim/ instead.
+                    root.join("apps"),
+                ],
+            )
+        } else {
+            let vendor = manifest.join("vendor");
+            (
+                vendor.join("dsp"),
+                vendor.join("fixedpoint/fixedpoint.c"),
+                vendor.join("platform.h"),
+                vec![vendor.clone(), vendor.join("fixedpoint")],
+            )
+        };
 
     let mut build = cc::Build::new();
     build
-        // Include order matters: shim/ first so its stub headers
-        // (settings.h, config.h, sound.h, core_alloc.h, replaygain.h,
-        // logf.h, debug.h) shadow the firmware/apps ones.
+        // shim/ first so its stub headers (settings.h, config.h, sound.h,
+        // core_alloc.h, replaygain.h, logf.h, debug.h) shadow the
+        // firmware/apps ones.
         .include(manifest.join("shim"))
-        .include(&dsp)
-        .include(root.join("lib/rbcodec"))
-        .include(root.join("lib/fixedpoint"))
-        // fracmul.h only (settings.h is shadowed by shim/). Do NOT add
-        // firmware/include here — its assert.h shadows the system one;
-        // gcc_extensions.h is vendored into shim/ instead.
-        .include(root.join("apps"))
+        .include(&dsp);
+    for inc in &extra_includes {
+        build.include(inc);
+    }
+    build
         .flag_if_supported("-std=gnu99")
-        // Force lib/rbcodec/platform.h (attribute macros: INIT_ATTR,
-        // ICODE_ATTR, MIN/MAX, …) into every TU — on firmware builds the
-        // target config.h provides these before any other header.
+        // Force gcc_extensions.h + platform.h (attribute macros:
+        // INIT_ATTR, FORCE_INLINE, UNLIKELY, MIN/MAX, …) into every TU —
+        // on firmware builds the target config.h provides these before
+        // any other header.
         .flag("-include")
         .flag(manifest.join("shim/gcc_extensions.h").to_str().unwrap())
         .flag("-include")
-        .flag(root.join("lib/rbcodec/platform.h").to_str().unwrap())
+        .flag(platform_h.to_str().unwrap())
         .warnings(false);
 
     for src in DSP_SOURCES {
         build.file(dsp.join(src));
     }
-    build.file(root.join("lib/fixedpoint/fixedpoint.c"));
+    build.file(&fixedpoint_c);
     build.file(manifest.join("shim/rbdsp_shim.c"));
 
     build.compile("rockboxdsp");
 
     println!("cargo:rerun-if-changed=shim");
+    println!("cargo:rerun-if-changed=vendor");
     for src in DSP_SOURCES {
         println!("cargo:rerun-if-changed={}", dsp.join(src).display());
     }
-    println!(
-        "cargo:rerun-if-changed={}",
-        root.join("lib/fixedpoint/fixedpoint.c").display()
-    );
+    println!("cargo:rerun-if-changed={}", fixedpoint_c.display());
 }

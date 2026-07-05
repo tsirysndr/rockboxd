@@ -54,8 +54,10 @@ dependencies — the DSP is freestanding fixed-point C.
 
 ## How it's built
 
-`build.rs` compiles the DSP sources directly from `lib/rbcodec/dsp/` plus
-`lib/fixedpoint/fixedpoint.c` with `cc`. The `shim/` directory supplies
+`build.rs` compiles the DSP sources with `cc`: inside the rockbox source
+tree straight from `lib/rbcodec/dsp/` + `lib/fixedpoint/`, and in the
+published crate from the self-contained `vendor/` copy (re-synced with
+`./sync-vendor.sh` before publishing). The `shim/` directory supplies
 stub headers (`settings.h`, `config.h`, `sound.h`, `core_alloc.h`,
 `replaygain.h`, `logf.h`, `debug.h`) that shadow the firmware ones, and
 `rbdsp_shim.c` provides a malloc-backed `core_alloc`, `find_first_set_bit`,
