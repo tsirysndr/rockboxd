@@ -205,6 +205,8 @@ These values map 1:1 onto `eq_band_setting` and are passed through
 
 ## Real-world projects using this library
 
+- [equalizer](https://github.com/tsirysndr/equalizer) — real-time terminal
+  equalizer for raw PCM pipes — Rockbox 10-band EQ + bass/treble
 - [fin](https://github.com/tsirysndr/fin) — a neon-electric TUI Jellyfin
   client for mpv, Chromecast & UPnP MediaRenderer
 - [tunein-cli](https://github.com/tsirysndr/tunein-cli) — browse and listen
