@@ -1,0 +1,14 @@
+crc32.c
+huffman.c
+mpc_bits_reader.c
+mpc_decoder.c
+mpc_demux.c
+requant.c
+streaminfo.c
+synth_filter.c
+#if defined(CPU_ARM)
+synth_filter_arm.S
+#endif
+#if defined(CPU_COLDFIRE)
+synth_filter_coldfire.S
+#endif

@@ -1,0 +1,14 @@
+bits.c
+float.c
+metadata.c
+unpack.c
+pack.c
+words.c
+wputils.c
+#if defined(CPU_COLDFIRE)
+coldfire.S
+#elif defined(CPU_ARM_CLASSIC)
+arm.S
+arml.S
+#endif
+

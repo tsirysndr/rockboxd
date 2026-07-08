@@ -1,0 +1,75 @@
+[package]
+name = "rockbox-codecs"
+version = "0.1.0"
+description = "Rockbox audio decoders (FLAC, MP3, Vorbis, ALAC, WavPack, WAV/ADPCM, …) as a reusable decoding library"
+authors = { workspace = true }
+edition = { workspace = true }
+# The compiled C sources are Rockbox firmware code
+license = "GPL-2.0-or-later"
+repository = { workspace = true }
+readme = "README.md"
+keywords = ["audio", "decoder", "codec", "flac", "rockbox"]
+categories = ["multimedia::audio", "external-ffi-bindings"]
+links = "rockboxcodecs"
+build = "build.rs"
+
+[features]
+default = [
+  "flac", "mpa", "vorbis", "wav", "alac", "wavpack", "aac", "opus",
+  "aiff", "au", "smaf", "vox", "wav64", "shorten", "ape", "tta",
+  "mpc", "speex", "wma", "wmapro", "a52", "cook", "raac", "a52_rm",
+  "atrac3_rm", "atrac3_oma", "aac_bsf", "adx", "mod",
+]
+flac = []
+# MPEG audio layers 1/2/3 (libmad), including MP3-in-ASF streams
+mpa = []
+vorbis = []
+# WAV / ADPCM family (libpcm)
+wav = []
+alac = []
+wavpack = []
+aac = []
+opus = []
+aiff = []
+au = []
+smaf = []
+vox = []
+wav64 = []
+shorten = []
+# Monkey's Audio (demac)
+ape = []
+# True Audio
+tta = []
+# Musepack SV7/SV8
+mpc = []
+speex = []
+wma = []
+wmapro = []
+# AC3 / A/52
+a52 = []
+# RealAudio Cook
+cook = []
+# AAC in RealMedia
+raac = []
+# AC3 in RealMedia
+a52_rm = []
+# ATRAC3 in RealMedia
+atrac3_rm = []
+# ATRAC3 in Sony OMA
+atrac3_oma = []
+# raw AAC/ADTS streams
+aac_bsf = []
+adx = []
+mod = []
+
+[dependencies]
+# Provides get_metadata() (the codec_api id3 contract) at the C symbol
+# level and the public Metadata type re-exposed by Decoder::metadata().
+rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+# for examples/play.rs — decode with rockbox-codecs, play through cpal
+cpal = "0.15"

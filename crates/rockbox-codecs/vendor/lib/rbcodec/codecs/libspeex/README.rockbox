@@ -1,0 +1,30 @@
+Library: libspeex-1.2rc1
+Imported 1.2beta3: 2007-03-12 by Dan Everton
+Updated  1.2rc1: 2024-05-08 by Solomon Peachy
+
+This directory contains a local version of libspeex for decoding Ogg/Speex
+audio streams. 
+
+
+LICENSING INFORMATION
+
+Speex is available under the terms of the Xiph.Org variant of the BSD
+license, which is both an open source and free software license. The
+license is described in the COPYING file in this directory.
+
+
+IMPORT DETAILS
+
+The .[ch] files from speex/libspeex/ and speex/include/ were imported 
+into Rockbox.  This includes the test files. Some hackery was done to
+the include files so that they #include properly when built in Rockbox.
+
+A simple config-speex.h file was added to enable libspeex's fixed-point
+integer-only mode and to specify the endianness of the target CPU. Also,
+ARM specific optimisations were enabled.
+
+Since some parts of Speex still rely on <math.h> functions, a simple 
+include was created to get these parts to compile. Stub functions can be
+found in rockbox.c in this directory.
+
+

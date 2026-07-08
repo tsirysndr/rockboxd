@@ -1,0 +1,23 @@
+[package]
+name = "rockbox-metadata"
+version = "0.1.0"
+description = "Audio file metadata / tag parser for 40+ formats (MP3, FLAC, Vorbis, Opus, MP4/AAC/ALAC, WavPack, APE, WMA, chiptunes, …) extracted from Rockbox"
+authors = { workspace = true }
+edition = { workspace = true }
+# The compiled C sources are Rockbox firmware code
+license = "GPL-2.0-or-later"
+repository = { workspace = true }
+readme = "README.md"
+keywords = ["metadata", "id3", "tags", "audio", "rockbox"]
+categories = ["multimedia::audio", "external-ffi-bindings", "parser-implementations"]
+links = "rockboxmetadata"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+# for examples/play.rs — a minimal symphonia + cpal player that shows the
+# Rockbox-parsed tags and applies the parsed ReplayGain
+cpal = "0.15"
+symphonia = { version = "0.5", features = ["all"] }

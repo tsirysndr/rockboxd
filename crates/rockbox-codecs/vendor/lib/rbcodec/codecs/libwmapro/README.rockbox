@@ -1,0 +1,20 @@
+Library: libwmapro
+Imported: 2010-04-30 by Mohamed Tarek
+
+This set of files form the files needed from ffmpeg's libavcodec and libavutil
+to build a standalone wma professional decoder.
+
+LICENSING INFORMATION
+
+ffmpeg is licensed under the Lesser GNU General Public License and the file
+wmaprodec.c is copyright (c) 2007 Baptiste Coudurier, Benjamin Larsson, Ulion
+and copyright (c) 2008 - 2009 Sascha Sommer, Benjamin Larsson.
+
+IMPORT DETAILS
+
+Based on ffmpeg svn r22886 dated 15 April 2010.
+
+The decoder is a heavily modified version of the original ffmpeg floating point
+implementation. It's been modified to use fixed point arithmetic and now plays
+and seeks on all the targets that Rockbox supports. Currently only supports mono
+and stereo streams, streams with more than 2 channels are not yet supported.

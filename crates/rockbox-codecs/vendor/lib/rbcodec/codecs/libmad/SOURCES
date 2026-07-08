@@ -1,0 +1,13 @@
+bit.c
+frame.c
+huffman.c
+layer12.c
+layer3.c
+stream.c
+synth.c
+#if defined(CPU_COLDFIRE)
+imdct_mcf5249.S
+#elif defined(CPU_ARM_CLASSIC)
+imdct_l_arm.S
+synth_full_arm.S
+#endif

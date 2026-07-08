@@ -1,0 +1,45 @@
+bits.c
+cb_search.c
+exc_10_16_table.c
+exc_10_32_table.c
+exc_20_32_table.c
+exc_5_256_table.c
+exc_5_64_table.c
+exc_8_128_table.c
+filters.c
+gain_table.c
+gain_table_lbr.c
+hexc_10_32_table.c
+hexc_table.c
+high_lsp_tables.c
+lsp.c
+lsp_tables_nb.c
+ltp.c
+modes.c
+modes_wb.c
+nb_celp.c
+quant_lsp.c
+sb_celp.c
+speex.c
+speex_callbacks.c
+#ifndef ROCKBOX_VOICE_CODEC
+#ifndef ROCKBOX_VOICE_ENCODER
+oggframing.c
+#endif
+stereo.c
+speex_header.c
+#endif
+#ifdef ROCKBOX_VOICE_ENCODER
+lpc.c
+vbr.c
+vq.c
+window.c
+resample.c
+#else
+#ifdef CPU_COLDFIRE
+filters_cf.S
+ltp_cf.S
+#elif defined(CPU_ARM_CLASSIC)
+filters_arm4.S
+#endif
+#endif
