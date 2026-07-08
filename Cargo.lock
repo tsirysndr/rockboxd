@@ -9598,6 +9598,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rockbox-codecs"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "cpal",
+ "rockbox-metadata",
+]
+
+[[package]]
 name = "rockbox-cpal-sink"
 version = "0.1.0"
 dependencies = [
@@ -9846,6 +9855,15 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "rockbox-metadata"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "cpal",
+ "symphonia",
 ]
 
 [[package]]

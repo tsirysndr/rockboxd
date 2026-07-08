@@ -1,0 +1,6 @@
+ttadec.c
+#if defined(CPU_ARM_CLASSIC)
+filter_arm.S
+#elif defined(CPU_COLDFIRE)
+filter_coldfire.S
+#endif

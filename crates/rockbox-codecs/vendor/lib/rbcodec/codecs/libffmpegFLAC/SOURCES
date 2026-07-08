@@ -1,0 +1,7 @@
+decoder.c
+shndec.c
+#if defined(CPU_COLDFIRE)
+coldfire.S
+#elif defined(CPU_ARM_CLASSIC)
+arm.S
+#endif
