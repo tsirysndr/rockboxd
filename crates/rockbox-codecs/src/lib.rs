@@ -28,7 +28,7 @@
 
 use std::ffi::{c_char, c_void, CString};
 use std::path::Path;
-use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
@@ -257,11 +257,18 @@ impl Decoder {
 
 impl Drop for Decoder {
     fn drop(&mut self) {
-        unsafe { rbcodec_request_halt() };
-        // Drain so a blocked sink send can't deadlock the codec thread.
-        while let Ok(msg) = self.rx.recv_timeout(Duration::from_secs(5)) {
-            if matches!(msg, Msg::Done(_)) {
-                break;
+        // Only halt-and-drain when the track is still decoding. If it
+        // already finished (`status` set), its `Done` was consumed by
+        // next_chunk() and the codec thread has exited — draining again
+        // would block on the 5 s timeout because the sink keeps a live
+        // sender, so there's nothing left to receive.
+        if self.status.is_none() {
+            unsafe { rbcodec_request_halt() };
+            // Drain so a blocked sink send can't deadlock the codec thread.
+            while let Ok(msg) = self.rx.recv_timeout(Duration::from_secs(5)) {
+                if matches!(msg, Msg::Done(_)) {
+                    break;
+                }
             }
         }
         if let Some(t) = self.thread.take() {
