@@ -316,8 +316,8 @@ mod tests {
             ..CrossfadeSettings::always()
         };
         let n = 44100;
-        let tail: Vec<i16> = std::iter::repeat(16000).take(n * 2).collect();
-        let head: Vec<i16> = std::iter::repeat(-16000).take(n * 2).collect();
+        let tail: Vec<i16> = std::iter::repeat_n(16000, n * 2).collect();
+        let head: Vec<i16> = std::iter::repeat_n(-16000, n * 2).collect();
         let out = mix(&tail, &head, &s, 44100);
         let mid = out[n]; // middle frame, left channel
                           // 16000*0.5 + (-16000)*0.5 ≈ 0 for these opposed signals

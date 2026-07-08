@@ -519,7 +519,9 @@ impl Engine {
                     self.set_state(ST_STOPPED);
                     self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
                     self.shared.index.store(usize::MAX, Ordering::Relaxed);
-                    self.shared.target_amp.store(0f32.to_bits(), Ordering::Relaxed);
+                    self.shared
+                        .target_amp
+                        .store(0f32.to_bits(), Ordering::Relaxed);
                 }
                 continue;
             }
@@ -539,14 +541,12 @@ impl Engine {
             }
 
             // Ensure a decoder is open for the current track.
-            if self.decoder.is_none() {
-                if !self.open_current() {
-                    // Failed to open — skip forward, or stop at end.
-                    if !self.advance_index(true) {
-                        self.finish_queue();
-                    }
-                    continue;
+            if self.decoder.is_none() && !self.open_current() {
+                // Failed to open — skip forward, or stop at end.
+                if !self.advance_index(true) {
+                    self.finish_queue();
                 }
+                continue;
             }
 
             self.set_state(ST_PLAYING);
@@ -803,7 +803,9 @@ impl Engine {
             if self.playing || self.finishing {
                 self.paused = true;
                 self.set_state(ST_PAUSED);
-                self.shared.target_amp.store(0f32.to_bits(), Ordering::Relaxed);
+                self.shared
+                    .target_amp
+                    .store(0f32.to_bits(), Ordering::Relaxed);
             }
         } else if self.paused || (!self.playing && !self.queue.is_empty()) {
             self.paused = false;
@@ -823,7 +825,9 @@ impl Engine {
         self.finishing = false;
         self.reset_current();
         self.set_state(ST_STOPPED);
-        self.shared.target_amp.store(0f32.to_bits(), Ordering::Relaxed);
+        self.shared
+            .target_amp
+            .store(0f32.to_bits(), Ordering::Relaxed);
         self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
         self.shared.index.store(usize::MAX, Ordering::Relaxed);
     }
@@ -930,7 +934,6 @@ impl Engine {
         self.shared.state.store(s, Ordering::Relaxed);
     }
 }
-
 
 fn apply_replaygain_mode(dsp: &mut rockbox_dsp::Dsp, rg: &ReplayGainConfig) {
     let mode = match rg.mode {
