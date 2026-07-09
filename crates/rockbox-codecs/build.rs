@@ -304,6 +304,13 @@ fn lib_tweaks(lib: &str, codecs_dir: &Path, b: &mut cc::Build) {
         }
         "libfaad" | "libm4a" => {
             b.include(codecs_dir.join("libm4a"));
+            // Enable HE-AAC. common.h gates SBR (High Efficiency) on
+            // CODEC_AAC_SBR_DEC and PS (HE-AACv2 parametric stereo) on
+            // CODEC_SIZE >= 0x80000; without these the sbr_*.c / ps_*.c sources
+            // compile to nothing and HE-AAC streams fail to start. Hosted builds
+            // have the RAM/CPU for it.
+            b.define("CODEC_AAC_SBR_DEC", None);
+            b.define("CODEC_SIZE", "0x80000");
         }
         _ => {}
     }
