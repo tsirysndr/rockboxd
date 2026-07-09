@@ -7,4 +7,6 @@ gemspec
 group :development, :test do
   gem "minitest", "~> 5.0"
   gem "rake", "~> 13.0"
+  gem "irb", "~> 1.0"
+  gem "reline", "~> 0.4"
 end

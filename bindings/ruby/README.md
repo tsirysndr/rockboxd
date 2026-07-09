@@ -95,7 +95,7 @@ ruby -Ilib examples/play.rb [path]    # play a file through the output device
 ## Interactive console
 
 ```sh
-./bin/console        # or: rake console
+bundle exec rake console        # or: ./bin/console
 ```
 
 Drops into IRB with `RockboxFFI` loaded and `FIXTURE` pointing at a sample
@@ -107,6 +107,20 @@ p = RockboxFFI::Player.new(volume: 0.6)
 p.set_queue([FIXTURE]); p.play
 p.status[:state]                                  # => "playing"
 ```
+
+The console bundles `irb` + `reline`, so **Tab autocompletion** and **syntax
+highlighting** work out of the box — start typing `RockboxFFI::` and press
+`Tab`. Both are on by default; toggle per-session with `irb --noautocomplete`,
+or persist preferences in `~/.irbrc`:
+
+```ruby
+IRB.conf[:USE_AUTOCOMPLETE] = true
+IRB.conf[:USE_COLORIZE]     = true
+```
+
+> Run the console under a modern Ruby (3.x/4.x, e.g. Homebrew's
+> `/opt/homebrew/opt/ruby`). macOS system Ruby 2.6 can't build `fiddle`'s
+> native extension, so `bundle install` fails there.
 
 ## Test
 
