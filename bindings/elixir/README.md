@@ -1,7 +1,7 @@
-# rockbox_ffi (Elixir)
+# rockbox_ex_ffi (Elixir)
 
-[![Hex.pm](https://img.shields.io/hexpm/v/rockbox_ffi.svg?logo=elixir)](https://hex.pm/packages/rockbox_ffi)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/rockbox_ffi/)
+[![Hex.pm](https://img.shields.io/hexpm/v/rockbox_ex_ffi.svg?logo=elixir)](https://hex.pm/packages/rockbox_ex_ffi)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/rockbox_ex_ffi/)
 ![Elixir](https://img.shields.io/badge/Elixir-1.15%2B-4B275F?logo=elixir&logoColor=white)
 ![Erlang/OTP](https://img.shields.io/badge/Erlang%2FOTP-27%2B-A90533?logo=erlang&logoColor=white)
 ![NIF](https://img.shields.io/badge/native-erl__nif-5C4B8A)

@@ -3,7 +3,7 @@ defmodule RockboxFfi.MixProject do
 
   def project do
     [
-      app: :rockbox_ffi,
+      app: :rockbox_ex_ffi,
       version: "0.1.0",
       elixir: "~> 1.15",
       # elixir_make runs the Makefile (builds priv/rockbox_ffi_nif.so) before
