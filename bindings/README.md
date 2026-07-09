@@ -4,6 +4,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-Bun%20%7C%20Deno%20%7C%20Node-3178C6?logo=typescript&logoColor=white)
 ![Elixir](https://img.shields.io/badge/Elixir-erl__nif-4B275F?logo=elixir&logoColor=white)
 ![Gleam](https://img.shields.io/badge/Gleam-erl__nif-FFAFF3?logo=gleam&logoColor=white)
+![Ruby](https://img.shields.io/badge/Ruby-fiddle-CC342D?logo=ruby&logoColor=white)
 ![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 
 Bindings for the Rockbox **DSP**, **metadata**, and **playback** engine in
@@ -15,10 +16,10 @@ surface is declared in [`include/rockbox_ffi.h`](../include/rockbox_ffi.h).
                  crates/rockbox-ffi  (cdylib + staticlib)
              rb_dsp_* / rb_meta_* / rb_player_*   ← include/rockbox_ffi.h
                               │
-   ┌───────────┬─────────────┼──────────────┬───────────────┐
- Python      TypeScript    Elixir         Gleam          (your language)
- (cffi)   (Bun/Deno/Node)  (erl_nif) ───── (erl_nif)      C FFI
-                                └── shared rockbox_ffi_nif.{c,erl} ──┘
+   ┌───────────┬───────────┬───────┼───────┬──────────┬───────────────┐
+ Python    TypeScript   Elixir     Gleam    Ruby      (your language)
+ (cffi)  (Bun/Deno/Node) (erl_nif)─(erl_nif)(fiddle)      C FFI
+                           └─ shared rockbox_ffi_nif.{c,erl} ─┘
 ```
 
 Build the shared library once from the repo root:
@@ -34,8 +35,9 @@ cargo build --release -p rockbox-ffi
 | -------------- | ------------------------------ | ----------------------------- | ------------------------------------------------- |
 | Python         | [`python/`](python)            | `cffi` (dlopen)               | `uv run python examples/smoke.py`                 |
 | TypeScript     | [`typescript/`](typescript)    | Bun / Deno / Node.js FFI      | `bun run examples/smoke.bun.ts`                   |
-| Elixir         | [`elixir/`](elixir)            | `erl_nif` (shared)            | `mix test`                                         |
+| Elixir         | [`elixir/`](elixir)            | `erl_nif` (shared)            | `mix test`                                        |
 | Gleam          | [`gleam/`](gleam)              | `erl_nif` (shared)            | `make && gleam test`                              |
+| Ruby           | [`ruby/`](ruby)                | `fiddle` (dlopen)             | `ruby -Ilib examples/smoke.rb`                    |
 
 Each binding exposes the same three surfaces with matching method names:
 
