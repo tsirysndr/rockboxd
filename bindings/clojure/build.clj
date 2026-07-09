@@ -19,8 +19,8 @@
 
   Usage:
     clojure -T:build jar
-    VERSION=0.1.2 clojure -T:build install                 # -> local ~/.m2
-    VERSION=0.1.2 CLOJARS_USERNAME=<user> CLOJARS_PASSWORD=<token> \\
+    VERSION=0.1.3 clojure -T:build install                 # -> local ~/.m2
+    VERSION=0.1.3 CLOJARS_USERNAME=<user> CLOJARS_PASSWORD=<token> \\
       clojure -T:build release                             # stamp+tag+deploy+cljdoc
   Lower-level: `stamp-cljdoc`, `deploy` (Clojars only), `request-cljdoc`."
   (:require [clojure.tools.build.api :as b]
@@ -28,7 +28,7 @@
             [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'io.github.tsirysndr/rockbox-ffi)
-(def version (or (System/getenv "VERSION") "0.1.2"))
+(def version (or (System/getenv "VERSION") "0.1.3"))
 (def tag (str "clojure-ffi-v" version))
 (def class-dir "target/classes")
 (def basis (delay (b/create-basis {:project "deps.edn"})))
@@ -93,7 +93,8 @@
         (str ";; Generated at release time by bindings/clojure/build.clj.\n"
              ";; Scopes cljdoc's Readme to this binding for its clojure-ffi-v* tag;\n"
              ";; the SDK's build re-stamps sdk/clojure/README.md for its own tags.\n"
-             "{:cljdoc.doc/tree [[\"Readme\" {:file \"bindings/clojure/README.md\"}]]}\n"))
+             "{:cljdoc.doc/tree [[\"Readme\"   {:file \"bindings/clojure/README.md\"}]\n"
+             "                   [\"Examples\" {:file \"bindings/clojure/examples/README.md\"}]]}\n"))
   (println "stamped" cljdoc-edn "-> bindings/clojure/README.md"))
 
 (defn- git [& args]

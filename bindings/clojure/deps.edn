@@ -10,6 +10,10 @@
   :play  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
           :main-opts ["-m" "rockbox.ffi.play"]}
 
+  ;; Run an example script: clojure -M:examples examples/<name>.clj [args]
+  :examples {:extra-paths ["examples"]
+             :jvm-opts ["--enable-native-access=ALL-UNNAMED"]}
+
   ;; Build + deploy the jar to Clojars (see build.clj).
   ;;   clojure -T:build jar
   ;;   CLOJARS_USERNAME=<user> CLOJARS_PASSWORD=<deploy-token> clojure -T:build deploy
