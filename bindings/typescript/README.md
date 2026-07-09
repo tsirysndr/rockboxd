@@ -98,10 +98,10 @@ details.
 
 ### `metadata`
 
-| Function                   | Returns    | Description                                             |                                                          |
-| -------------------------- | ---------- | ------------------------------------------------------- | -------------------------------------------------------- |
-| `metadata.read(path)`      | `Metadata` | Parse tags, duration, ReplayGain, album-art/cue offsets |                                                          |
-| `metadata.probe(filename)` | `string \  | null`                                                   | Codec label from the extension, without opening the file |
+| Function                   | Returns          | Description                                               |
+| -------------------------- | ---------------- | -------------------------------------------------------- |
+| `metadata.read(path)`      | `Metadata`       | Parse tags, duration, ReplayGain, album-art/cue offsets  |
+| `metadata.probe(filename)` | `string \| null` | Codec label from the extension, without opening the file |
 
 ### `Dsp`
 
