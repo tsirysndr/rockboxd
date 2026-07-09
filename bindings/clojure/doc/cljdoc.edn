@@ -1,0 +1,9 @@
+;; cljdoc config for io.github.tsirysndr/rockbox-ffi.
+;;
+;; This binding lives in a subdirectory of the rockboxd monorepo. The pom's
+;; <scm><url> points at .../tree/master/bindings/clojure, so cljdoc treats THIS
+;; directory as the project root and reads this file (paths below are relative
+;; to bindings/clojure). That keeps it separate from the repo-root
+;; doc/cljdoc.edn, which belongs to the org.clojars.tsiry/rockbox-clj SDK.
+{:cljdoc.doc/tree
+ [["Readme" {:file "README.md"}]]}

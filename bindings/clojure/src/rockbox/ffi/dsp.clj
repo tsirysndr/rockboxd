@@ -1,4 +1,4 @@
-(ns rockbox.dsp
+(ns rockbox.ffi.dsp
   "The DSP pipeline: EQ, tone, surround, compressor, ReplayGain, resampler.
 
   The underlying dsp_config is a process-wide singleton, so only one DSP handle
@@ -7,7 +7,7 @@
   `free` (or use `with-dsp`)."
   (:refer-clojure :exclude [flush])
   (:require [rockbox.ffi :as ffi]
-            [rockbox.enums :as enums])
+            [rockbox.ffi.enums :as enums])
   (:import [java.lang.foreign Arena MemorySegment ValueLayout]))
 
 (defn new-dsp
@@ -57,7 +57,7 @@
             (int knee) (int release-time) (int attack-time)))
 
 (defn set-replaygain
-  "`mode`: rockbox.enums/dsp-replaygain-mode (:track :album :shuffle :off)."
+  "`mode`: rockbox.ffi.enums/dsp-replaygain-mode (:track :album :shuffle :off)."
   [^MemorySegment p mode noclip? preamp-db]
   (ffi/call :dsp-set-replaygain p (int (enums/code enums/dsp-replaygain-mode mode))
             (boolean noclip?) (float preamp-db)))

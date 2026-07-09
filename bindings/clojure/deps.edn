@@ -6,9 +6,9 @@
  ;; warning is printed on first call and a hard error in a future release).
  :aliases
  {:smoke {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
-          :main-opts ["-m" "rockbox.smoke"]}
+          :main-opts ["-m" "rockbox.ffi.smoke"]}
   :play  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
-          :main-opts ["-m" "rockbox.play"]}
+          :main-opts ["-m" "rockbox.ffi.play"]}
 
   ;; Build + deploy the jar to Clojars (see build.clj).
   ;;   clojure -T:build jar

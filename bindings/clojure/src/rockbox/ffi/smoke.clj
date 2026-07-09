@@ -1,11 +1,11 @@
-(ns rockbox.smoke
+(ns rockbox.ffi.smoke
   "End-to-end smoke test for the Clojure bindings.
 
   Run: mise exec -- clojure -M:smoke"
   (:require [rockbox.ffi :as ffi]
-            [rockbox.metadata :as metadata]
-            [rockbox.dsp :as dsp]
-            [rockbox.player :as player])
+            [rockbox.ffi.metadata :as metadata]
+            [rockbox.ffi.dsp :as dsp]
+            [rockbox.ffi.player :as player])
   (:import [java.io File]))
 
 (defn- fail [msg]

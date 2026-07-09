@@ -1,13 +1,13 @@
-(ns rockbox.enums
+(ns rockbox.ffi.enums
   "Symbolic names for the small-integer enums in the C ABI. Pass either the
   keyword (resolved here) or the raw int to the dsp/player functions.")
 
 ;; Note the two *different* ReplayGain encodings in the C ABI.
 
-;; Values for rockbox.dsp/set-replaygain (native Rockbox encoding).
+;; Values for rockbox.ffi.dsp/set-replaygain (native Rockbox encoding).
 (def dsp-replaygain-mode {:track 0 :album 1 :shuffle 2 :off 3})
 
-;; Values for rockbox.player/set-replaygain and the :replaygain-mode config key.
+;; Values for rockbox.ffi.player/set-replaygain and the :replaygain-mode config key.
 (def replaygain-mode {:off 0 :track 1 :album 2})
 
 (def crossfade-mode

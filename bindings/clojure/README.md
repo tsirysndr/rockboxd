@@ -100,3 +100,23 @@ Consume it with:
 ```clojure
 io.github.tsirysndr/rockbox-ffi {:mvn/version "0.1.0-SNAPSHOT"}
 ```
+
+### Coexisting with the `rockbox-clj` SDK
+
+This repo also publishes a separate gRPC SDK, `org.clojars.tsiry/rockbox-clj`
+(tagged `clojure-v*`). Nothing here collides with it:
+
+- **Clojars coordinate** — different group *and* artifact
+  (`io.github.tsirysndr/rockbox-ffi` vs `org.clojars.tsiry/rockbox-clj`), so the
+  two are independent projects on Clojars.
+- **Clojure namespaces** — this binding lives under `rockbox.ffi.*`; the SDK
+  owns the bare `rockbox.*` (`rockbox.core`, `rockbox.playback`, …). A project
+  can depend on both with no namespace clash.
+- **cljdoc / README** — cljdoc reads its config relative to the `<scm><url>`
+  project root. The SDK's config is the repo-root `doc/cljdoc.edn` (→
+  `sdk/clojure/README.md`); ours is [`doc/cljdoc.edn`](doc/cljdoc.edn) here in
+  `bindings/clojure/`, and the pom `<url>`/`<scm>` point at this subdirectory,
+  so Clojars' Homepage link and cljdoc both render *this* README — never the
+  root one.
+- **Release tags** — the SDK uses `clojure-v*`; keep these bindings on
+  `bindings-v*`.

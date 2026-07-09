@@ -22,6 +22,12 @@
 (def version
   (let [v (or (System/getenv "ROCKBOX_VERSION") "0.1.0")]
     (cond-> v (not (.endsWith v "-SNAPSHOT")) (str "-SNAPSHOT"))))
+
+;; This binding lives in a subdirectory of a monorepo. Point the Clojars
+;; "Homepage" link and cljdoc at bindings/clojure so they render THIS README —
+;; not the repo-root one. cljdoc reads the project dir from the <scm> url.
+(def repo-url "https://github.com/tsirysndr/rockboxd")
+(def project-url (str repo-url "/tree/master/bindings/clojure"))
 (def class-dir "target/classes")
 (def basis (delay (b/create-basis {:project "deps.edn"})))
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
@@ -39,10 +45,17 @@
     :version version
     :basis @basis
     :src-dirs ["src"]
+    ;; <scm> url -> the subdir so cljdoc finds this project's README in the
+    ;; monorepo; connection stays the repo root so the clone works.
+    :scm {:url project-url
+          :connection "scm:git:git://github.com/tsirysndr/rockboxd.git"
+          :developerConnection "scm:git:ssh://git@github.com/tsirysndr/rockboxd.git"
+          :tag "master"}
     :pom-data [[:description
                 (str "Clojure bindings for the Rockbox DSP, metadata, and playback "
                      "engine (Java FFM over the shared rockbox-ffi C ABI).")]
-               [:url "https://github.com/tsirysndr/rockboxd"]
+               ;; <url> -> Clojars "Homepage" link; GitHub renders the subdir README.
+               [:url project-url]
                [:licenses
                 [:license
                  [:name "GPL-2.0-or-later"]
@@ -51,11 +64,7 @@
                 [:developer
                  [:id "tsirysndr"]
                  [:name "Tsiry Sandratraina"]
-                 [:url "https://github.com/tsirysndr"]]]
-               [:scm
-                [:url "https://github.com/tsirysndr/rockboxd"]
-                [:connection "scm:git:git://github.com/tsirysndr/rockboxd.git"]
-                [:developerConnection "scm:git:ssh://git@github.com/tsirysndr/rockboxd.git"]]]})
+                 [:url "https://github.com/tsirysndr"]]]]})
   ;; src (the .clj namespaces) + resources/native/<target>/librockbox_ffi.*
   (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
   (b/jar {:class-dir class-dir :jar-file jar-file})

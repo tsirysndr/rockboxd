@@ -1,8 +1,8 @@
-(ns rockbox.play
+(ns rockbox.ffi.play
   "Play an audio file through the real output device.
 
   Run: mise exec -- clojure -M:play [/path/to/audio]"
-  (:require [rockbox.player :as player])
+  (:require [rockbox.ffi.player :as player])
   (:import [java.io File]))
 
 (defn- repo-root ^File []

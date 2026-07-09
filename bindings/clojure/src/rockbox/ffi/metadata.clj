@@ -1,4 +1,4 @@
-(ns rockbox.metadata
+(ns rockbox.ffi.metadata
   "Audio file metadata parsing."
   (:refer-clojure :exclude [read])
   (:require [rockbox.ffi :as ffi]

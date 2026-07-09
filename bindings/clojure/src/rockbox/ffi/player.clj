@@ -1,4 +1,4 @@
-(ns rockbox.player
+(ns rockbox.ffi.player
   "Queue-based player with native ReplayGain and Rockbox crossfade.
 
   A player owns a live audio output device and a background engine thread —
@@ -6,11 +6,11 @@
   MemorySegment; every function takes it as the first argument. Free it with
   `free` (or use `with-player`).
 
-  ReplayGain `mode` here uses the *player* values (rockbox.enums/replaygain-mode:
+  ReplayGain `mode` here uses the *player* values (rockbox.ffi.enums/replaygain-mode:
   :off :track :album) — distinct from the DSP encoding."
   (:refer-clojure :exclude [next])
   (:require [rockbox.ffi :as ffi]
-            [rockbox.enums :as enums]
+            [rockbox.ffi.enums :as enums]
             [clojure.data.json :as json])
   (:import [java.lang.foreign Arena MemorySegment]))
 
@@ -97,7 +97,7 @@
             (int (enums/code enums/mix-mode mix-mode))))
 
 (defn set-replaygain
-  "`mode`: rockbox.enums/replaygain-mode (:off :track :album)."
+  "`mode`: rockbox.ffi.enums/replaygain-mode (:off :track :album)."
   [^MemorySegment p mode preamp-db prevent-clipping?]
   (ffi/call :player-set-replaygain p (int (enums/code enums/replaygain-mode mode))
             (float preamp-db) (boolean prevent-clipping?)))
