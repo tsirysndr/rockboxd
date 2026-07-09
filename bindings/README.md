@@ -144,7 +144,7 @@ bindings/scripts/fetch-libs.sh --all                       # stage all targets
 # Kotlin -> Maven Central (io.github.tsirysndr:rockbox-ffi)
 (cd bindings/kotlin && mise exec -- gradle publishToMavenCentral)
 
-# Clojure -> Clojars (io.github.tsirysndr/rockbox-ffi, always -SNAPSHOT)
+# Clojure -> Clojars (io.github.tsirysndr/rockbox-clj-ffi)
 (cd bindings/clojure && CLOJARS_USERNAME=… CLOJARS_PASSWORD=… \
    mise exec -- clojure -T:build deploy)
 ```

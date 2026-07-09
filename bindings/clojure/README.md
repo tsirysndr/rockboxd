@@ -1,6 +1,6 @@
-# rockbox-ffi — Clojure
+# rockbox-clj-ffi — Clojure
 
-[![Clojars Project](https://img.shields.io/clojars/v/io.github.tsirysndr/rockbox-ffi.svg)](https://clojars.org/io.github.tsirysndr/rockbox-ffi)
+[![Clojars Project](https://img.shields.io/clojars/v/io.github.tsirysndr/rockbox-clj-ffi.svg)](https://clojars.org/io.github.tsirysndr/rockbox-clj-ffi)
 
 Clojure bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
@@ -79,7 +79,7 @@ still overrides, and a repo checkout falls back to `target/release`.
 
 ## Publishing (Clojars, `io.github.tsirysndr`)
 
-Coordinates: `io.github.tsirysndr/rockbox-ffi`. The build mirrors the sibling
+Coordinates: `io.github.tsirysndr/rockbox-clj-ffi`. The build mirrors the sibling
 `org.clojars.tsiry/rockbox-clj` SDK — a plain `<scm>` url plus a version-derived
 `<tag>` (`clojure-ffi-v<version>`), which builds cleanly on cljdoc.org. One-time
 setup: register the group on [clojars.org](https://clojars.org) under **Verified
@@ -90,9 +90,9 @@ Groups → GitHub** (or use `org.clojars.tsirysndr`, auto-granted), and create a
 # 1. stage the prebuilt libs for every platform into the jar resources
 bindings/scripts/fetch-libs.sh --all
 
-# 2. one-shot release: stamp cljdoc config, commit + tag clojure-ffi-v0.1.3,
+# 2. one-shot release: stamp cljdoc config, commit + tag clojure-ffi-v0.1.0,
 #    deploy to Clojars, push the tag, and request a cljdoc build
-VERSION=0.1.3 CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
+VERSION=0.1.0 CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
   mise exec -- clojure -T:build release
 ```
 
@@ -103,7 +103,7 @@ already stamped + tagged), `stamp-cljdoc`, and `request-cljdoc`. The
 sources — `release` creates and pushes it. Consume it with:
 
 ```clojure
-io.github.tsirysndr/rockbox-ffi {:mvn/version "0.1.3"}
+io.github.tsirysndr/rockbox-clj-ffi {:mvn/version "0.1.0"}
 ```
 
 ### Coexisting with the `rockbox-clj` SDK
@@ -112,7 +112,7 @@ This repo also publishes a separate gRPC SDK, `org.clojars.tsiry/rockbox-clj`
 (tagged `clojure-v*`). Nothing here collides with it:
 
 - **Clojars coordinate** — different group *and* artifact
-  (`io.github.tsirysndr/rockbox-ffi` vs `org.clojars.tsiry/rockbox-clj`), so the
+  (`io.github.tsirysndr/rockbox-clj-ffi` vs `org.clojars.tsiry/rockbox-clj`), so the
   two are independent projects on Clojars.
 - **Clojure namespaces** — this binding lives under `rockbox.ffi.*`; the SDK
   owns the bare `rockbox.*` (`rockbox.core`, `rockbox.playback`, …). A project
