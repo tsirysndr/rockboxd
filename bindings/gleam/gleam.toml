@@ -4,6 +4,14 @@ target = "erlang"
 licences = ["GPL-2.0-or-later"]
 description = "Gleam bindings for the Rockbox DSP / metadata / playback engine"
 
+# This package lives in a monorepo subdirectory; `path` makes the generated
+# HexDocs "source" links resolve to bindings/gleam/ instead of the repo root.
+[repository]
+type = "github"
+user = "tsirysndr"
+repo = "rockboxd"
+path = "bindings/gleam"
+
 # The native NIF (c_src/rockbox_ffi_nif.c) is compiled into priv/ by the
 # Makefile; run `make` before `gleam test`. The Erlang loader
 # src/rockbox_ffi_nif.erl is compiled by Gleam automatically.
