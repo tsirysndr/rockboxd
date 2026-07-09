@@ -78,8 +78,7 @@ mavenPublishing {
                 "(Java FFM over the shared rockbox-ffi C ABI).",
         )
         inceptionYear.set("2026")
-        // Homepage -> the subdir README (this binding lives in a monorepo).
-        url.set("https://github.com/tsirysndr/rockboxd/tree/master/bindings/kotlin")
+        url.set("https://github.com/tsirysndr/rockboxd")
         licenses {
             license {
                 name.set("GPL-2.0-or-later")

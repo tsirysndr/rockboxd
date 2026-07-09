@@ -1,5 +1,7 @@
 # rockbox-ffi — Clojure
 
+[![Clojars Project](https://img.shields.io/clojars/v/io.github.tsirysndr/rockbox-ffi.svg)](https://clojars.org/io.github.tsirysndr/rockbox-ffi)
+
 Clojure bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
 
@@ -77,9 +79,10 @@ still overrides, and a repo checkout falls back to `target/release`.
 
 ## Publishing (Clojars, `io.github.tsirysndr`)
 
-Coordinates: `io.github.tsirysndr/rockbox-ffi`, always deployed as a
-**`-SNAPSHOT`** (Clojars release versions are immutable). One-time setup:
-register the group on [clojars.org](https://clojars.org) under **Verified
+Coordinates: `io.github.tsirysndr/rockbox-ffi`. The build mirrors the sibling
+`org.clojars.tsiry/rockbox-clj` SDK — a plain `<scm>` url plus a version-derived
+`<tag>` (`clojure-ffi-v<version>`), which builds cleanly on cljdoc.org. One-time
+setup: register the group on [clojars.org](https://clojars.org) under **Verified
 Groups → GitHub** (or use `org.clojars.tsirysndr`, auto-granted), and create a
 **deploy token**.
 
@@ -87,18 +90,20 @@ Groups → GitHub** (or use `org.clojars.tsirysndr`, auto-granted), and create a
 # 1. stage the prebuilt libs for every platform into the jar resources
 bindings/scripts/fetch-libs.sh --all
 
-# 2. build the jar locally to sanity-check (no credentials needed)
-mise exec -- clojure -T:build jar
-
-# 3. deploy to Clojars
-CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
-  mise exec -- clojure -T:build deploy       # ROCKBOX_VERSION=0.2.0 to bump
+# 2. one-shot release: stamp cljdoc config, commit + tag clojure-ffi-v0.1.1,
+#    deploy to Clojars, push the tag, and request a cljdoc build
+VERSION=0.1.1 CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
+  mise exec -- clojure -T:build release
 ```
 
-Consume it with:
+`release` requires a clean working tree. Lower-level tasks are available too:
+`clojure -T:build jar` (build only), `deploy` (Clojars only — assumes you have
+already stamped + tagged), `stamp-cljdoc`, and `request-cljdoc`. The
+`<scm><tag>` must be a **real git tag** so cljdoc can check out the exact
+sources — `release` creates and pushes it. Consume it with:
 
 ```clojure
-io.github.tsirysndr/rockbox-ffi {:mvn/version "0.1.0-SNAPSHOT"}
+io.github.tsirysndr/rockbox-ffi {:mvn/version "0.1.1"}
 ```
 
 ### Coexisting with the `rockbox-clj` SDK
@@ -112,13 +117,13 @@ This repo also publishes a separate gRPC SDK, `org.clojars.tsiry/rockbox-clj`
 - **Clojure namespaces** — this binding lives under `rockbox.ffi.*`; the SDK
   owns the bare `rockbox.*` (`rockbox.core`, `rockbox.playback`, …). A project
   can depend on both with no namespace clash.
-- **cljdoc / README** — cljdoc reads its config relative to the `<scm><url>`
-  project root. The SDK's config is the repo-root `doc/cljdoc.edn` (→
-  `sdk/clojure/README.md`); ours is [`doc/cljdoc.edn`](doc/cljdoc.edn) here in
-  `bindings/clojure/`, and the pom `<url>`/`<scm>` point at this subdirectory,
-  so Clojars' Homepage link and cljdoc both render *this* README — never the
-  root one.
-- **Release tags** — the SDK uses `clojure-v*`; this binding releases under its
-  own `clojure-ffi-v*` tag. (Its prebuilt native libs are a separate concern —
-  they still come from the shared `bindings-v*` GitHub release via
-  `fetch-libs.sh`.)
+- **cljdoc README** — cljdoc renders a single repo-root `doc/cljdoc.edn` per
+  checked-out tag (it has no per-subdirectory config). Since each artifact
+  builds from its **own** release tag, `release` stamps that repo-root file to
+  point at this binding's README before tagging `clojure-ffi-v*`; the SDK's
+  `release` re-stamps `sdk/clojure/README.md` for `clojure-v*`. Each cljdoc
+  build reads the config at its own tag, so neither shows the other's README.
+- **Release tags** — the SDK uses `clojure-v*`; this binding uses
+  `clojure-ffi-v*` (matches neither the SDK's nor the shared `bindings-v*`
+  tag-triggered workflows, so it triggers none of them). Its prebuilt native
+  libs still ship from the `bindings-v*` GitHub release via `fetch-libs.sh`.
