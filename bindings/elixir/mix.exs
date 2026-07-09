@@ -30,11 +30,19 @@ defmodule RockboxFfi.MixProject do
     ]
   end
 
+  @source_url "https://github.com/tsirysndr/rockboxd"
+  @source_ref "master"
+
   defp docs do
     [
       main: "readme",
       extras: ["README.md"],
-      source_url: "https://github.com/tsirysndr/rockboxd",
+      source_url: @source_url,
+      source_ref: @source_ref,
+      # This package lives in a monorepo subdirectory, so ExDoc's file paths
+      # (relative to bindings/elixir/) must be prefixed with that path for the
+      # "source" links — on modules, functions, and the README — to resolve.
+      source_url_pattern: "#{@source_url}/blob/#{@source_ref}/bindings/elixir/%{path}#L%{line}",
       groups_for_modules: [
         Core: [Rockbox],
         Metadata: [Rockbox.Metadata],
