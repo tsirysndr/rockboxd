@@ -2,3 +2,6 @@
 .clj-kondo/
 .lsp/
 target/
+
+# Prebuilt native libs staged by scripts/fetch-libs.sh (not checked in).
+resources/native/*/

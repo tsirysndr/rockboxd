@@ -5,7 +5,8 @@
   Nothing is linked at build time: the library is located at runtime and every
   function is bound to a MethodHandle downcall. This mirrors
   include/rockbox_ffi.h — keep the descriptors in sync with the C ABI."
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [clojure.java.io :as io])
   (:import [java.lang.foreign Linker Linker$Option FunctionDescriptor ValueLayout
             MemoryLayout Arena MemorySegment SymbolLookup]
            [java.lang.invoke MethodHandle]
@@ -21,10 +22,41 @@
 
 ;; ---- library location -------------------------------------------------
 
+(defn- native-target
+  "The `<os>-<arch>` release target for the running JVM, or nil if unsupported."
+  []
+  (let [os (str/lower-case (System/getProperty "os.name"))
+        arch (str/lower-case (System/getProperty "os.arch"))
+        o (cond
+            (or (str/includes? os "mac") (str/includes? os "darwin")) "darwin"
+            (str/includes? os "linux") "linux"
+            (str/includes? os "freebsd") "freebsd"
+            (str/includes? os "netbsd") "netbsd")
+        a (cond
+            (#{"aarch64" "arm64"} arch) "arm64"
+            (#{"amd64" "x86_64" "x64"} arch) "x64")]
+    (when (and o a) (str o "-" a))))
+
+(defn- extract-bundled
+  "Extract the platform's bundled native/<target>/librockbox_ffi.<ext> classpath
+  resource to a temp file and return its path, or nil if none is bundled.
+  `record` logs the attempted resource for error reporting."
+  [record]
+  (when-let [target (native-target)]
+    (let [ext (if (str/starts-with? target "darwin") "dylib" "so")
+          resource (str "native/" target "/librockbox_ffi." ext)]
+      (record (str "classpath:" resource))
+      (when-let [stream (.getResourceAsStream (clojure.lang.RT/baseLoader) resource)]
+        (with-open [in stream]
+          (let [tmp (File/createTempFile "librockbox_ffi" (str "." ext))]
+            (.deleteOnExit tmp)
+            (io/copy in tmp)
+            (.getAbsolutePath tmp)))))))
+
 (defn- locate-lib
   "Locate the shared library. Precedence:
      1. ROCKBOX_FFI_LIB env var (explicit override)
-     2. a `Libs/` dir bundled beside the working directory (distributions)
+     2. the native lib bundled in the jar for this OS/arch (published pkg)
      3. target/release, walking up from the working directory (repo checkout)"
   ^String []
   (let [names ["librockbox_ffi.dylib" "librockbox_ffi.so" "rockbox_ffi.dll"]
@@ -34,6 +66,7 @@
                   (when (.exists (File. path)) path))]
     (or
      (when-let [env (System/getenv "ROCKBOX_FFI_LIB")] (attempt env))
+     (extract-bundled (fn [s] (.add tried s)))
      (loop [dir (.getAbsoluteFile (File. (System/getProperty "user.dir")))]
        (when dir
          (or (some (fn [sub] (some #(attempt (.getPath (File. dir (str sub "/" %)))) names))

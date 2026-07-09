@@ -23,6 +23,11 @@
 #   ruby       -> bindings/ruby/vendor/librockbox_ffi.<ext>
 #   python     -> bindings/python/src/rockbox_ffi/_lib/librockbox_ffi.<ext>
 #   typescript -> bindings/typescript/npm/<t>/librockbox_ffi.<ext>
+#   kotlin     -> bindings/kotlin/src/main/resources/native/<t>/librockbox_ffi.<ext>
+#   clojure    -> bindings/clojure/resources/native/<t>/librockbox_ffi.<ext>
+#
+# The JVM bindings (kotlin, clojure) bundle EVERY target in a single jar, so
+# --all stages all targets for them; host mode stages just the host target.
 #
 # Requires the GitHub CLI (`gh`), authenticated and run from the repo checkout.
 
@@ -37,7 +42,7 @@ TAG="${ROCKBOX_BINDINGS_TAG:-}"
 REPO="${GH_REPO:-}"
 ALL_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64"
 
-usage() { sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -126,13 +131,19 @@ stage() {  # stage <target> <dest-file>
   echo "  -> ${dest#"$BINDINGS_DIR"/}"
 }
 
-stage_npm()    { local t="$1"; stage "$t" "$BINDINGS_DIR/typescript/npm/${t}/librockbox_ffi.$(libext "$t")"; }
-stage_ruby()   { local t="$1"; stage "$t" "$BINDINGS_DIR/ruby/vendor/librockbox_ffi.$(libext "$t")"; }
-stage_python() { local t="$1"; stage "$t" "$BINDINGS_DIR/python/src/rockbox_ffi/_lib/librockbox_ffi.$(libext "$t")"; }
+stage_npm()     { local t="$1"; stage "$t" "$BINDINGS_DIR/typescript/npm/${t}/librockbox_ffi.$(libext "$t")"; }
+stage_ruby()    { local t="$1"; stage "$t" "$BINDINGS_DIR/ruby/vendor/librockbox_ffi.$(libext "$t")"; }
+stage_python()  { local t="$1"; stage "$t" "$BINDINGS_DIR/python/src/rockbox_ffi/_lib/librockbox_ffi.$(libext "$t")"; }
+stage_kotlin()  { local t="$1"; stage "$t" "$BINDINGS_DIR/kotlin/src/main/resources/native/${t}/librockbox_ffi.$(libext "$t")"; }
+stage_clojure() { local t="$1"; stage "$t" "$BINDINGS_DIR/clojure/resources/native/${t}/librockbox_ffi.$(libext "$t")"; }
 
 if [ "$ALL" -eq 1 ]; then
-  echo "Staging all targets into typescript/npm/*:"
-  for t in $ALL_TARGETS; do stage_npm "$t" || true; done
+  echo "Staging all targets into typescript/npm/* + kotlin + clojure (one jar bundles all):"
+  for t in $ALL_TARGETS; do
+    stage_npm "$t" || true
+    stage_kotlin "$t" || true
+    stage_clojure "$t" || true
+  done
   host="$(host_target)"
   if [ -n "$host" ]; then
     echo "Staging host ($host) into ruby + python (single-slot — rerun with --target for others):"
@@ -142,14 +153,19 @@ if [ "$ALL" -eq 1 ]; then
 else
   t="${TARGET:-$(host_target)}"
   [ -n "$t" ] || { echo "error: unsupported host $(uname -sm); pass --target" >&2; exit 1; }
-  echo "Staging $t into ruby + python + typescript/npm/$t:"
+  echo "Staging $t into ruby + python + typescript/npm/$t + kotlin + clojure:"
+  echo "  (JVM jars bundle every target — use --all before publishing kotlin/clojure)"
   stage_ruby "$t"
   stage_python "$t"
   stage_npm "$t"
+  stage_kotlin "$t"
+  stage_clojure "$t"
 fi
 
 echo
 echo "Done. Build & publish each package (from its directory):"
-echo "  ruby:   ROCKBOX_GEM_PLATFORM=<plat> gem build rockbox_ffi.gemspec && gem push *.gem"
-echo "  python: python -m build --wheel && twine upload dist/*.whl"
-echo "  npm:    (cd npm/<target> && npm pack && npm publish --access public)"
+echo "  ruby:    ROCKBOX_GEM_PLATFORM=<plat> gem build rockbox_ffi.gemspec && gem push *.gem"
+echo "  python:  python -m build --wheel && twine upload dist/*.whl"
+echo "  npm:     (cd npm/<target> && npm pack && npm publish --access public)"
+echo "  kotlin:  ./gradlew publishToMavenCentral        (needs --all for full platform coverage)"
+echo "  clojure: CLOJARS_USERNAME=… CLOJARS_PASSWORD=… clojure -T:build deploy"

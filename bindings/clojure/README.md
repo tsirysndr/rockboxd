@@ -66,3 +66,37 @@ mise exec -- clojure -M:play /path/to/audio     # play through the output device
   encodings**: `dsp-replaygain-mode` (`:track` 0, `:album` 1, `:shuffle` 2,
   `:off` 3) for `rockbox.dsp`, `replaygain-mode` (`:off` 0, `:track` 1,
   `:album` 2) for `rockbox.player`.
+
+## Bundled native libraries
+
+The published jar bundles the prebuilt `librockbox_ffi` for every OS/arch under
+`native/<target>/` — `rockbox.ffi/extract-bundled` picks the one matching the
+running JVM, extracts it to a temp file, and loads it. So a consumer just adds
+the dependency; no Rust toolchain, no separate `.dylib`/`.so`. `ROCKBOX_FFI_LIB`
+still overrides, and a repo checkout falls back to `target/release`.
+
+## Publishing (Clojars, `io.github.tsirysndr`)
+
+Coordinates: `io.github.tsirysndr/rockbox-ffi`, always deployed as a
+**`-SNAPSHOT`** (Clojars release versions are immutable). One-time setup:
+register the group on [clojars.org](https://clojars.org) under **Verified
+Groups → GitHub** (or use `org.clojars.tsirysndr`, auto-granted), and create a
+**deploy token**.
+
+```sh
+# 1. stage the prebuilt libs for every platform into the jar resources
+bindings/scripts/fetch-libs.sh --all
+
+# 2. build the jar locally to sanity-check (no credentials needed)
+mise exec -- clojure -T:build jar
+
+# 3. deploy to Clojars
+CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
+  mise exec -- clojure -T:build deploy       # ROCKBOX_VERSION=0.2.0 to bump
+```
+
+Consume it with:
+
+```clojure
+io.github.tsirysndr/rockbox-ffi {:mvn/version "0.1.0-SNAPSHOT"}
+```

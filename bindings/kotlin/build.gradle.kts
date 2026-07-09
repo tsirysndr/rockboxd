@@ -1,9 +1,14 @@
+import com.vanniktech.maven.publish.SonatypeHost
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     kotlin("jvm") version "2.3.20"
     application
+    id("com.vanniktech.maven.publish") version "0.30.0"
 }
+
+group = "io.github.tsirysndr"
+version = providers.gradleProperty("libVersion").getOrElse("0.1.0")
 
 repositories { mavenCentral() }
 
@@ -49,4 +54,49 @@ tasks.register<JavaExec>("play") {
     classpath = sourceSets["main"].runtimeClasspath
     jvmArgs = nativeAccess
     if (project.hasProperty("file")) args(project.property("file").toString())
+}
+
+// ---- publishing: Maven Central (Sonatype Central Portal) --------------
+// The jar bundles the prebuilt librockbox_ffi for every OS/arch under
+// src/main/resources/native/<target>/ (staged by scripts/fetch-libs.sh from the
+// GitHub release), so consumers need no Rust toolchain and no separate lib.
+//
+// Credentials (in ~/.gradle/gradle.properties or ORG_GRADLE_PROJECT_* env):
+//   mavenCentralUsername / mavenCentralPassword   (a Central Portal token)
+//   signingInMemoryKey / signingInMemoryKeyPassword  (ASCII-armored GPG key)
+// Publish:  ./gradlew publishToMavenCentral   (add --no-configuration-cache)
+mavenPublishing {
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = true)
+    signAllPublications()
+
+    coordinates(group.toString(), "rockbox-ffi", version.toString())
+
+    pom {
+        name.set("rockbox-ffi")
+        description.set(
+            "Kotlin bindings for the Rockbox DSP, metadata, and playback engine " +
+                "(Java FFM over the shared rockbox-ffi C ABI).",
+        )
+        inceptionYear.set("2026")
+        url.set("https://github.com/tsirysndr/rockboxd")
+        licenses {
+            license {
+                name.set("GPL-2.0-or-later")
+                url.set("https://www.gnu.org/licenses/old-licenses/gpl-2.0.html")
+                distribution.set("repo")
+            }
+        }
+        developers {
+            developer {
+                id.set("tsirysndr")
+                name.set("Tsiry Sandratraina")
+                url.set("https://github.com/tsirysndr")
+            }
+        }
+        scm {
+            url.set("https://github.com/tsirysndr/rockboxd")
+            connection.set("scm:git:git://github.com/tsirysndr/rockboxd.git")
+            developerConnection.set("scm:git:ssh://git@github.com/tsirysndr/rockboxd.git")
+        }
+    }
 }

@@ -1,4 +1,4 @@
-{:paths ["src"]
+{:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
         org.clojure/data.json {:mvn/version "2.5.1"}}
 
@@ -8,4 +8,11 @@
  {:smoke {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
           :main-opts ["-m" "rockbox.smoke"]}
   :play  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
-          :main-opts ["-m" "rockbox.play"]}}}
+          :main-opts ["-m" "rockbox.play"]}
+
+  ;; Build + deploy the jar to Clojars (see build.clj).
+  ;;   clojure -T:build jar
+  ;;   CLOJARS_USERNAME=<user> CLOJARS_PASSWORD=<deploy-token> clojure -T:build deploy
+  :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.9"}
+                 slipset/deps-deploy {:mvn/version "0.2.2"}}
+          :ns-default build}}}

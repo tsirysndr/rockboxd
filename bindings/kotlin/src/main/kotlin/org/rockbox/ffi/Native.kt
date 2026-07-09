@@ -118,7 +118,7 @@ internal object Native {
     /**
      * Locate the shared library. Precedence:
      *   1. ROCKBOX_FFI_LIB env var (explicit override)
-     *   2. a `Libs/` dir bundled next to the working directory (distributions)
+     *   2. the native lib bundled in the jar for this OS/arch (published pkg)
      *   3. target/release, walking up from the working directory (repo checkout)
      */
     private fun locateLibrary(): String {
@@ -131,6 +131,8 @@ internal object Native {
         }
 
         System.getenv("ROCKBOX_FFI_LIB")?.let { env -> attempt(env)?.let { return it } }
+
+        extractBundled(tried)?.let { return it }
 
         val start = File(System.getProperty("user.dir")).absoluteFile
         var dir: File? = start
@@ -147,6 +149,43 @@ internal object Native {
             "could not locate librockbox_ffi shared library. Set ROCKBOX_FFI_LIB or run " +
                 "`cargo build --release -p rockbox-ffi`. Tried:\n  " + tried.joinToString("\n  "),
         )
+    }
+
+    /** The `<os>-<arch>` release target for the running JVM, or null if unsupported. */
+    private fun nativeTarget(): String? {
+        val os = System.getProperty("os.name").lowercase()
+        val arch = System.getProperty("os.arch").lowercase()
+        val o = when {
+            os.contains("mac") || os.contains("darwin") -> "darwin"
+            os.contains("linux") -> "linux"
+            os.contains("freebsd") -> "freebsd"
+            os.contains("netbsd") -> "netbsd"
+            else -> return null
+        }
+        val a = when (arch) {
+            "aarch64", "arm64" -> "arm64"
+            "amd64", "x86_64", "x64" -> "x64"
+            else -> return null
+        }
+        return "$o-$a"
+    }
+
+    /**
+     * Extract the platform's bundled `native/<target>/librockbox_ffi.<ext>` jar
+     * resource to a temp file and return its path, or null if none is bundled.
+     */
+    private fun extractBundled(tried: MutableList<String>): String? {
+        val target = nativeTarget() ?: return null
+        val ext = if (target.startsWith("darwin")) "dylib" else "so"
+        val resource = "native/$target/librockbox_ffi.$ext"
+        tried += "classpath:$resource"
+        val stream = Native::class.java.classLoader.getResourceAsStream(resource) ?: return null
+        return stream.use { s ->
+            val tmp = File.createTempFile("librockbox_ffi", ".$ext")
+            tmp.deleteOnExit()
+            java.io.FileOutputStream(tmp).use { out -> s.copyTo(out) }
+            tmp.absolutePath
+        }
     }
 }
 

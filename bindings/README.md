@@ -132,6 +132,26 @@ bindings/scripts/publish-python.sh --tag bindings-v0.1.1   # -> PyPI
 bindings/scripts/publish-npm.sh    --tag bindings-v0.1.1   # -> npmjs
 ```
 
+The two **JVM** bindings publish to different registries, under the
+`io.github.tsirysndr` namespace (no `rockbox.org` domain needed — verified via
+GitHub). Unlike the per-platform npm packages, each JVM artifact **bundles every
+target in one jar** (`native/<target>/librockbox_ffi.<ext>`), so run
+`fetch-libs.sh --all` first:
+
+```sh
+bindings/scripts/fetch-libs.sh --all                       # stage all targets
+
+# Kotlin -> Maven Central (io.github.tsirysndr:rockbox-ffi)
+(cd bindings/kotlin && mise exec -- gradle publishToMavenCentral)
+
+# Clojure -> Clojars (io.github.tsirysndr/rockbox-ffi, always -SNAPSHOT)
+(cd bindings/clojure && CLOJARS_USERNAME=… CLOJARS_PASSWORD=… \
+   mise exec -- clojure -T:build deploy)
+```
+
+See [`kotlin/README.md`](kotlin/README.md) and
+[`clojure/README.md`](clojure/README.md) for the one-time namespace/GPG setup.
+
 Each accepts `--tag <tag>` (default: latest `bindings-v*`), `--repo
 <owner/repo>` (default: the `origin` remote), and `--dry-run` (download + print
 the push commands without running them). npm publishes the `@rockbox-ffi/*`

@@ -64,3 +64,34 @@ Player(Player.Config().apply { volume = 0.8f }).use { player ->
 - **Two ReplayGain encodings** — `DspReplayGainMode` (TRACK=0, ALBUM=1,
   SHUFFLE=2, OFF=3) for `Dsp`, `ReplayGainMode` (OFF=0, TRACK=1, ALBUM=2) for
   `Player`.
+
+## Bundled native libraries
+
+The published jar bundles the prebuilt `librockbox_ffi` for every OS/arch under
+`native/<target>/` — `Native.extractBundled()` picks the one matching the
+running JVM, extracts it to a temp file, and loads it. So a consumer just adds
+the dependency; no Rust toolchain, no separate `.dylib`/`.so`. `ROCKBOX_FFI_LIB`
+still overrides, and a repo checkout falls back to `target/release`.
+
+## Publishing (Maven Central, `io.github.tsirysndr`)
+
+Coordinates: `io.github.tsirysndr:rockbox-ffi`. One-time setup: verify the
+`io.github.tsirysndr` namespace on [central.sonatype.com](https://central.sonatype.com)
+(create a public repo named after the verification code), and have a GPG key.
+
+```sh
+# 1. stage the prebuilt libs for every platform into the jar resources
+bindings/scripts/fetch-libs.sh --all
+
+# 2. credentials in ~/.gradle/gradle.properties (or ORG_GRADLE_PROJECT_* env):
+#   mavenCentralUsername=<central-portal-token-user>
+#   mavenCentralPassword=<central-portal-token>
+#   signingInMemoryKey=<ASCII-armored GPG private key>
+#   signingInMemoryKeyPassword=<key passphrase>
+
+# 3. build (with the bundled libs) + upload + auto-release
+mise exec -- gradle publishToMavenCentral        # -PlibVersion=0.2.0 to override
+
+# validate locally without credentials first:
+mise exec -- gradle publishToMavenLocal
+```

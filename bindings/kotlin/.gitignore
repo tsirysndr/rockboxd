@@ -2,3 +2,6 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 .kotlin/
+
+# Prebuilt native libs staged by scripts/fetch-libs.sh (not checked in).
+src/main/resources/native/*/
