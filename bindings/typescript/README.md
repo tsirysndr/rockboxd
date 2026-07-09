@@ -1,5 +1,6 @@
 # rockbox-ffi (TypeScript)
 
+[![npm](https://img.shields.io/npm/v/rockbox-ffi?logo=npm&logoColor=white)](https://www.npmjs.com/package/rockbox-ffi)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)
 ![Bun](https://img.shields.io/badge/Bun-ready-000000?logo=bun&logoColor=white)
 ![Deno](https://img.shields.io/badge/Deno-ready-000000?logo=deno&logoColor=white)

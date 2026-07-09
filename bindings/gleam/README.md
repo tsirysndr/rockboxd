@@ -1,5 +1,7 @@
 # rockbox_ffi (Gleam)
 
+[![Package Version](https://img.shields.io/hexpm/v/rockbox_ffi)](https://hex.pm/packages/rockbox_ffi)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/rockbox_ffi/)
 ![Gleam](https://img.shields.io/badge/Gleam-%E2%89%A51.0-FFAFF3?logo=gleam&logoColor=white)
 ![Erlang/OTP](https://img.shields.io/badge/Erlang%2FOTP-27%2B-A90533?logo=erlang&logoColor=white)
 ![NIF](https://img.shields.io/badge/native-erl__nif-5C4B8A)
