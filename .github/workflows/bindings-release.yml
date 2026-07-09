@@ -192,11 +192,6 @@ jobs:
         with:
           path: artifacts
 
-      - name: Install ALSA runtime (auditwheel vendors libasound into Linux wheels)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev
-
       - name: Install build tooling
         run: pip install build wheel auditwheel patchelf
 
@@ -228,8 +223,12 @@ jobs:
             python -m build --wheel --outdir dist
             case "$target" in
               linux-*)
-                # auditwheel detects the manylinux tag and vendors libasound.
-                auditwheel repair --wheel-dir wheelhouse dist/*.whl
+                # auditwheel sets the manylinux tag. libasound is treated as an
+                # external system dependency (--exclude): it can't be vendored
+                # cross-arch on a single-arch runner, and a bundled libasound
+                # can't reliably dlopen the system's ALSA plugins anyway.
+                # Linux users need the libasound2 system package at runtime.
+                auditwheel repair --exclude libasound.so.2 --wheel-dir wheelhouse dist/*.whl
                 ;;
               *)
                 python -m wheel tags --platform-tag "${TAG[$target]}" --remove dist/*.whl

@@ -101,3 +101,6 @@ upload` / `npm publish` them manually when ready.
   packaging step skips a target whose artifact is missing, so a flaky BSD build
   never blocks the macOS/Linux release. BSD Python wheels are best-effort
   (pip falls back to the sdist when the tag does not match).
+- **Linux** needs the system **`libasound2`** (ALSA) package at runtime — the
+  shared lib links it and it is not vendored (`auditwheel --exclude`), because
+  a bundled libasound can't reliably load the system's ALSA plugins.
