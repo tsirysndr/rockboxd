@@ -194,9 +194,10 @@ jobs:
           path: artifacts
 
       - name: Install build tooling
-        # Pin auditwheel: it's the tool whose cross-arch behaviour changed and
-        # broke the arm64 wheel between releases. Bump deliberately.
-        run: pip install build wheel "auditwheel==6.1.0" patchelf
+        # Pin the packaging tools: auditwheel's unpinned update changed
+        # cross-arch behaviour and broke the arm64 wheel between releases, and
+        # `wheel` now drives the arm64 re-tag too. Bump deliberately.
+        run: pip install build "wheel==0.45.1" "auditwheel==6.1.0" patchelf
 
       - name: Build wheels
         working-directory: bindings/python
