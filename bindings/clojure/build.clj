@@ -19,8 +19,8 @@
 
   Usage:
     clojure -T:build jar
-    VERSION=0.1.0 clojure -T:build install                 # -> local ~/.m2
-    VERSION=0.1.0 CLOJARS_USERNAME=<user> CLOJARS_PASSWORD=<token> \\
+    VERSION=0.1.1 clojure -T:build install                 # -> local ~/.m2
+    VERSION=0.1.1 CLOJARS_USERNAME=<user> CLOJARS_PASSWORD=<token> \\
       clojure -T:build release                             # stamp+tag+deploy+cljdoc
   Lower-level: `stamp-cljdoc`, `deploy` (Clojars only), `request-cljdoc`."
   (:require [clojure.tools.build.api :as b]
@@ -28,7 +28,7 @@
             [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'io.github.tsirysndr/rockbox-clj-ffi)
-(def version (or (System/getenv "VERSION") "0.1.0"))
+(def version (or (System/getenv "VERSION") "0.1.1"))
 (def tag (str "clojure-ffi-v" version))
 (def class-dir "target/classes")
 (def basis (delay (b/create-basis {:project "deps.edn"})))

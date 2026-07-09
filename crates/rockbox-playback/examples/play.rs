@@ -46,7 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if tracks.is_empty() {
-        eprintln!("usage: play [--volume 0..1] [--crossfade SECS] [--replaygain track|album] <files…>");
+        eprintln!(
+            "usage: play [--volume 0..1] [--crossfade SECS] [--replaygain track|album] <files…>"
+        );
         std::process::exit(2);
     }
 

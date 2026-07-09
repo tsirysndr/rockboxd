@@ -16,7 +16,11 @@ fn main() {
         total += c.pcm.len();
         chunks += 1;
         if chunks % 100 == 0 {
-            let ms = if rate > 0 { total / 2 * 1000 / rate as usize } else { 0 };
+            let ms = if rate > 0 {
+                total / 2 * 1000 / rate as usize
+            } else {
+                0
+            };
             println!(
                 "chunks={chunks} samples={total} rate={rate} sample_ms={ms} elapsed_ms={}",
                 dec.elapsed().as_millis()
@@ -27,6 +31,13 @@ fn main() {
             break;
         }
     }
-    let ms = if rate > 0 { total / 2 * 1000 / rate as usize } else { 0 };
-    println!("DONE chunks={chunks} samples={total} rate={rate} ~{ms}ms status={:?}", dec.status());
+    let ms = if rate > 0 {
+        total / 2 * 1000 / rate as usize
+    } else {
+        0
+    };
+    println!(
+        "DONE chunks={chunks} samples={total} rate={rate} ~{ms}ms status={:?}",
+        dec.status()
+    );
 }
