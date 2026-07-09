@@ -9704,6 +9704,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rockbox-ffi"
+version = "0.1.0"
+dependencies = [
+ "rockbox-dsp",
+ "rockbox-metadata",
+ "rockbox-playback",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rockbox-fts5"
 version = "0.1.0"
 dependencies = [

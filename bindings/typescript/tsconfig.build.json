@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "dist",
+    // Rewrite `./x.ts` specifiers to `./x.js` in the emitted .d.ts files
+    // (TypeScript 5.7+), so the declarations match the bundled JS.
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["examples", "scripts"]
+}

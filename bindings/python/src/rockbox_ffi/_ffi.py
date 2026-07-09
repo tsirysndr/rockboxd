@@ -1,0 +1,135 @@
+"""cffi (ABI mode) loader for librockbox_ffi.
+
+Declares exactly the functions we call and ``dlopen``s the prebuilt shared
+library — no C is compiled here. The library is located via the
+``ROCKBOX_FFI_LIB`` env var, then by walking up to the repo's
+``target/release`` directory.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from cffi import FFI
+
+ffi = FFI()
+
+# Mirrors include/rockbox_ffi.h — keep in sync with the C ABI.
+ffi.cdef(
+    """
+    typedef struct RbDsp RbDsp;
+    typedef struct RbPlayer RbPlayer;
+
+    uint32_t rb_ffi_abi_version(void);
+
+    void rb_string_free(char *p);
+    void rb_buffer_free(int16_t *p, size_t len);
+
+    RbDsp *rb_dsp_new(uint32_t sample_rate);
+    void   rb_dsp_free(RbDsp *p);
+    void   rb_dsp_set_input_frequency(RbDsp *p, uint32_t hz);
+    void   rb_dsp_flush(RbDsp *p);
+    void   rb_dsp_eq_enable(RbDsp *p, bool enable);
+    void   rb_dsp_set_tone(RbDsp *p, int32_t bass_db, int32_t treble_db);
+    void   rb_dsp_set_tone_cutoffs(RbDsp *p, int32_t bass_hz, int32_t treble_hz);
+    void   rb_dsp_set_surround(RbDsp *p, int32_t delay_ms, int32_t balance,
+                               int32_t fx1, int32_t fx2);
+    void   rb_dsp_set_channel_config(RbDsp *p, int32_t mode);
+    void   rb_dsp_set_stereo_width(RbDsp *p, int32_t percent);
+    void   rb_dsp_set_compressor(RbDsp *p, int32_t threshold, int32_t makeup_gain,
+                                 int32_t ratio, int32_t knee, int32_t release_time,
+                                 int32_t attack_time);
+    void   rb_dsp_set_replaygain(RbDsp *p, int32_t mode, bool noclip,
+                                 float preamp_db);
+    void   rb_dsp_set_replaygain_gains(RbDsp *p, float track_gain_db,
+                                       float album_gain_db, float track_peak,
+                                       float album_peak);
+    void   rb_dsp_set_replaygain_gains_raw(RbDsp *p, int64_t track_gain,
+                                           int64_t album_gain, int64_t track_peak,
+                                           int64_t album_peak);
+    void   rb_dsp_set_eq_band(RbDsp *p, size_t band, int32_t cutoff_hz, float q,
+                              float gain_db);
+    void   rb_dsp_set_eq_precut(RbDsp *p, float db);
+    int16_t *rb_dsp_process(RbDsp *p, const int16_t *input, size_t in_len,
+                            size_t *out_len);
+
+    char *rb_meta_read_json(const char *path);
+    char *rb_meta_probe(const char *filename);
+
+    RbPlayer *rb_player_new(void);
+    RbPlayer *rb_player_new_with_config(uint32_t sample_rate, float buffer_seconds,
+                                        float volume, int32_t rg_mode,
+                                        float rg_preamp_db, bool rg_prevent_clipping,
+                                        int32_t xfade_mode, uint32_t fo_delay_ms,
+                                        uint32_t fo_dur_ms, uint32_t fi_delay_ms,
+                                        uint32_t fi_dur_ms, int32_t mix_mode);
+    void  rb_player_free(RbPlayer *p);
+    void  rb_player_set_queue_json(RbPlayer *p, const char *json);
+    void  rb_player_enqueue(RbPlayer *p, const char *path);
+    void  rb_player_play(RbPlayer *p);
+    void  rb_player_pause(RbPlayer *p);
+    void  rb_player_toggle(RbPlayer *p);
+    void  rb_player_stop(RbPlayer *p);
+    void  rb_player_next(RbPlayer *p);
+    void  rb_player_previous(RbPlayer *p);
+    void  rb_player_skip_to(RbPlayer *p, size_t index);
+    void  rb_player_seek_ms(RbPlayer *p, uint64_t ms);
+    void  rb_player_set_volume(RbPlayer *p, float vol);
+    void  rb_player_set_crossfade(RbPlayer *p, int32_t mode, uint32_t fo_delay_ms,
+                                  uint32_t fo_dur_ms, uint32_t fi_delay_ms,
+                                  uint32_t fi_dur_ms, int32_t mix_mode);
+    void  rb_player_set_replaygain(RbPlayer *p, int32_t mode, float preamp_db,
+                                   bool prevent_clipping);
+    float    rb_player_volume(RbPlayer *p);
+    uint32_t rb_player_sample_rate(RbPlayer *p);
+    char    *rb_player_status_json(RbPlayer *p);
+    """
+)
+
+
+def _candidate_paths() -> list[Path]:
+    names = ["librockbox_ffi.dylib", "librockbox_ffi.so", "rockbox_ffi.dll"]
+    paths: list[Path] = []
+
+    env = os.environ.get("ROCKBOX_FFI_LIB")
+    if env:
+        paths.append(Path(env))
+
+    # Walk up from this file looking for target/release (repo checkout).
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        rel = parent / "target" / "release"
+        if rel.is_dir():
+            for name in names:
+                paths.append(rel / name)
+    return paths
+
+
+def _load():
+    tried: list[str] = []
+    for path in _candidate_paths():
+        tried.append(str(path))
+        if path.exists():
+            return ffi.dlopen(str(path))
+    raise OSError(
+        "could not locate librockbox_ffi shared library. Set ROCKBOX_FFI_LIB "
+        "or run `cargo build --release -p rockbox-ffi`. Tried:\n  "
+        + "\n  ".join(tried)
+    )
+
+
+lib = _load()
+
+
+def take_string(ptr) -> str | None:
+    """Copy a heap C string returned by the ABI into a str, then free it.
+
+    Returns ``None`` for a NULL pointer (the ABI's error/absent signal).
+    """
+    if ptr == ffi.NULL:
+        return None
+    try:
+        return ffi.string(ptr).decode("utf-8", "replace")
+    finally:
+        lib.rb_string_free(ptr)

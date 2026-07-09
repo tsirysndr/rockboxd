@@ -1,0 +1,17 @@
+name = "rockbox_ffi"
+version = "0.1.0"
+target = "erlang"
+licences = ["GPL-2.0-or-later"]
+description = "Gleam bindings for the Rockbox DSP / metadata / playback engine"
+
+# The native NIF (c_src/rockbox_ffi_nif.c) is compiled into priv/ by the
+# Makefile; run `make` before `gleam test`. The Erlang loader
+# src/rockbox_ffi_nif.erl is compiled by Gleam automatically.
+
+# JSON is decoded via OTP 27+'s built-in `json` module (through an FFI) plus
+# gleam/dynamic/decode — no gleam_json dependency.
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"

@@ -1,0 +1,50 @@
+{
+  "name": "rockbox-ffi",
+  "version": "0.1.0",
+  "description": "TypeScript bindings (Bun + Deno + Node.js FFI) for the Rockbox DSP / metadata / playback engine",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bun": {
+      "types": "./dist/bun.d.ts",
+      "import": "./dist/bun.js"
+    },
+    "./deno": {
+      "types": "./dist/deno.d.ts",
+      "import": "./dist/deno.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "prepublishOnly": "bun run build",
+    "smoke:bun": "bun run examples/smoke.bun.ts",
+    "smoke:deno": "deno run --allow-ffi --allow-read --allow-env examples/smoke.deno.ts",
+    "smoke:node": "tsx examples/smoke.node.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

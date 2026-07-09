@@ -1,0 +1,22 @@
+[package]
+name = "rockbox-ffi"
+version = "0.1.0"
+description = "Flat C ABI over rockbox-dsp + rockbox-metadata + rockbox-playback, for language bindings (Python, TypeScript, Elixir, Gleam, …)"
+authors = { workspace = true }
+edition = { workspace = true }
+license = "GPL-2.0-or-later"
+repository = { workspace = true }
+readme = "README.md"
+keywords = ["ffi", "audio", "dsp", "metadata", "rockbox"]
+categories = ["multimedia::audio", "external-ffi-bindings"]
+
+[lib]
+# staticlib: for embedding; cdylib: for dlopen from Python/TS/BEAM NIFs.
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+rockbox-dsp = { version = "0.2.0", path = "../rockbox-dsp" }
+rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
+rockbox-playback = { version = "0.1.0", path = "../rockbox-playback" }
+serde = { workspace = true }
+serde_json = { workspace = true }

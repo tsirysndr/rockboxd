@@ -1,0 +1,15 @@
+{
+  "name": "rockbox-ffi",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./deno": "./src/deno.ts"
+  },
+  "tasks": {
+    "smoke": "deno run --allow-ffi --allow-read --allow-env examples/smoke.deno.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.ns", "esnext"]
+  },
+  "lint": { "rules": { "tags": ["recommended"] } }
+}
