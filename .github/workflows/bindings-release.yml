@@ -211,6 +211,10 @@ jobs:
           declare -A TAG=(
             [darwin-arm64]=macosx_11_0_arm64
             [darwin-x64]=macosx_10_12_x86_64
+            # linux-arm64 is a foreign arch on this x86_64 runner, so auditwheel
+            # can't repair it — re-tag it like macOS/BSD (matches the manylinux
+            # tag auditwheel gives the x86_64 wheel). libasound isn't vendored.
+            [linux-arm64]=manylinux_2_38_aarch64
             [freebsd-x64]=freebsd_13_amd64
             [netbsd-x64]=netbsd_10_amd64
           )
@@ -223,12 +227,14 @@ jobs:
             cp "$src" src/rockbox_ffi/_lib/
             python -m build --wheel --outdir dist
             case "$target" in
-              linux-*)
+              linux-x64)
                 # auditwheel sets the manylinux tag. libasound is treated as an
                 # external system dependency (--exclude): it can't be vendored
                 # cross-arch on a single-arch runner, and a bundled libasound
                 # can't reliably dlopen the system's ALSA plugins anyway.
                 # Linux users need the libasound2 system package at runtime.
+                # Only the native (x86_64) wheel goes through auditwheel; the
+                # aarch64 wheel is re-tagged below (auditwheel can't cross-repair).
                 auditwheel repair --exclude libasound.so.2 --wheel-dir wheelhouse dist/*.whl
                 ;;
               *)
