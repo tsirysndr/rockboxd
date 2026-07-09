@@ -68,7 +68,13 @@ pub extern "C" fn rb_dsp_set_tone_cutoffs(p: *mut Dsp, bass_hz: i32, treble_hz: 
 /// Haas surround: `delay_ms > 0` enables the stage; `balance` in percent;
 /// `fx1`/`fx2` are band-split cutoffs in Hz (0/0 = keep defaults).
 #[no_mangle]
-pub extern "C" fn rb_dsp_set_surround(p: *mut Dsp, delay_ms: i32, balance: i32, fx1: i32, fx2: i32) {
+pub extern "C" fn rb_dsp_set_surround(
+    p: *mut Dsp,
+    delay_ms: i32,
+    balance: i32,
+    fx1: i32,
+    fx2: i32,
+) {
     dsp!(p).set_surround(delay_ms, balance, fx1, fx2);
 }
 
@@ -155,7 +161,13 @@ pub extern "C" fn rb_dsp_set_replaygain_gains_raw(
 /// Configure one EQ band (0..=9). Band 0 is a low shelf, band 9 a high
 /// shelf, the rest peaking. `q`/`gain_db` in plain units.
 #[no_mangle]
-pub extern "C" fn rb_dsp_set_eq_band(p: *mut Dsp, band: usize, cutoff_hz: i32, q: f32, gain_db: f32) {
+pub extern "C" fn rb_dsp_set_eq_band(
+    p: *mut Dsp,
+    band: usize,
+    cutoff_hz: i32,
+    q: f32,
+    gain_db: f32,
+) {
     if band >= rockbox_dsp::EQ_NUM_BANDS {
         return;
     }

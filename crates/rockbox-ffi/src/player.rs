@@ -198,7 +198,12 @@ pub extern "C" fn rb_player_set_crossfade(
     mix: i32,
 ) {
     player!(p).set_crossfade(crossfade(
-        mode, fo_delay_ms, fo_dur_ms, fi_delay_ms, fi_dur_ms, mix,
+        mode,
+        fo_delay_ms,
+        fo_dur_ms,
+        fi_delay_ms,
+        fi_dur_ms,
+        mix,
     ));
 }
 /// Configure ReplayGain: mode (0 off, 1 track, 2 album), preamp in dB, and
