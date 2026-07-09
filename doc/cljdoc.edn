@@ -1,3 +1,3 @@
 {:cljdoc.doc/tree
- [["Readme"   {:file "sdk/clojure/README.md"}]
-  ["Examples" {:file "sdk/clojure/examples/README.md"}]]}
+ [["Readme"   {:file "bindings/clojure/README.md"}]
+  ["Examples" {:file "bindings/clojure/examples/README.md"}]]}

@@ -77,11 +77,14 @@
                           "rockbox-ffi`. Tried:\n  " (str/join "\n  " tried))
                      {:tried (vec tried)})))))
 
-(def ^:private linker (Linker/nativeLinker))
+;; Lazy: even Linker/nativeLinker is a Foreign-API call, kept out of ns load so
+;; requiring this namespace does no FFM work (cljdoc analysis, older JDKs).
+(def ^:private linker (delay (Linker/nativeLinker)))
 
 ;; The library outlives every call, so it lives in the global arena (never
-;; unloaded). The lookup is created once, process-wide.
-(def ^:private lookup (SymbolLookup/libraryLookup (locate-lib) (Arena/global)))
+;; unloaded). Loaded lazily on first FFI use — merely `require`-ing this
+;; namespace (e.g. for cljdoc doc analysis) must NOT touch native code.
+(def ^:private lookup (delay (SymbolLookup/libraryLookup (locate-lib) (Arena/global))))
 
 (defn- fd-of ^FunctionDescriptor [ret args]
   (FunctionDescriptor/of ret (into-array MemoryLayout args)))
@@ -90,13 +93,16 @@
   (FunctionDescriptor/ofVoid (into-array MemoryLayout args)))
 
 (defn- dc ^MethodHandle [^String name ^FunctionDescriptor fd]
-  (let [sym (-> lookup (.find name)
+  (let [sym (-> @lookup (.find name)
                 (.orElseThrow (reify java.util.function.Supplier
                                 (get [_] (ex-info (str "symbol " name " not found in librockbox_ffi") {})))))]
-    (.downcallHandle linker sym fd (make-array Linker$Option 0))))
+    (.downcallHandle @linker sym fd (make-array Linker$Option 0))))
 
+;; Bound lazily (a delay): the downcall handles are built on first FFI call,
+;; not at namespace load, so requiring this ns never dlopens the library.
 (def ^:private handles
-  {;; ---- deallocators / version ----
+  (delay
+   {;; ---- deallocators / version ----
    :abi-version                (dc "rb_ffi_abi_version" (fd-of I32 []))
    :string-free                (dc "rb_string_free" (fd-void [PTR]))
    :buffer-free                (dc "rb_buffer_free" (fd-void [PTR I64]))
@@ -141,14 +147,14 @@
    :player-set-replaygain      (dc "rb_player_set_replaygain" (fd-void [PTR I32 F32 BOOL]))
    :player-volume              (dc "rb_player_volume" (fd-of F32 [PTR]))
    :player-sample-rate         (dc "rb_player_sample_rate" (fd-of I32 [PTR]))
-   :player-status-json         (dc "rb_player_status_json" (fd-of PTR [PTR]))})
+   :player-status-json         (dc "rb_player_status_json" (fd-of PTR [PTR]))}))
 
 (defn call
   "Invoke the C function bound to `k`. Args must already be the right JVM type
   (use int/long/float/boolean/MemorySegment at the call site — the ABI does no
   narrowing). Returns the boxed result, or nil for void functions."
   [k & args]
-  (.invokeWithArguments ^MethodHandle (get handles k) (to-array args)))
+  (.invokeWithArguments ^MethodHandle (get @handles k) (to-array args)))
 
 (defn take-string
   "Copy a heap C string returned by the ABI into a String, then free it.
