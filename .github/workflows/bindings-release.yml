@@ -17,7 +17,7 @@ on:
       tag:
         description: "Release tag to create / upload assets to"
         required: true
-        default: "bindings-v0.1.0"
+        default: "bindings-v0.1.1"
   push:
     tags:
       - "bindings-v*"
@@ -26,7 +26,8 @@ permissions:
   contents: read
 
 env:
-  # Bump together with the versions in each binding's manifest.
+  # Ruby gem version (drives the .gem filenames). Python and npm carry their
+  # own versions in their manifests — the Ruby gem intentionally lags at 0.1.0.
   BINDING_VERSION: "0.1.0"
 
 jobs:

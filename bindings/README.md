@@ -104,3 +104,37 @@ upload` / `npm publish` them manually when ready.
 - **Linux** needs the system **`libasound2`** (ALSA) package at runtime — the
   shared lib links it and it is not vendored (`auditwheel --exclude`), because
   a bundled libasound can't reliably load the system's ALSA plugins.
+
+### Publishing
+
+The CI already builds and tests every package (gems, wheels + sdist, npm
+tarballs — each with the lib bundled) and attaches them to the release. To push
+those exact artifacts to the registries, authenticate and run the per-ecosystem
+scripts (each downloads from the release, then publishes):
+
+```sh
+# authenticate first: gem signin · twine (~/.pypirc) · npm login
+bindings/scripts/publish-ruby.sh   --tag bindings-v0.1.0   # -> RubyGems
+bindings/scripts/publish-python.sh --tag bindings-v0.1.1   # -> PyPI
+bindings/scripts/publish-npm.sh    --tag bindings-v0.1.1   # -> npmjs
+```
+
+Each accepts `--tag <tag>` (default: latest `bindings-v*`), `--repo
+<owner/repo>` (default: the `origin` remote), and `--dry-run` (download + print
+the push commands without running them). npm publishes the `@rockbox-ffi/*`
+platform packages before the main package; PyPI uploads the macOS + manylinux
+wheels and sdist, then the BSD wheels best-effort (Warehouse may reject their
+platform tag — those users fall back to the sdist).
+
+### Building locally instead
+
+To build the packages yourself rather than publish CI's artifacts,
+[`scripts/fetch-libs.sh`](scripts/fetch-libs.sh) stages the prebuilt libs from a
+release into each binding's bundled location, ready to `gem build` /
+`python -m build` / `npm pack`:
+
+```sh
+bindings/scripts/fetch-libs.sh                 # host lib -> all three bindings
+bindings/scripts/fetch-libs.sh --all           # every target -> typescript/npm/*
+bindings/scripts/fetch-libs.sh --target linux-x64 --tag bindings-v0.1.1
+```
