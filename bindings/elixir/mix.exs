@@ -14,14 +14,34 @@ defmodule RockboxFfi.MixProject do
       erlc_paths: ["src"],
       deps: deps(),
       description: "Elixir bindings for the Rockbox DSP / metadata / playback engine",
-      package: package()
+      package: package(),
+      name: "rockbox_ex_ffi",
+      source_url: "https://github.com/tsirysndr/rockboxd",
+      docs: docs()
     ]
   end
 
   def application, do: [extra_applications: [:crypto]]
 
   defp deps do
-    [{:elixir_make, "~> 0.8", runtime: false}]
+    [
+      {:elixir_make, "~> 0.8", runtime: false},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md"],
+      source_url: "https://github.com/tsirysndr/rockboxd",
+      groups_for_modules: [
+        Core: [Rockbox],
+        Metadata: [Rockbox.Metadata],
+        DSP: [Rockbox.Dsp],
+        Playback: [Rockbox.Player]
+      ]
+    ]
   end
 
   defp package do

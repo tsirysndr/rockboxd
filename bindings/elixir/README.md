@@ -25,6 +25,14 @@ mix test
 
 Requires OTP 27+ (uses the built-in `:json` module — no `jason` dependency).
 
+Generate the API docs locally with [ExDoc](https://hexdocs.pm/ex_doc/):
+
+```sh
+mix docs        # -> doc/index.html
+```
+
+Published docs live at <https://hexdocs.pm/rockbox_ex_ffi/>.
+
 ## Usage
 
 ```elixir
