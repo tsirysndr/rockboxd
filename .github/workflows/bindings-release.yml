@@ -192,6 +192,11 @@ jobs:
         with:
           path: artifacts
 
+      - name: Install ALSA runtime (auditwheel vendors libasound into Linux wheels)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+
       - name: Install build tooling
         run: pip install build wheel auditwheel patchelf
 
