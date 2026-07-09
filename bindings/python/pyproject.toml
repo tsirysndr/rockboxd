@@ -30,3 +30,8 @@ path = "hatch_build.py"
 [tool.hatch.build.targets.sdist]
 # Ship the build hook so wheels built from the sdist are tagged correctly too.
 include = ["src", "examples", "console.py", "hatch_build.py", "README.md"]
+
+[dependency-groups]
+dev = [
+    "ipython>=8.18.1",
+]
