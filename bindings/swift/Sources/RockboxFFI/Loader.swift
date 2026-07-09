@@ -1,0 +1,240 @@
+// Runtime loader for the prebuilt librockbox_ffi shared library.
+//
+// Nothing is linked at build time: the library is `dlopen`ed and every
+// function is `dlsym`ed into a typed `@convention(c)` closure. This mirrors
+// include/rockbox_ffi.h — keep the signatures in sync with the C ABI.
+
+import Foundation
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
+/// Errors thrown by the bindings.
+public enum RockboxError: Error, CustomStringConvertible {
+    case libraryNotFound(tried: [String])
+    case symbolNotFound(String)
+    case nullReturn(String)
+    case invalidInput(String)
+
+    public var description: String {
+        switch self {
+        case .libraryNotFound(let tried):
+            return "could not locate librockbox_ffi shared library. Set "
+                + "ROCKBOX_FFI_LIB or run `cargo build --release -p rockbox-ffi`. "
+                + "Tried:\n  " + tried.joined(separator: "\n  ")
+        case .symbolNotFound(let name):
+            return "symbol \(name) not found in librockbox_ffi"
+        case .nullReturn(let fn):
+            return "\(fn) returned NULL"
+        case .invalidInput(let msg):
+            return msg
+        }
+    }
+}
+
+// C ABI function-pointer types (see include/rockbox_ffi.h).
+typealias FnAbiVersion = @convention(c) () -> UInt32
+typealias FnStringFree = @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
+typealias FnBufferFree = @convention(c) (UnsafeMutablePointer<Int16>?, Int) -> Void
+
+typealias FnDspNew = @convention(c) (UInt32) -> OpaquePointer?
+typealias FnDspFree = @convention(c) (OpaquePointer?) -> Void
+typealias FnDspSetU32 = @convention(c) (OpaquePointer?, UInt32) -> Void
+typealias FnDspVoid = @convention(c) (OpaquePointer?) -> Void
+typealias FnDspBool = @convention(c) (OpaquePointer?, Bool) -> Void
+typealias FnDspI2 = @convention(c) (OpaquePointer?, Int32, Int32) -> Void
+typealias FnDspI4 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32) -> Void
+typealias FnDspI1 = @convention(c) (OpaquePointer?, Int32) -> Void
+typealias FnDspI6 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32, Int32, Int32) -> Void
+typealias FnDspRg = @convention(c) (OpaquePointer?, Int32, Bool, Float) -> Void
+typealias FnDspRgGains = @convention(c) (OpaquePointer?, Float, Float, Float, Float) -> Void
+typealias FnDspRgGainsRaw = @convention(c) (OpaquePointer?, Int64, Int64, Int64, Int64) -> Void
+typealias FnDspEqBand = @convention(c) (OpaquePointer?, Int, Int32, Float, Float) -> Void
+typealias FnDspEqPrecut = @convention(c) (OpaquePointer?, Float) -> Void
+typealias FnDspProcess = @convention(c) (OpaquePointer?, UnsafePointer<Int16>?, Int, UnsafeMutablePointer<Int>?) -> UnsafeMutablePointer<Int16>?
+
+typealias FnMetaFn = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
+
+typealias FnPlayerNew = @convention(c) () -> OpaquePointer?
+typealias FnPlayerNewCfg = @convention(c) (UInt32, Float, Float, Int32, Float, Bool, Int32, UInt32, UInt32, UInt32, UInt32, Int32) -> OpaquePointer?
+typealias FnPlayerFree = @convention(c) (OpaquePointer?) -> Void
+typealias FnPlayerStr = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> Void
+typealias FnPlayerVoid = @convention(c) (OpaquePointer?) -> Void
+typealias FnPlayerSize = @convention(c) (OpaquePointer?, Int) -> Void
+typealias FnPlayerU64 = @convention(c) (OpaquePointer?, UInt64) -> Void
+typealias FnPlayerF = @convention(c) (OpaquePointer?, Float) -> Void
+typealias FnPlayerXfade = @convention(c) (OpaquePointer?, Int32, UInt32, UInt32, UInt32, UInt32, Int32) -> Void
+typealias FnPlayerRg = @convention(c) (OpaquePointer?, Int32, Float, Bool) -> Void
+typealias FnPlayerVolume = @convention(c) (OpaquePointer?) -> Float
+typealias FnPlayerRate = @convention(c) (OpaquePointer?) -> UInt32
+typealias FnPlayerStatus = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+
+/// Loaded once, shared process-wide. A missing native library is a fatal
+/// setup error (matching how the other bindings abort on load failure).
+final class Lib {
+    static let shared: Lib = {
+        do { return try Lib() }
+        catch { fatalError("\(error)") }
+    }()
+
+    private let handle: UnsafeMutableRawPointer
+
+    // Deallocators
+    let abiVersion: FnAbiVersion
+    let stringFree: FnStringFree
+    let bufferFree: FnBufferFree
+
+    // DSP
+    let dspNew: FnDspNew
+    let dspFree: FnDspFree
+    let dspSetInputFrequency: FnDspSetU32
+    let dspFlush: FnDspVoid
+    let dspEqEnable: FnDspBool
+    let dspSetTone: FnDspI2
+    let dspSetToneCutoffs: FnDspI2
+    let dspSetSurround: FnDspI4
+    let dspSetChannelConfig: FnDspI1
+    let dspSetStereoWidth: FnDspI1
+    let dspSetCompressor: FnDspI6
+    let dspSetReplaygain: FnDspRg
+    let dspSetReplaygainGains: FnDspRgGains
+    let dspSetReplaygainGainsRaw: FnDspRgGainsRaw
+    let dspSetEqBand: FnDspEqBand
+    let dspSetEqPrecut: FnDspEqPrecut
+    let dspProcess: FnDspProcess
+
+    // metadata
+    let metaReadJson: FnMetaFn
+    let metaProbe: FnMetaFn
+
+    // player
+    let playerNew: FnPlayerNew
+    let playerNewWithConfig: FnPlayerNewCfg
+    let playerFree: FnPlayerFree
+    let playerSetQueueJson: FnPlayerStr
+    let playerEnqueue: FnPlayerStr
+    let playerPlay: FnPlayerVoid
+    let playerPause: FnPlayerVoid
+    let playerToggle: FnPlayerVoid
+    let playerStop: FnPlayerVoid
+    let playerNext: FnPlayerVoid
+    let playerPrevious: FnPlayerVoid
+    let playerSkipTo: FnPlayerSize
+    let playerSeekMs: FnPlayerU64
+    let playerSetVolume: FnPlayerF
+    let playerSetCrossfade: FnPlayerXfade
+    let playerSetReplaygain: FnPlayerRg
+    let playerVolume: FnPlayerVolume
+    let playerSampleRate: FnPlayerRate
+    let playerStatusJson: FnPlayerStatus
+
+    private init() throws {
+        let (h, _) = try Lib.open()
+        handle = h
+
+        // Capture `h` locally so the loader doesn't touch `self` before every
+        // stored property is initialized (Swift definite-initialization).
+        func sym<T>(_ name: String, _ type: T.Type) throws -> T {
+            guard let s = dlsym(h, name) else { throw RockboxError.symbolNotFound(name) }
+            return unsafeBitCast(s, to: T.self)
+        }
+
+        abiVersion = try sym("rb_ffi_abi_version", FnAbiVersion.self)
+        stringFree = try sym("rb_string_free", FnStringFree.self)
+        bufferFree = try sym("rb_buffer_free", FnBufferFree.self)
+
+        dspNew = try sym("rb_dsp_new", FnDspNew.self)
+        dspFree = try sym("rb_dsp_free", FnDspFree.self)
+        dspSetInputFrequency = try sym("rb_dsp_set_input_frequency", FnDspSetU32.self)
+        dspFlush = try sym("rb_dsp_flush", FnDspVoid.self)
+        dspEqEnable = try sym("rb_dsp_eq_enable", FnDspBool.self)
+        dspSetTone = try sym("rb_dsp_set_tone", FnDspI2.self)
+        dspSetToneCutoffs = try sym("rb_dsp_set_tone_cutoffs", FnDspI2.self)
+        dspSetSurround = try sym("rb_dsp_set_surround", FnDspI4.self)
+        dspSetChannelConfig = try sym("rb_dsp_set_channel_config", FnDspI1.self)
+        dspSetStereoWidth = try sym("rb_dsp_set_stereo_width", FnDspI1.self)
+        dspSetCompressor = try sym("rb_dsp_set_compressor", FnDspI6.self)
+        dspSetReplaygain = try sym("rb_dsp_set_replaygain", FnDspRg.self)
+        dspSetReplaygainGains = try sym("rb_dsp_set_replaygain_gains", FnDspRgGains.self)
+        dspSetReplaygainGainsRaw = try sym("rb_dsp_set_replaygain_gains_raw", FnDspRgGainsRaw.self)
+        dspSetEqBand = try sym("rb_dsp_set_eq_band", FnDspEqBand.self)
+        dspSetEqPrecut = try sym("rb_dsp_set_eq_precut", FnDspEqPrecut.self)
+        dspProcess = try sym("rb_dsp_process", FnDspProcess.self)
+
+        metaReadJson = try sym("rb_meta_read_json", FnMetaFn.self)
+        metaProbe = try sym("rb_meta_probe", FnMetaFn.self)
+
+        playerNew = try sym("rb_player_new", FnPlayerNew.self)
+        playerNewWithConfig = try sym("rb_player_new_with_config", FnPlayerNewCfg.self)
+        playerFree = try sym("rb_player_free", FnPlayerFree.self)
+        playerSetQueueJson = try sym("rb_player_set_queue_json", FnPlayerStr.self)
+        playerEnqueue = try sym("rb_player_enqueue", FnPlayerStr.self)
+        playerPlay = try sym("rb_player_play", FnPlayerVoid.self)
+        playerPause = try sym("rb_player_pause", FnPlayerVoid.self)
+        playerToggle = try sym("rb_player_toggle", FnPlayerVoid.self)
+        playerStop = try sym("rb_player_stop", FnPlayerVoid.self)
+        playerNext = try sym("rb_player_next", FnPlayerVoid.self)
+        playerPrevious = try sym("rb_player_previous", FnPlayerVoid.self)
+        playerSkipTo = try sym("rb_player_skip_to", FnPlayerSize.self)
+        playerSeekMs = try sym("rb_player_seek_ms", FnPlayerU64.self)
+        playerSetVolume = try sym("rb_player_set_volume", FnPlayerF.self)
+        playerSetCrossfade = try sym("rb_player_set_crossfade", FnPlayerXfade.self)
+        playerSetReplaygain = try sym("rb_player_set_replaygain", FnPlayerRg.self)
+        playerVolume = try sym("rb_player_volume", FnPlayerVolume.self)
+        playerSampleRate = try sym("rb_player_sample_rate", FnPlayerRate.self)
+        playerStatusJson = try sym("rb_player_status_json", FnPlayerStatus.self)
+    }
+
+    /// Copy a heap C string returned by the ABI into a String, then free it.
+    /// Returns nil for a NULL pointer (the ABI's error/absent signal).
+    func takeString(_ ptr: UnsafeMutablePointer<CChar>?) -> String? {
+        guard let ptr = ptr else { return nil }
+        defer { stringFree(ptr) }
+        return String(cString: ptr)
+    }
+
+    // MARK: - library location
+
+    /// Locate and dlopen the shared library. Precedence:
+    ///   1. ROCKBOX_FFI_LIB env var (explicit override)
+    ///   2. bundled next to the package (published distributions)
+    ///   3. target/release, walking up from this source file / cwd
+    private static func open() throws -> (UnsafeMutableRawPointer, String) {
+        var tried: [String] = []
+        let names = ["librockbox_ffi.dylib", "librockbox_ffi.so"]
+
+        func attempt(_ path: String) -> UnsafeMutableRawPointer? {
+            tried.append(path)
+            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            return dlopen(path, RTLD_NOW)
+        }
+
+        if let env = ProcessInfo.processInfo.environment["ROCKBOX_FFI_LIB"] {
+            if let h = attempt(env) { return (h, env) }
+        }
+
+        var dirs: [String] = []
+        // Walk up from this source file (repo checkout) and from the cwd.
+        for base in [URL(fileURLWithPath: #filePath).deletingLastPathComponent().path,
+                     FileManager.default.currentDirectoryPath] {
+            var dir = URL(fileURLWithPath: base)
+            while true {
+                dirs.append(dir.appendingPathComponent("target/release").path)
+                dirs.append(dir.appendingPathComponent("Libs").path) // bundled
+                let parent = dir.deletingLastPathComponent()
+                if parent.path == dir.path { break }
+                dir = parent
+            }
+        }
+        for d in dirs {
+            for name in names {
+                if let h = attempt("\(d)/\(name)") { return (h, "\(d)/\(name)") }
+            }
+        }
+
+        throw RockboxError.libraryNotFound(tried: tried)
+    }
+}

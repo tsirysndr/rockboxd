@@ -1,0 +1,6 @@
+# Pin the JDK + Clojure CLI for the Clojure binding. The Java Foreign Function
+# & Memory API (JEP 454) is stable from JDK 22 on; Temurin 25 is the current
+# LTS. Clojure calls the FFM API through Java interop.
+[tools]
+java = "temurin-25"
+clojure = "1.12"

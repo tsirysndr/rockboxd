@@ -1,0 +1,4 @@
+# Pin the JDK for the Kotlin binding. The Java Foreign Function & Memory API
+# (JEP 454) is stable from JDK 22 on; Temurin 25 is the current LTS.
+[tools]
+java = "temurin-25"

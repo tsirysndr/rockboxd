@@ -5,6 +5,9 @@
 ![Elixir](https://img.shields.io/badge/Elixir-erl__nif-4B275F?logo=elixir&logoColor=white)
 ![Gleam](https://img.shields.io/badge/Gleam-erl__nif-FFAFF3?logo=gleam&logoColor=white)
 ![Ruby](https://img.shields.io/badge/Ruby-fiddle-CC342D?logo=ruby&logoColor=white)
+![Swift](https://img.shields.io/badge/Swift-dlopen-F05138?logo=swift&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-Java%20FFM-7F52FF?logo=kotlin&logoColor=white)
+![Clojure](https://img.shields.io/badge/Clojure-Java%20FFM-5881D8?logo=clojure&logoColor=white)
 ![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 
 Bindings for the Rockbox **DSP**, **metadata**, and **playback** engine in
@@ -16,10 +19,10 @@ surface is declared in [`include/rockbox_ffi.h`](../include/rockbox_ffi.h).
                  crates/rockbox-ffi  (cdylib + staticlib)
              rb_dsp_* / rb_meta_* / rb_player_*   ← include/rockbox_ffi.h
                                    │
-   ┌───────────┬───────────┬───────┼───────┬──────────┬───────────────┐
- Python    TypeScript   Elixir     Gleam    Ruby      (your language)
- (cffi)  (Bun/Deno/Node) (erl_nif)─(erl_nif)(fiddle)      C FFI
-                           └─ shared rockbox_ffi_nif.{c,erl} ─┘
+   ┌────────┬──────────┬────────┬───────┬───────┬───────┬────────┬────────┐
+ Python TypeScript  Elixir   Gleam  Ruby   Swift  Kotlin  Clojure
+ (cffi) (Bun/Deno/  (erl_nif)─(erl_nif)(fiddle)(dlopen)(Java FFM)(Java FFM)
+          Node)        └─ shared rockbox_ffi_nif.{c,erl} ─┘
 ```
 
 Build the shared library once from the repo root:
@@ -38,6 +41,9 @@ cargo build --release -p rockbox-ffi
 | Elixir         | [`elixir/`](elixir)            | `erl_nif` (shared)            | `mix test`                                        |
 | Gleam          | [`gleam/`](gleam)              | `erl_nif` (shared)            | `make && gleam test`                              |
 | Ruby           | [`ruby/`](ruby)                | `fiddle` (dlopen)             | `ruby -Ilib examples/smoke.rb`                    |
+| Swift          | [`swift/`](swift)              | `dlopen` (pure Swift)         | `swift run rockbox-ffi-smoke`                     |
+| Kotlin         | [`kotlin/`](kotlin)            | Java FFM (Panama, JDK 22+)    | `mise exec -- gradle smoke`                       |
+| Clojure        | [`clojure/`](clojure)          | Java FFM (Panama, JDK 22+)    | `mise exec -- clojure -M:smoke`                   |
 
 Each binding exposes the same three surfaces with matching method names:
 
@@ -72,10 +78,17 @@ the whole native pipeline works through that language's FFI.
 
 ## Prebuilt binaries & releasing
 
-The dynamic bindings (Python / TypeScript / Ruby) `dlopen` the shared library
-at runtime. For **published** packages the matching prebuilt binary is bundled
-so users install without a Rust toolchain; from a repo checkout the loaders
-fall back to `target/release` (or `ROCKBOX_FFI_LIB`).
+Every binding loads the shared library at runtime — Python / TypeScript / Ruby
+/ Swift via `dlopen`, Kotlin / Clojure via the JVM's Foreign Function & Memory
+API (`SymbolLookup.libraryLookup`). For **published** packages the matching
+prebuilt binary is bundled so users install without a Rust toolchain; from a
+repo checkout the loaders fall back to `target/release` (or `ROCKBOX_FFI_LIB`).
+
+The two **JVM** bindings need a JDK with a stable FFM API (**JDK 22+**); both
+ship a [`mise.toml`](https://mise.jdx.dev) pinning Temurin 25 (and, for
+Clojure, the Clojure CLI), so `mise install` provisions the exact toolchain.
+FFM's restricted native calls are granted with `--enable-native-access=ALL-UNNAMED`
+(wired into the Gradle tasks / `deps.edn` aliases).
 
 The [`bindings-release`](../.github/workflows/bindings-release.yml) workflow
 (**manually triggerable** with a tag input, or on a `bindings-v*` tag) builds

@@ -1,0 +1,11 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+        org.clojure/data.json {:mvn/version "2.5.1"}}
+
+ ;; FFM's restricted native methods require an explicit grant on JDK 25 (else a
+ ;; warning is printed on first call and a hard error in a future release).
+ :aliases
+ {:smoke {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+          :main-opts ["-m" "rockbox.smoke"]}
+  :play  {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+          :main-opts ["-m" "rockbox.play"]}}}
