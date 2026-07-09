@@ -26,8 +26,14 @@
 ;; This binding lives in a subdirectory of a monorepo. Point the Clojars
 ;; "Homepage" link and cljdoc at bindings/clojure so they render THIS README —
 ;; not the repo-root one. cljdoc reads the project dir from the <scm> url.
+;;
+;; Release marker tag is `clojure-ffi-v<version>` — distinct from the SDK's
+;; `clojure-v*` and the shared `bindings-v*`. Set ROCKBOX_SCM_TAG to that at
+;; release time so cljdoc/source links resolve to the tagged tree; SNAPSHOT
+;; builds default to the `master` branch.
 (def repo-url "https://github.com/tsirysndr/rockboxd")
-(def project-url (str repo-url "/tree/master/bindings/clojure"))
+(def scm-tag (or (System/getenv "ROCKBOX_SCM_TAG") "master"))
+(def project-url (str repo-url "/tree/" scm-tag "/bindings/clojure"))
 (def class-dir "target/classes")
 (def basis (delay (b/create-basis {:project "deps.edn"})))
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
@@ -50,7 +56,7 @@
     :scm {:url project-url
           :connection "scm:git:git://github.com/tsirysndr/rockboxd.git"
           :developerConnection "scm:git:ssh://git@github.com/tsirysndr/rockboxd.git"
-          :tag "master"}
+          :tag scm-tag}
     :pom-data [[:description
                 (str "Clojure bindings for the Rockbox DSP, metadata, and playback "
                      "engine (Java FFM over the shared rockbox-ffi C ABI).")]

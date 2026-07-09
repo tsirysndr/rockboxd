@@ -118,5 +118,7 @@ This repo also publishes a separate gRPC SDK, `org.clojars.tsiry/rockbox-clj`
   `bindings/clojure/`, and the pom `<url>`/`<scm>` point at this subdirectory,
   so Clojars' Homepage link and cljdoc both render *this* README — never the
   root one.
-- **Release tags** — the SDK uses `clojure-v*`; keep these bindings on
-  `bindings-v*`.
+- **Release tags** — the SDK uses `clojure-v*`; this binding releases under its
+  own `clojure-ffi-v*` tag. (Its prebuilt native libs are a separate concern —
+  they still come from the shared `bindings-v*` GitHub release via
+  `fetch-libs.sh`.)
