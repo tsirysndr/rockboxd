@@ -8,4 +8,9 @@ Rake::TestTask.new(:test) do |t|
   t.warning = false
 end
 
+desc "Open an IRB console with the binding preloaded"
+task :console do
+  sh File.expand_path("bin/console", __dir__)
+end
+
 task default: :test

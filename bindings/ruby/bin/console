@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Interactive IRB console with the Ruby binding preloaded.
+#   ./bin/console         (or: rake console)
+#
+# Loads RockboxFFI and points FIXTURE at a bundled sample track so you can
+# poke at Metadata / Dsp / Player straight away.
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "rockbox_ffi"
+require "irb"
+
+REPO = File.expand_path("../../..", __dir__)
+FIXTURE = File.join(
+  REPO, "crates", "rocksky", "fixtures", "08 - Internet Money - Speak(Explicit).m4a"
+)
+
+puts "rockbox_ffi #{RockboxFFI::VERSION} — ABI #{RockboxFFI.abi_version}"
+puts "Loaded RockboxFFI (Metadata, Dsp, Player + enums). FIXTURE = a sample track."
+puts "Try:"
+puts "  RockboxFFI::Metadata.read(FIXTURE)"
+puts "  RockboxFFI::Metadata.probe('song.flac')"
+puts "  p = RockboxFFI::Player.new(volume: 0.6); p.set_queue([FIXTURE]); p.play"
+puts
+
+# binding.irb keeps FIXTURE and the constants above in scope.
+binding.irb

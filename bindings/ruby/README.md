@@ -92,6 +92,22 @@ ruby -Ilib examples/smoke.rb          # metadata + DSP + player checks
 ruby -Ilib examples/play.rb [path]    # play a file through the output device
 ```
 
+## Interactive console
+
+```sh
+./bin/console        # or: rake console
+```
+
+Drops into IRB with `RockboxFFI` loaded and `FIXTURE` pointing at a sample
+track:
+
+```ruby
+RockboxFFI::Metadata.read(FIXTURE)[:title]        # => "Speak"
+p = RockboxFFI::Player.new(volume: 0.6)
+p.set_queue([FIXTURE]); p.play
+p.status[:state]                                  # => "playing"
+```
+
 ## Test
 
 ```sh

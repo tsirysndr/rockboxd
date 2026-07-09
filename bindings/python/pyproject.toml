@@ -7,6 +7,10 @@ requires-python = ">=3.9"
 license = { text = "GPL-2.0-or-later" }
 dependencies = ["cffi>=1.16"]
 
+[project.optional-dependencies]
+# Interactive console (console.py): `uv pip install -e '.[dev]'`.
+dev = ["ipython"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

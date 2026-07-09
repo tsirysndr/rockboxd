@@ -31,6 +31,24 @@ The library is located automatically by walking up to
 `target/release/librockbox_ffi.{dylib,so}`. Override with the
 `ROCKBOX_FFI_LIB` environment variable.
 
+## Interactive console
+
+```sh
+uv pip install -e '.[dev]'      # installs IPython
+uv run python console.py
+```
+
+Drops into IPython with `rb`, `metadata`, `Dsp`, `Player`, the enums, and a
+`FIXTURE` sample track preloaded (falls back to the plain REPL without
+IPython):
+
+```python
+metadata.read(str(FIXTURE))["title"]        # 'Speak'
+p = Player(volume=0.6)
+p.set_queue([str(FIXTURE)]); p.play()
+p.status()["state"]                          # 'playing'
+```
+
 ## Usage
 
 ```python
