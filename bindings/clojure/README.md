@@ -90,9 +90,9 @@ Groups → GitHub** (or use `org.clojars.tsirysndr`, auto-granted), and create a
 # 1. stage the prebuilt libs for every platform into the jar resources
 bindings/scripts/fetch-libs.sh --all
 
-# 2. one-shot release: stamp cljdoc config, commit + tag clojure-ffi-v0.1.1,
+# 2. one-shot release: stamp cljdoc config, commit + tag clojure-ffi-v0.1.2,
 #    deploy to Clojars, push the tag, and request a cljdoc build
-VERSION=0.1.1 CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
+VERSION=0.1.2 CLOJARS_USERNAME=tsirysndr CLOJARS_PASSWORD=<deploy-token> \
   mise exec -- clojure -T:build release
 ```
 
@@ -103,7 +103,7 @@ already stamped + tagged), `stamp-cljdoc`, and `request-cljdoc`. The
 sources — `release` creates and pushes it. Consume it with:
 
 ```clojure
-io.github.tsirysndr/rockbox-clj-ffi {:mvn/version "0.1.1"}
+io.github.tsirysndr/rockbox-clj-ffi {:mvn/version "0.1.2"}
 ```
 
 ### Coexisting with the `rockbox-clj` SDK
