@@ -78,8 +78,12 @@ so users install without a Rust toolchain; from a repo checkout the loaders
 fall back to `target/release` (or `ROCKBOX_FFI_LIB`).
 
 The [`bindings-release`](../.github/workflows/bindings-release.yml) workflow
-(**manually triggerable**, or on a `bindings-v*` tag) builds `librockbox_ffi`
-for six targets and packages each ecosystem:
+(**manually triggerable** with a tag input, or on a `bindings-v*` tag) builds
+`librockbox_ffi` for six targets, packages each ecosystem, and **attaches
+every artifact to a GitHub Release** — gems, wheels + sdist, npm tarballs, and
+the raw per-target shared libs. Uploads use the built-in `GITHUB_TOKEN`, so no
+registry secrets are needed; download the assets and `gem push` / `twine
+upload` / `npm publish` them manually when ready.
 
 | Target        | Runner           | Python                     | Ruby (gem platform) | npm package                |
 | ------------- | ---------------- | -------------------------- | ------------------- | -------------------------- |
@@ -97,5 +101,3 @@ for six targets and packages each ecosystem:
   packaging step skips a target whose artifact is missing, so a flaky BSD build
   never blocks the macOS/Linux release. BSD Python wheels are best-effort
   (pip falls back to the sdist when the tag does not match).
-- Publishing is gated on the `publish` input (or a tag) and uses the
-  `RUBYGEMS_API_KEY`, `PYPI_API_TOKEN`, and `NPM_TOKEN` secrets.

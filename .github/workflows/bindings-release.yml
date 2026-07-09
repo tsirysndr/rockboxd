@@ -1,24 +1,23 @@
 name: bindings-release
 
-# Build librockbox_ffi for macOS + Linux + FreeBSD/NetBSD and package the
-# prebuilt binary into the Ruby / Python / TypeScript bindings, so end users
-# install a working package without a Rust toolchain.
+# Build librockbox_ffi for macOS + Linux + FreeBSD/NetBSD, package the prebuilt
+# binary into the Ruby / Python / TypeScript bindings, and attach every
+# artifact to a GitHub Release. No registry tokens required — uploads use the
+# built-in GITHUB_TOKEN.
 #
-# Manually triggerable (workflow_dispatch). Set `publish: true` to push to
-# RubyGems / PyPI / npm; a `bindings-v*` tag push also publishes.
-#
-# Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64 (native runners);
-# freebsd-x64, netbsd-x64 (built inside vmactions VMs). BSD jobs are
+# Manually triggerable (workflow_dispatch, pick a tag) or on a `bindings-v*`
+# tag push. Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64 (native
+# runners); freebsd-x64, netbsd-x64 (vmactions VMs). BSD jobs are
 # continue-on-error and every packaging step skips a target whose artifact is
 # missing, so a flaky BSD build never blocks the macOS/Linux release.
 
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: "Publish to RubyGems / PyPI / npm"
-        type: boolean
-        default: false
+      tag:
+        description: "Release tag to create / upload assets to"
+        required: true
+        default: "bindings-v0.1.0"
   push:
     tags:
       - "bindings-v*"
@@ -114,7 +113,7 @@ jobs:
         uses: vmactions/netbsd-vm@v1
         with:
           prepare: |
-            /usr/pkg/bin/pkgin -y install rust alsa-lib pkgconf
+            /usr/sbin/pkg_add rust alsa-lib pkgconf
           run: |
             cargo build --release -p rockbox-ffi
             mkdir -p out
@@ -177,14 +176,6 @@ jobs:
           name: ruby-gems
           path: bindings/ruby/pkg/*.gem
 
-      - name: Publish to RubyGems
-        if: inputs.publish == true || startsWith(github.ref, 'refs/tags/')
-        working-directory: bindings/ruby
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: |
-          for gem in pkg/*.gem; do gem push "$gem"; done
-
   # 2b. Python wheels. macOS/BSD: retag the pure wheel; Linux: auditwheel
   # repair (bundles libasound + sets a real manylinux tag). BSD wheels are
   # best-effort — pip falls back to the sdist when the tag does not match.
@@ -202,7 +193,7 @@ jobs:
           path: artifacts
 
       - name: Install build tooling
-        run: pip install build wheel auditwheel patchelf twine
+        run: pip install build wheel auditwheel patchelf
 
       - name: Build wheels
         working-directory: bindings/python
@@ -249,14 +240,7 @@ jobs:
           name: python-wheels
           path: bindings/python/wheelhouse/*
 
-      - name: Publish to PyPI
-        if: inputs.publish == true || startsWith(github.ref, 'refs/tags/')
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload --skip-existing bindings/python/wheelhouse/*
-
-  # 2c. npm: the main package + per-platform binary packages.
+  # 2c. npm: pack the main package + per-platform binary packages into tarballs.
   npm:
     needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
     runs-on: ubuntu-latest
@@ -266,14 +250,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          registry-url: "https://registry.npmjs.org"
 
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Build dist + stage platform packages
-        id: stage
+      - name: Build dist, stage binaries, pack tarballs
         working-directory: bindings/typescript
         run: |
           set -euxo pipefail
@@ -287,23 +269,64 @@ jobs:
             [freebsd-x64]=librockbox_ffi.so
             [netbsd-x64]=librockbox_ffi.so
           )
-          staged=""
+          dest="$GITHUB_WORKSPACE/bindings/typescript/tarballs"
+          mkdir -p "$dest"
           for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64; do
             src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
             if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
             cp "$src" "npm/${target}/${LIB[$target]}"
-            staged="${staged} ${target}"
+            (cd "npm/${target}" && npm pack --pack-destination "$dest")
           done
-          echo "staged=${staged}" >> "$GITHUB_OUTPUT"
+          npm pack --pack-destination "$dest"
+          ls -l "$dest"
 
-      - name: Publish to npm
-        if: inputs.publish == true || startsWith(github.ref, 'refs/tags/')
-        working-directory: bindings/typescript
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarballs
+          path: bindings/typescript/tarballs/*.tgz
+
+  # 3. Collect every artifact and attach it to the GitHub Release.
+  release:
+    needs: [build-lib, build-lib-freebsd, build-lib-netbsd, ruby, python, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
         run: |
           set -euxo pipefail
-          for target in ${{ steps.stage.outputs.staged }}; do
-            (cd "npm/${target}" && npm publish --access public)
+          mkdir -p release
+          # packaged: gems, wheels + sdist, npm tarballs
+          cp artifacts/ruby-gems/*.gem release/ 2>/dev/null || true
+          cp artifacts/python-wheels/* release/ 2>/dev/null || true
+          cp artifacts/npm-tarballs/*.tgz release/ 2>/dev/null || true
+          # raw shared libs, renamed per target so they don't collide
+          for d in artifacts/librockbox_ffi-*; do
+            [ -d "$d" ] || continue
+            t="$(basename "$d" | sed 's/^librockbox_ffi-//')"
+            for f in "$d"/librockbox_ffi.*; do
+              [ -f "$f" ] || continue
+              cp "$f" "release/librockbox_ffi-${t}.${f##*.}"
+            done
           done
-          npm publish --access public
+          ls -l release
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: release/*
+          fail_on_unmatched_files: true
