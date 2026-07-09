@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-playback"
-version = "0.1.0"
+version = "0.1.1"
 description = "Audio playback engine over rockbox-codecs + rockbox-dsp + cpal — native ReplayGain and Rockbox crossfade"
 authors = { workspace = true }
 edition = { workspace = true }
@@ -12,7 +12,7 @@ categories = ["multimedia::audio"]
 
 [dependencies]
 rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
-rockbox-codecs = { version = "0.1.1", path = "../rockbox-codecs" }
+rockbox-codecs = { version = "0.1.2", path = "../rockbox-codecs" }
 rockbox-dsp = { version = "0.2.0", path = "../rockbox-dsp" }
 cpal = "0.15"
 
