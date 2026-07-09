@@ -30,11 +30,11 @@ deno add npm:rockbox-ffi        # Deno   (or import npm:rockbox-ffi/deno directl
 Then import the entry point for your runtime — all three expose the identical
 API:
 
-| Runtime | Import                             | Notes                                              |
-| ------- | ---------------------------------- | -------------------------------------------------- |
-| Bun     | `import … from "rockbox-ffi/bun"`  | uses built-in `bun:ffi`                            |
-| Deno    | `import … from "npm:rockbox-ffi/deno"` | run with `--allow-ffi --allow-read --allow-env` |
-| Node.js | `import … from "rockbox-ffi/node"` | uses [`koffi`](https://koffi.dev) (a dependency)   |
+| Runtime | Import                                 | Notes                                            |
+| ------- | -------------------------------------- | ------------------------------------------------ |
+| Bun     | `import … from "rockbox-ffi/bun"`      | uses built-in `bun:ffi`                          |
+| Deno    | `import … from "npm:rockbox-ffi/deno"` | run with `--allow-ffi --allow-read --allow-env`  |
+| Node.js | `import … from "rockbox-ffi/node"`     | uses [`koffi`](https://koffi.dev) (a dependency) |
 
 > Prefer a single import? `import { load } from "rockbox-ffi"` returns a
 > promise that resolves the correct backend at runtime (see
@@ -98,10 +98,10 @@ details.
 
 ### `metadata`
 
-| Function                    | Returns              | Description                                             |
-| --------------------------- | -------------------- | ------------------------------------------------------- |
-| `metadata.read(path)`       | `Metadata`           | Parse tags, duration, ReplayGain, album-art/cue offsets |
-| `metadata.probe(filename)`  | `string \| null`     | Codec label from the extension, without opening the file |
+| Function                   | Returns    | Description                                             |                                                          |
+| -------------------------- | ---------- | ------------------------------------------------------- | -------------------------------------------------------- |
+| `metadata.read(path)`      | `Metadata` | Parse tags, duration, ReplayGain, album-art/cue offsets |                                                          |
+| `metadata.probe(filename)` | `string \  | null`                                                   | Codec label from the extension, without opening the file |
 
 ### `Dsp`
 
@@ -112,20 +112,20 @@ Interleaved-S16LE-stereo processor. Construct with a sample rate, feed it
 const dsp = new Dsp(sampleRate: number);
 ```
 
-| Method                                                     | Description                                        |
-| ---------------------------------------------------------- | -------------------------------------------------- |
-| `process(samples: Int16Array): Int16Array`                 | Run stereo S16 frames through the pipeline         |
-| `setInputFrequency(hz)`                                    | Change input rate (engages the resampler)          |
-| `eqEnable(on)` / `setEqBand(band, cutoffHz, q, gainDb)`    | 10-band EQ (band 0 low-shelf, 9 high-shelf)        |
-| `setEqPrecut(db)`                                          | Negative pre-gain to avoid EQ clipping             |
-| `setTone(bassDb, trebleDb)` / `setToneCutoffs(bHz, tHz)`   | Bass/treble shelves                                |
-| `setSurround(delayMs, balance, fx1, fx2)`                  | Haas surround (`delayMs > 0` enables)              |
-| `setChannelConfig(mode)` / `setStereoWidth(pct)`           | Channel mode / custom width                        |
-| `setCompressor(threshold, makeup, ratio, knee, rel, atk)`  | Dynamic-range compressor (`threshold 0` = off)     |
-| `setReplaygain(mode, noclip, preampDb)`                    | ReplayGain mode (see [encodings](#two-replaygain-encodings)) |
-| `setReplaygainGains(trackDb?, albumDb?, trackPeak?, albumPeak?)` | Per-track gains in dB (omit = absent)         |
-| `setReplaygainGainsRaw(tg, ag, tp, ap: bigint)`            | Native Q7.24 gains (the `raw_*` metadata fields)   |
-| `flush()` / `close()`                                      | Drop buffered samples / free the handle            |
+| Method                                                           | Description                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------ |
+| `process(samples: Int16Array): Int16Array`                       | Run stereo S16 frames through the pipeline                   |
+| `setInputFrequency(hz)`                                          | Change input rate (engages the resampler)                    |
+| `eqEnable(on)` / `setEqBand(band, cutoffHz, q, gainDb)`          | 10-band EQ (band 0 low-shelf, 9 high-shelf)                  |
+| `setEqPrecut(db)`                                                | Negative pre-gain to avoid EQ clipping                       |
+| `setTone(bassDb, trebleDb)` / `setToneCutoffs(bHz, tHz)`         | Bass/treble shelves                                          |
+| `setSurround(delayMs, balance, fx1, fx2)`                        | Haas surround (`delayMs > 0` enables)                        |
+| `setChannelConfig(mode)` / `setStereoWidth(pct)`                 | Channel mode / custom width                                  |
+| `setCompressor(threshold, makeup, ratio, knee, rel, atk)`        | Dynamic-range compressor (`threshold 0` = off)               |
+| `setReplaygain(mode, noclip, preampDb)`                          | ReplayGain mode (see [encodings](#two-replaygain-encodings)) |
+| `setReplaygainGains(trackDb?, albumDb?, trackPeak?, albumPeak?)` | Per-track gains in dB (omit = absent)                        |
+| `setReplaygainGainsRaw(tg, ag, tp, ap: bigint)`                  | Native Q7.24 gains (the `raw_*` metadata fields)             |
+| `flush()` / `close()`                                            | Drop buffered samples / free the handle                      |
 
 ### `Player`
 
@@ -135,17 +135,17 @@ Queue-based player backed by a live audio device and a background thread.
 const player = new Player(config?: PlayerConfig);
 ```
 
-| Method                                                    | Description                                   |
-| --------------------------------------------------------- | --------------------------------------------- |
-| `setQueue(paths)` / `enqueue(path)`                       | Replace / append to the queue                 |
-| `play()` `pause()` `toggle()` `stop()`                    | Transport                                     |
-| `next()` `previous()` `skipTo(index)` `seekMs(ms)`        | Navigation                                    |
-| `setVolume(v)` / `volume()`                               | Volume, `0.0`–`1.0`                           |
-| `sampleRate()`                                            | Output rate everything resamples to           |
-| `setCrossfade(mode, foDelay?, foDur?, fiDelay?, fiDur?, mix?)` | Configure crossfade                     |
-| `setReplaygain(mode, preampDb, preventClipping)`          | ReplayGain (player encoding)                  |
-| `status(): PlayerStatus`                                  | Snapshot: state, index, position, queue…      |
-| `close()`                                                 | Stop playback and free the handle             |
+| Method                                                         | Description                              |
+| -------------------------------------------------------------- | ---------------------------------------- |
+| `setQueue(paths)` / `enqueue(path)`                            | Replace / append to the queue            |
+| `play()` `pause()` `toggle()` `stop()`                         | Transport                                |
+| `next()` `previous()` `skipTo(index)` `seekMs(ms)`             | Navigation                               |
+| `setVolume(v)` / `volume()`                                    | Volume, `0.0`–`1.0`                      |
+| `sampleRate()`                                                 | Output rate everything resamples to      |
+| `setCrossfade(mode, foDelay?, foDur?, fiDelay?, fiDur?, mix?)` | Configure crossfade                      |
+| `setReplaygain(mode, preampDb, preventClipping)`               | ReplayGain (player encoding)             |
+| `status(): PlayerStatus`                                       | Snapshot: state, index, position, queue… |
+| `close()`                                                      | Stop playback and free the handle        |
 
 `PlayerConfig` (all optional): `sampleRate` (`0` = device default),
 `bufferSeconds`, `volume`, `replaygainMode`, `replaygainPreampDb`,
