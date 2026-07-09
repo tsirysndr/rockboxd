@@ -4,6 +4,7 @@ on:
   push:
     tags-ignore:
       - "clojure-v*"
+      - "bindings-v*"
   release:
     types: [published]
   workflow_dispatch:
