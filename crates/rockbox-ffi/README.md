@@ -1,5 +1,9 @@
 # rockbox-ffi
 
+![Rust](https://img.shields.io/badge/Rust-cdylib%20%2B%20staticlib-000000?logo=rust&logoColor=white)
+![C ABI](https://img.shields.io/badge/C%20ABI-stable%20v1-A8B9CC?logo=c&logoColor=white)
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+
 A flat **C ABI** over three Rockbox-derived Rust crates, built as a
 `cdylib` + `staticlib` so the engine can be driven from any language with a
 C FFI:

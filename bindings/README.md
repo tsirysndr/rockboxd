@@ -1,5 +1,11 @@
 # Language bindings
 
+![Python](https://img.shields.io/badge/Python-cffi-3776AB?logo=python&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-Bun%20%7C%20Deno%20%7C%20Node-3178C6?logo=typescript&logoColor=white)
+![Elixir](https://img.shields.io/badge/Elixir-erl__nif-4B275F?logo=elixir&logoColor=white)
+![Gleam](https://img.shields.io/badge/Gleam-erl__nif-FFAFF3?logo=gleam&logoColor=white)
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+
 Bindings for the Rockbox **DSP**, **metadata**, and **playback** engine in
 several languages. All of them sit on top of one shared flat **C ABI**,
 [`rockbox-ffi`](../crates/rockbox-ffi) (`crates/rockbox-ffi`), whose public

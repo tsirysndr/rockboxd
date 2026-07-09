@@ -1,5 +1,10 @@
 # rockbox_ffi (Elixir)
 
+![Elixir](https://img.shields.io/badge/Elixir-1.15%2B-4B275F?logo=elixir&logoColor=white)
+![Erlang/OTP](https://img.shields.io/badge/Erlang%2FOTP-27%2B-A90533?logo=erlang&logoColor=white)
+![NIF](https://img.shields.io/badge/native-erl__nif-5C4B8A)
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+
 Elixir bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, via an `erl_nif` shim over the `librockbox_ffi` C ABI.
 

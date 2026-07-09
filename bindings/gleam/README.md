@@ -1,5 +1,10 @@
 # rockbox_ffi (Gleam)
 
+![Gleam](https://img.shields.io/badge/Gleam-%E2%89%A51.0-FFAFF3?logo=gleam&logoColor=white)
+![Erlang/OTP](https://img.shields.io/badge/Erlang%2FOTP-27%2B-A90533?logo=erlang&logoColor=white)
+![NIF](https://img.shields.io/badge/native-erl__nif-5C4B8A)
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+
 Gleam bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine (Erlang target), via an `erl_nif` shim over the `librockbox_ffi`
 C ABI.

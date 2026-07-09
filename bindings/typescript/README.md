@@ -1,5 +1,11 @@
 # rockbox-ffi (TypeScript)
 
+![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)
+![Bun](https://img.shields.io/badge/Bun-ready-000000?logo=bun&logoColor=white)
+![Deno](https://img.shields.io/badge/Deno-ready-000000?logo=deno&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-ready-5FA04E?logo=nodedotjs&logoColor=white)
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+
 TypeScript bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, using native FFI. Works under **Bun** (`bun:ffi`), **Deno**
 (`Deno.dlopen`), and **Node.js** (via [`koffi`](https://koffi.dev)) — one

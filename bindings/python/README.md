@@ -1,5 +1,10 @@
 # rockbox-ffi (Python)
 
+![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+![FFI](https://img.shields.io/badge/FFI-cffi-306998)
+![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
+
 Python bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, via `cffi` (ABI mode) over the prebuilt `librockbox_ffi` shared
 library.
