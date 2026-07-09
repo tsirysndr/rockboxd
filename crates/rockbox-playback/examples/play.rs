@@ -1,8 +1,14 @@
 //! Queue player CLI with crossfade + ReplayGain.
 //!
+//! Plays every codec the build supports, including **HE-AAC / AAC+** (`.m4a`
+//! with SBR) — enabled via `CODEC_AAC_SBR_DEC` in the rockbox-codecs build.
+//!
 //! ```sh
 //! # gapless
 //! cargo run --release --example play -- a.flac b.mp3 c.opus
+//!
+//! # HE-AAC (AAC+ / SBR) at 40% volume
+//! cargo run --release --example play -- --volume 0.4 "he-aac.m4a"
 //!
 //! # 2 s crossfade + track ReplayGain
 //! cargo run --release --example play -- --crossfade 2 --replaygain track a.flac b.mp3
@@ -16,6 +22,7 @@ use rockbox_playback::{CrossfadeMode, CrossfadeSettings, PlaybackState, Player, 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut crossfade_secs = 0u64;
     let mut replaygain = ReplayGainMode::Off;
+    let mut volume = 1.0f32;
     let mut tracks: Vec<PathBuf> = Vec::new();
 
     let mut args = std::env::args().skip(1);
@@ -31,17 +38,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => ReplayGainMode::Off,
                 };
             }
+            "--volume" | "-v" => {
+                volume = args.next().and_then(|s| s.parse().ok()).unwrap_or(1.0);
+            }
             _ => tracks.push(PathBuf::from(arg)),
         }
     }
 
     if tracks.is_empty() {
-        eprintln!("usage: play [--crossfade SECS] [--replaygain track|album] <files…>");
+        eprintln!("usage: play [--volume 0..1] [--crossfade SECS] [--replaygain track|album] <files…>");
         std::process::exit(2);
     }
 
     let player = Player::new()?;
     println!("output: {} Hz", player.sample_rate());
+
+    // NOTE: volume 0.0 pauses ring consumption (a click-free mute), so playback
+    // looks frozen. Use a non-zero volume to actually hear/advance.
+    player.set_volume(volume);
+    println!("volume: {volume}");
 
     if crossfade_secs > 0 {
         player.set_crossfade(CrossfadeSettings {
@@ -69,24 +84,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if st.state == PlaybackState::Stopped && st.position.is_zero() && st.index.is_none() {
             break;
         }
-        let title = st
+        let (title, codec) = st
             .metadata
             .as_ref()
             .map(|m| {
-                if m.title.is_empty() {
+                let t = if m.title.is_empty() {
                     m.codec.clone()
                 } else {
                     format!("{} — {}", m.artist, m.title)
-                }
+                };
+                (t, m.codec.clone())
             })
             .unwrap_or_default();
         let pos = st.position.as_secs();
         let dur = st.duration.as_secs();
         let line = format!(
-            "[{}/{}] {}  {}:{:02} / {}:{:02}   ",
+            "[{}/{}] {} ({})  {}:{:02} / {}:{:02}   ",
             st.index.map(|i| i + 1).unwrap_or(0),
             st.queue_len,
             title,
+            codec,
             pos / 60,
             pos % 60,
             dur / 60,
