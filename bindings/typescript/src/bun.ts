@@ -10,11 +10,30 @@ import {
   toArrayBuffer,
 } from "bun:ffi";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { makeApi, sineStereo } from "./api.ts";
-import { resolveLibPath, SPEC, type Raw, type Tok } from "./ffi.ts";
+import {
+  platformLibName,
+  platformPackageName,
+  resolveLibPath,
+  SPEC,
+  type Raw,
+  type Tok,
+} from "./ffi.ts";
+
+/** Resolve the prebuilt binary from the per-platform npm package, if present. */
+function bundledLibPath(): string | undefined {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = platformPackageName(process.platform, process.arch);
+    return require.resolve(`${pkg}/${platformLibName(process.platform)}`);
+  } catch {
+    return undefined;
+  }
+}
 
 const TOK: Record<Tok, FFIType> = {
   void: FFIType.void,
@@ -38,6 +57,7 @@ function makeRaw(): Raw {
     existsSync,
     join,
     dirname,
+    bundledLibPath(),
   );
 
   const symbols: Record<string, { args: FFIType[]; returns: FFIType }> = {};

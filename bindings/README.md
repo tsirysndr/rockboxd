@@ -69,3 +69,33 @@ Every binding's smoke test performs the same end-to-end check: read the tags
 of a fixture, then run a 1 kHz sine through the DSP with a −6.02 dB track
 gain and assert the output peak is ≈ 8000 (half of the 16000 input) — proving
 the whole native pipeline works through that language's FFI.
+
+## Prebuilt binaries & releasing
+
+The dynamic bindings (Python / TypeScript / Ruby) `dlopen` the shared library
+at runtime. For **published** packages the matching prebuilt binary is bundled
+so users install without a Rust toolchain; from a repo checkout the loaders
+fall back to `target/release` (or `ROCKBOX_FFI_LIB`).
+
+The [`bindings-release`](../.github/workflows/bindings-release.yml) workflow
+(**manually triggerable**, or on a `bindings-v*` tag) builds `librockbox_ffi`
+for six targets and packages each ecosystem:
+
+| Target        | Runner           | Python                     | Ruby (gem platform) | npm package                |
+| ------------- | ---------------- | -------------------------- | ------------------- | -------------------------- |
+| darwin-arm64  | macos-latest     | wheel `macosx_11_0_arm64`  | `arm64-darwin`      | `@rockbox-ffi/darwin-arm64`|
+| darwin-x64    | macos-15-intel   | wheel `macosx_10_12_x86_64`| `x86_64-darwin`     | `@rockbox-ffi/darwin-x64`  |
+| linux-x64     | ubuntu-latest    | manylinux (auditwheel)     | `x86_64-linux`      | `@rockbox-ffi/linux-x64`   |
+| linux-arm64   | ubuntu-24.04-arm | manylinux (auditwheel)     | `aarch64-linux`     | `@rockbox-ffi/linux-arm64` |
+| freebsd-x64   | vmactions VM     | wheel (best-effort)        | `x86_64-freebsd`    | `@rockbox-ffi/freebsd-x64` |
+| netbsd-x64    | vmactions VM     | wheel (best-effort)        | `x86_64-netbsd`     | `@rockbox-ffi/netbsd-x64`  |
+
+- **Python** bundles the lib in `rockbox_ffi/_lib/`; **Ruby** in the gem's
+  `vendor/`; **npm** ships one `@rockbox-ffi/<platform>` package per target
+  (declared as `optionalDependencies`, so npm installs only the matching one).
+- **BSD** builds run inside `vmactions` VMs and are `continue-on-error`; every
+  packaging step skips a target whose artifact is missing, so a flaky BSD build
+  never blocks the macOS/Linux release. BSD Python wheels are best-effort
+  (pip falls back to the sdist when the tag does not match).
+- Publishing is gated on the `publish` input (or a tag) and uses the
+  `RUBYGEMS_API_KEY`, `PYPI_API_TOKEN`, and `NPM_TOKEN` secrets.

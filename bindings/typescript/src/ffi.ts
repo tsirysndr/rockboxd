@@ -109,10 +109,29 @@ export interface Raw {
 
 const LIB_NAMES = ["librockbox_ffi.dylib", "librockbox_ffi.so", "rockbox_ffi.dll"];
 
+/** The shared-library filename for a Node-style `process.platform`. */
+export function platformLibName(platform: string): string {
+  if (platform === "darwin") return "librockbox_ffi.dylib";
+  if (platform === "win32") return "rockbox_ffi.dll";
+  return "librockbox_ffi.so";
+}
+
 /**
- * Locate the shared library: `ROCKBOX_FFI_LIB` env var first, then by walking
- * up from `startDir` to a `target/release` directory. `exists` and the path
- * ops are injected so this works under both Bun and Deno.
+ * The per-platform npm package that ships the prebuilt binary, e.g.
+ * `@rockbox-ffi/darwin-arm64`. Published as `optionalDependencies` of the main
+ * package so npm installs only the one matching the host.
+ */
+export function platformPackageName(platform: string, arch: string): string {
+  const cpu = arch === "x64" ? "x64" : arch === "arm64" ? "arm64" : arch;
+  return `@rockbox-ffi/${platform}-${cpu}`;
+}
+
+/**
+ * Locate the shared library. Precedence:
+ *   1. `ROCKBOX_FFI_LIB` env var (explicit override)
+ *   2. `bundled` — a path resolved from the per-platform npm package, if any
+ *   3. walking up from `startDir` to a `target/release` dir (repo checkout)
+ * `exists` and the path ops are injected so this works under Bun and Deno.
  */
 export function resolveLibPath(
   startDir: string,
@@ -120,9 +139,12 @@ export function resolveLibPath(
   exists: (p: string) => boolean,
   join: (...p: string[]) => string,
   dirname: (p: string) => string,
+  bundled?: string,
 ): string {
   const override = env("ROCKBOX_FFI_LIB");
   if (override) return override;
+
+  if (bundled && exists(bundled)) return bundled;
 
   let dir = startDir;
   const tried: string[] = [];

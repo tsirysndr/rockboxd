@@ -1,0 +1,14 @@
+{
+  "name": "@rockbox-ffi/netbsd-x64",
+  "version": "0.1.0",
+  "description": "Prebuilt librockbox_ffi shared library for NetBSD amd64",
+  "license": "GPL-2.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tsirysndr/rockboxd.git",
+    "directory": "bindings/typescript"
+  },
+  "os": ["netbsd"],
+  "cpu": ["x64"],
+  "files": ["librockbox_ffi.so"]
+}

@@ -92,11 +92,17 @@ def _candidate_paths() -> list[Path]:
     names = ["librockbox_ffi.dylib", "librockbox_ffi.so", "rockbox_ffi.dll"]
     paths: list[Path] = []
 
+    # 1. Explicit override.
     env = os.environ.get("ROCKBOX_FFI_LIB")
     if env:
         paths.append(Path(env))
 
-    # Walk up from this file looking for target/release (repo checkout).
+    # 2. Bundled binary (platform wheels ship one in the package's _lib/ dir).
+    lib_dir = Path(__file__).resolve().parent / "_lib"
+    for name in names:
+        paths.append(lib_dir / name)
+
+    # 3. Walk up from this file looking for target/release (repo checkout).
     here = Path(__file__).resolve()
     for parent in here.parents:
         rel = parent / "target" / "release"

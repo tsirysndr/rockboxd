@@ -5,6 +5,7 @@ Run: `uv run python examples/smoke.py`
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import rockbox_ffi as rb
@@ -48,6 +49,7 @@ def main() -> None:
         assert rate > 0
         player.set_volume(0.0)
         player.set_queue([str(FIXTURE)])
+        time.sleep(0.1)  # the queue command is applied asynchronously by the engine thread
         st = player.status()
         print(f"Player status: state={st['state']!r} queue_len={st['queue_len']}")
         assert st["state"] == "stopped"

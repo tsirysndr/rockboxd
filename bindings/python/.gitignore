@@ -3,3 +3,5 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# CI-built native lib bundled into platform wheels
+src/rockbox_ffi/_lib/

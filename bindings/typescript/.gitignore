@@ -4,3 +4,5 @@ bun.lockb
 bun.lock
 package-lock.json
 *.tsbuildinfo
+# CI-built native libs staged into the per-platform npm packages
+npm/*/librockbox_ffi.*

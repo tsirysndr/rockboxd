@@ -13,3 +13,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rockbox_ffi"]
+# Bundle the CI-built native lib (staged in src/rockbox_ffi/_lib/) into the
+# wheel even though it is gitignored. The wheel is built pure (py3-none-any),
+# then retagged to py3-none-<platform> per target in CI — the binding loads
+# the lib via cffi/dlopen, so it is not tied to a CPython ABI.
+artifacts = ["src/rockbox_ffi/_lib/*"]

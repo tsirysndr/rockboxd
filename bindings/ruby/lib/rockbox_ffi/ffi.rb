@@ -11,7 +11,10 @@ require "fiddle"
 require "fiddle/import"
 
 module RockboxFFI
-  # Locate the prebuilt shared library (mirrors the Python cffi loader).
+  # Locate the prebuilt shared library. Precedence:
+  #   1. ROCKBOX_FFI_LIB env var (explicit override)
+  #   2. the platform binary bundled in the gem's vendor/ dir (published gems)
+  #   3. target/release, by walking up from here (repo checkout / dev)
   def self.library_path
     names = %w[librockbox_ffi.dylib librockbox_ffi.so rockbox_ffi.dll]
     tried = []
@@ -19,6 +22,14 @@ module RockboxFFI
     if (env = ENV["ROCKBOX_FFI_LIB"])
       tried << env
       return env if File.exist?(env)
+    end
+
+    # Bundled binary (platform gems ship one under <gem_root>/vendor/).
+    vendor = File.expand_path("../../vendor", __dir__)
+    names.each do |name|
+      cand = File.join(vendor, name)
+      tried << cand
+      return cand if File.exist?(cand)
     end
 
     # Walk up from this file looking for target/release (repo checkout).

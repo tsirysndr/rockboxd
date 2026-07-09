@@ -1,0 +1,309 @@
+name: bindings-release
+
+# Build librockbox_ffi for macOS + Linux + FreeBSD/NetBSD and package the
+# prebuilt binary into the Ruby / Python / TypeScript bindings, so end users
+# install a working package without a Rust toolchain.
+#
+# Manually triggerable (workflow_dispatch). Set `publish: true` to push to
+# RubyGems / PyPI / npm; a `bindings-v*` tag push also publishes.
+#
+# Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64 (native runners);
+# freebsd-x64, netbsd-x64 (built inside vmactions VMs). BSD jobs are
+# continue-on-error and every packaging step skips a target whose artifact is
+# missing, so a flaky BSD build never blocks the macOS/Linux release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to RubyGems / PyPI / npm"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "bindings-v*"
+
+permissions:
+  contents: read
+
+env:
+  # Bump together with the versions in each binding's manifest.
+  BINDING_VERSION: "0.1.0"
+
+jobs:
+  # 1. Build the shared library on a native runner per target.
+  build-lib:
+    name: build-lib (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-latest
+            libfile: librockbox_ffi.dylib
+          - target: darwin-x64
+            os: macos-15-intel
+            libfile: librockbox_ffi.dylib
+          - target: linux-x64
+            os: ubuntu-latest
+            libfile: librockbox_ffi.so
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+            libfile: librockbox_ffi.so
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install Linux audio deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Build librockbox_ffi
+        run: cargo build --release -p rockbox-ffi
+
+      - name: Stage binary
+        run: |
+          mkdir -p out
+          cp "target/release/${{ matrix.libfile }}" "out/${{ matrix.libfile }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: librockbox_ffi-${{ matrix.target }}
+          path: out/${{ matrix.libfile }}
+          if-no-files-found: error
+
+  # 1b. FreeBSD amd64 — built inside a VM (no native GitHub runner).
+  build-lib-freebsd:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y rust alsa-lib pkgconf
+          run: |
+            cargo build --release -p rockbox-ffi
+            mkdir -p out
+            cp target/release/librockbox_ffi.so out/librockbox_ffi.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: librockbox_ffi-freebsd-x64
+          path: out/librockbox_ffi.so
+          if-no-files-found: error
+
+  # 1c. NetBSD amd64 — built inside a VM (no native GitHub runner).
+  build-lib-netbsd:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build in NetBSD VM
+        uses: vmactions/netbsd-vm@v1
+        with:
+          prepare: |
+            /usr/pkg/bin/pkgin -y install rust alsa-lib pkgconf
+          run: |
+            cargo build --release -p rockbox-ffi
+            mkdir -p out
+            cp target/release/librockbox_ffi.so out/librockbox_ffi.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: librockbox_ffi-netbsd-x64
+          path: out/librockbox_ffi.so
+          if-no-files-found: error
+
+  # 2a. Ruby platform gems (packaging is host-independent — build all on one runner).
+  ruby:
+    needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build platform gems
+        working-directory: bindings/ruby
+        run: |
+          set -euxo pipefail
+          declare -A PLAT=(
+            [darwin-arm64]=arm64-darwin
+            [darwin-x64]=x86_64-darwin
+            [linux-x64]=x86_64-linux
+            [linux-arm64]=aarch64-linux
+            [freebsd-x64]=x86_64-freebsd
+            [netbsd-x64]=x86_64-netbsd
+          )
+          declare -A LIB=(
+            [darwin-arm64]=librockbox_ffi.dylib
+            [darwin-x64]=librockbox_ffi.dylib
+            [linux-x64]=librockbox_ffi.so
+            [linux-arm64]=librockbox_ffi.so
+            [freebsd-x64]=librockbox_ffi.so
+            [netbsd-x64]=librockbox_ffi.so
+          )
+          mkdir -p pkg
+          for target in "${!PLAT[@]}"; do
+            src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
+            if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
+            rm -rf vendor && mkdir vendor
+            cp "$src" vendor/
+            ROCKBOX_GEM_PLATFORM="${PLAT[$target]}" gem build rockbox_ffi.gemspec -o "pkg/rockbox_ffi-${BINDING_VERSION}-${PLAT[$target]}.gem"
+          done
+          rm -rf vendor
+          # source gem (fallback for unlisted platforms / repo checkouts)
+          gem build rockbox_ffi.gemspec -o "pkg/rockbox_ffi-${BINDING_VERSION}.gem"
+          ls -l pkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruby-gems
+          path: bindings/ruby/pkg/*.gem
+
+      - name: Publish to RubyGems
+        if: inputs.publish == true || startsWith(github.ref, 'refs/tags/')
+        working-directory: bindings/ruby
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          for gem in pkg/*.gem; do gem push "$gem"; done
+
+  # 2b. Python wheels. macOS/BSD: retag the pure wheel; Linux: auditwheel
+  # repair (bundles libasound + sets a real manylinux tag). BSD wheels are
+  # best-effort — pip falls back to the sdist when the tag does not match.
+  python:
+    needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install build tooling
+        run: pip install build wheel auditwheel patchelf twine
+
+      - name: Build wheels
+        working-directory: bindings/python
+        run: |
+          set -euxo pipefail
+          declare -A LIB=(
+            [darwin-arm64]=librockbox_ffi.dylib
+            [darwin-x64]=librockbox_ffi.dylib
+            [linux-x64]=librockbox_ffi.so
+            [linux-arm64]=librockbox_ffi.so
+            [freebsd-x64]=librockbox_ffi.so
+            [netbsd-x64]=librockbox_ffi.so
+          )
+          declare -A TAG=(
+            [darwin-arm64]=macosx_11_0_arm64
+            [darwin-x64]=macosx_10_12_x86_64
+            [freebsd-x64]=freebsd_13_amd64
+            [netbsd-x64]=netbsd_10_amd64
+          )
+          mkdir -p wheelhouse
+          python -m build --sdist --outdir wheelhouse
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64; do
+            src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
+            if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
+            rm -rf src/rockbox_ffi/_lib dist && mkdir -p src/rockbox_ffi/_lib
+            cp "$src" src/rockbox_ffi/_lib/
+            python -m build --wheel --outdir dist
+            case "$target" in
+              linux-*)
+                # auditwheel detects the manylinux tag and vendors libasound.
+                auditwheel repair --wheel-dir wheelhouse dist/*.whl
+                ;;
+              *)
+                python -m wheel tags --platform-tag "${TAG[$target]}" --remove dist/*.whl
+                cp dist/*.whl wheelhouse/
+                ;;
+            esac
+          done
+          rm -rf src/rockbox_ffi/_lib
+          ls -l wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels
+          path: bindings/python/wheelhouse/*
+
+      - name: Publish to PyPI
+        if: inputs.publish == true || startsWith(github.ref, 'refs/tags/')
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload --skip-existing bindings/python/wheelhouse/*
+
+  # 2c. npm: the main package + per-platform binary packages.
+  npm:
+    needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build dist + stage platform packages
+        id: stage
+        working-directory: bindings/typescript
+        run: |
+          set -euxo pipefail
+          bun install
+          bun run build
+          declare -A LIB=(
+            [darwin-arm64]=librockbox_ffi.dylib
+            [darwin-x64]=librockbox_ffi.dylib
+            [linux-x64]=librockbox_ffi.so
+            [linux-arm64]=librockbox_ffi.so
+            [freebsd-x64]=librockbox_ffi.so
+            [netbsd-x64]=librockbox_ffi.so
+          )
+          staged=""
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64; do
+            src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
+            if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
+            cp "$src" "npm/${target}/${LIB[$target]}"
+            staged="${staged} ${target}"
+          done
+          echo "staged=${staged}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        if: inputs.publish == true || startsWith(github.ref, 'refs/tags/')
+        working-directory: bindings/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euxo pipefail
+          for target in ${{ steps.stage.outputs.staged }}; do
+            (cd "npm/${target}" && npm publish --access public)
+          done
+          npm publish --access public

@@ -10,12 +10,29 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 import { makeApi, sineStereo } from "./api.ts";
-import { resolveLibPath, SPEC, type Raw, type Tok } from "./ffi.ts";
+import {
+  platformLibName,
+  platformPackageName,
+  resolveLibPath,
+  SPEC,
+  type Raw,
+  type Tok,
+} from "./ffi.ts";
 
 // koffi ships as CommonJS; load it via require to keep ESM interop simple.
 const require = createRequire(import.meta.url);
 // deno-lint-ignore no-explicit-any
 const koffi: any = require("koffi");
+
+/** Resolve the prebuilt binary from the per-platform npm package, if present. */
+function bundledLibPath(): string | undefined {
+  try {
+    const pkg = platformPackageName(process.platform, process.arch);
+    return require.resolve(`${pkg}/${platformLibName(process.platform)}`);
+  } catch {
+    return undefined;
+  }
+}
 
 const TOK: Record<Tok, string> = {
   void: "void",
@@ -39,6 +56,7 @@ function makeRaw(): Raw {
     existsSync,
     join,
     dirname,
+    bundledLibPath(),
   );
 
   const lib = koffi.load(libPath);

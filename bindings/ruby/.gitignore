@@ -1,5 +1,5 @@
 /.bundle/
-/vendor/bundle/
+/vendor/
 /pkg/
 *.gem
 Gemfile.lock
