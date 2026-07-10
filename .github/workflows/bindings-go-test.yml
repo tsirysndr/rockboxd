@@ -62,4 +62,11 @@ jobs:
 
       - name: go test
         working-directory: bindings/go
+        # CGO_ENABLED=1 forces the external system linker. purego dlopens the
+        # shared library at runtime; on macOS the Go *internal* linker (the
+        # CGO_ENABLED=0 default) omits the LC_UUID Mach-O load command, and
+        # newer dyld aborts any process that dlopens without it. We use no cgo
+        # ourselves — this only swaps the linker.
+        env:
+          CGO_ENABLED: 1
         run: go test -v ./...
