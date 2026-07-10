@@ -37,7 +37,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: bindings/go/go.mod
+          # Pin 1.26.2: its internal linker emits the LC_UUID Mach-O load
+          # command, which purego's runtime dlopen requires on macOS. Older
+          # toolchains omit it and dyld aborts the test binary. go.mod keeps a
+          # lower minimum (1.22) so consumers aren't forced onto 1.26.
+          go-version: "1.26.2"
           cache-dependency-path: bindings/go/go.sum
 
       - name: Install Linux audio deps
@@ -62,11 +66,4 @@ jobs:
 
       - name: go test
         working-directory: bindings/go
-        # CGO_ENABLED=1 forces the external system linker. purego dlopens the
-        # shared library at runtime; on macOS the Go *internal* linker (the
-        # CGO_ENABLED=0 default) omits the LC_UUID Mach-O load command, and
-        # newer dyld aborts any process that dlopens without it. We use no cgo
-        # ourselves — this only swaps the linker.
-        env:
-          CGO_ENABLED: 1
         run: go test -v ./...
