@@ -1,3 +1,9 @@
+> [!IMPORTANT]
+> **Do not try to flash this project onto your DAP (digital audio player).**
+> This is **not** Rockbox firmware. Rockbox Daemon is a background daemon for
+> **Linux and macOS** that runs on your computer — flashing it to a portable
+> player will not work and is not supported.
+
 <div>
   <img src="https://www.rockbox.org/rockbox400.png" />
 </div>
