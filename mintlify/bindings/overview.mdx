@@ -1,6 +1,6 @@
 ---
 title: "Native engine bindings"
-description: "Call the Rockbox DSP, metadata, and playback engine in-process from eight languages, all over one shared C ABI."
+description: "Call the Rockbox DSP, metadata, and playback engine in-process from nine languages, all over one shared C ABI."
 icon: 'plug'
 ---
 
@@ -50,6 +50,9 @@ Every binding exposes the same three namespaces with matching method names:
 <CardGroup cols={3}>
   <Card title="Python" icon="python" href="/bindings/python">
     `pip install rockbox-ffi` — cffi
+  </Card>
+  <Card title="Go" icon="golang" href="/bindings/go">
+    `go get …/bindings/go` — purego, no cgo
   </Card>
   <Card title="TypeScript" icon="square-js" href="/bindings/typescript">
     `npm install rockbox-ffi` — Bun / Deno / Node

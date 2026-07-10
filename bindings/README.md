@@ -1,6 +1,7 @@
 # Language bindings
 
 ![Python](https://img.shields.io/badge/Python-cffi-3776AB?logo=python&logoColor=white)
+![Go](https://img.shields.io/badge/Go-purego-00ADD8?logo=go&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Bun%20%7C%20Deno%20%7C%20Node-3178C6?logo=typescript&logoColor=white)
 ![Elixir](https://img.shields.io/badge/Elixir-erl__nif-4B275F?logo=elixir&logoColor=white)
 ![Gleam](https://img.shields.io/badge/Gleam-erl__nif-FFAFF3?logo=gleam&logoColor=white)
@@ -19,10 +20,10 @@ surface is declared in [`include/rockbox_ffi.h`](../include/rockbox_ffi.h).
                  crates/rockbox-ffi  (cdylib + staticlib)
              rb_dsp_* / rb_meta_* / rb_player_*   ← include/rockbox_ffi.h
                                    │
-   ┌────────┬──────────┬────────┬───────┬───────┬───────┬────────┬────────┐
- Python TypeScript  Elixir   Gleam  Ruby   Swift  Kotlin  Clojure
- (cffi) (Bun/Deno/  (erl_nif)─(erl_nif)(fiddle)(dlopen)(Java FFM)(Java FFM)
-          Node)        └─ shared rockbox_ffi_nif.{c,erl} ─┘
+   ┌──────┬──────┬──────────┬────────┬───────┬───────┬───────┬────────┬────────┐
+ Python  Go  TypeScript  Elixir   Gleam  Ruby   Swift  Kotlin  Clojure
+ (cffi)(purego)(Bun/Deno/ (erl_nif)─(erl_nif)(fiddle)(dlopen)(Java FFM)(Java FFM)
+                Node)        └─ shared rockbox_ffi_nif.{c,erl} ─┘
 ```
 
 Build the shared library once from the repo root:
@@ -37,6 +38,7 @@ cargo build --release -p rockbox-ffi
 | Language       | Directory                      | Mechanism                     | Verify                                            |
 | -------------- | ------------------------------ | ----------------------------- | ------------------------------------------------- |
 | Python         | [`python/`](python)            | `cffi` (dlopen)               | `uv run python examples/smoke.py`                 |
+| Go             | [`go/`](go)                    | `purego` (dlopen, no cgo)     | `go run ./examples/smoke`                         |
 | TypeScript     | [`typescript/`](typescript)    | Bun / Deno / Node.js FFI      | `bun run examples/smoke.bun.ts`                   |
 | Elixir         | [`elixir/`](elixir)            | `erl_nif` (shared)            | `mix test`                                        |
 | Gleam          | [`gleam/`](gleam)              | `erl_nif` (shared)            | `make && gleam test`                              |
