@@ -1,0 +1,81 @@
+---
+title: "Ruby"
+description: "Rockbox DSP, metadata, and playback in Ruby via fiddle — no native extension to compile."
+icon: 'gem'
+---
+
+```sh
+gem install rockbox_ffi
+```
+
+Requires **Ruby 2.6+**. The binding uses [`fiddle`](https://docs.ruby-lang.org/en/master/Fiddle.html)
+(Ruby stdlib) to `dlopen` the shared library — **no native extension is
+compiled**. The published gem bundles a prebuilt `librockbox_ffi`; from a repo
+checkout the loader walks up to `target/release/` (override with
+`ROCKBOX_FFI_LIB`).
+
+## Quick start
+
+```ruby
+require "rockbox_ffi"
+
+# --- metadata ---------------------------------------------------------
+meta = RockboxFFI::Metadata.read("song.flac")
+puts "#{meta[:artist]} — #{meta[:title]} (#{meta[:duration_ms]} ms)"
+RockboxFFI::Metadata.probe("track.opus")   # => "Opus"
+
+# --- DSP (interleaved stereo int16) -----------------------------------
+RockboxFFI::Dsp.open(44_100) do |dsp|
+  dsp.eq_enable(true)
+  dsp.set_eq_band(0, 60, 0.7, 3.0)
+  dsp.set_replaygain(RockboxFFI::DspReplayGainMode::TRACK, true, 0.0)
+  dsp.set_replaygain_gains(track_gain_db: -6.02)  # halves amplitude
+  processed = dsp.process(samples)                # Array<Integer>
+end
+
+# --- playback (needs an output device) --------------------------------
+RockboxFFI::Player.open(volume: 0.8) do |player|
+  player.set_replaygain(RockboxFFI::ReplayGainMode::TRACK, 0.0, true)
+  player.set_crossfade(RockboxFFI::CrossfadeMode::ALWAYS)
+  player.set_queue(["a.flac", "b.mp3", "c.opus"])
+  player.play
+  player.status   # => {state: "playing", index: 0, ...}
+end
+```
+
+## API
+
+| Namespace                | Contents                                                          |
+| ------------------------ | ---------------------------------------------------------------- |
+| `RockboxFFI::Metadata`   | `read(path) => Hash`, `probe(filename) => String \| nil`          |
+| `RockboxFFI::Dsp`        | EQ / tone / surround / compressor / ReplayGain, `process(samples)` |
+| `RockboxFFI::Player`     | queue + transport + crossfade + ReplayGain, `status => Hash`      |
+| `RockboxFFI::*Mode`      | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode` |
+
+- Rich values (metadata, status) come back as **Hashes with symbol keys**.
+- Sample buffers are `Array<Integer>` of interleaved-stereo signed 16-bit
+  samples.
+- `Dsp` and `Player` own native resources. Use the block form (`.open`) to
+  close them automatically, or call `#close`; a GC finalizer is the backstop.
+
+<Warning>
+  `Dsp#set_replaygain` and `Player#set_replaygain` take **different mode
+  integers**. Use the named constants — `DspReplayGainMode` for the DSP,
+  `ReplayGainMode` for the player. See [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+## Interactive console
+
+```sh
+bundle exec rake console        # or: ./bin/console
+```
+
+Drops into IRB with `RockboxFFI` loaded and `FIXTURE` pointing at a sample
+track — Tab autocompletion and syntax highlighting are on by default:
+
+```ruby
+RockboxFFI::Metadata.read(FIXTURE)[:title]        # => "Speak"
+p = RockboxFFI::Player.new(volume: 0.6)
+p.set_queue([FIXTURE]); p.play
+p.status[:state]                                  # => "playing"
+```

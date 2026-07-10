@@ -1,0 +1,68 @@
+---
+title: "Clojure"
+description: "Rockbox DSP, metadata, and playback on the JVM via the Java Foreign Function & Memory API — no JNI."
+icon: 'lambda'
+---
+
+Clojure bindings with **no JNI and no native glue to compile**: they call the
+Java **Foreign Function & Memory API** (JEP 454, stable since **JDK 22**)
+through interop to locate `librockbox_ffi` at runtime and bind every function
+to a `MethodHandle` downcall.
+
+```clojure
+;; deps.edn
+io.github.tsirysndr/rockbox-clj-ffi {:mvn/version "0.1.1"}
+```
+
+Requires a **JDK 22+** and the Clojure CLI. The published jar bundles a
+prebuilt `librockbox_ffi` for every OS/arch and extracts the matching one at
+load time — no Rust toolchain needed. `ROCKBOX_FFI_LIB` overrides; a repo
+checkout falls back to `target/release`.
+
+## Quick start
+
+```clojure
+(require '[rockbox.ffi.metadata :as metadata]
+         '[rockbox.ffi.dsp :as dsp]
+         '[rockbox.ffi.player :as player])
+
+;; metadata -> map with keyword keys
+(metadata/read "/music/song.flac")   ; => {:title "…" :codec "FLAC" …}
+(metadata/probe "song.flac")         ; => "FLAC"
+
+;; DSP (interleaved stereo int16 short-array)
+(dsp/with-dsp [d 44100]
+  (dsp/eq-enable d true)
+  (dsp/set-eq-band d 0 100 0.7 3.0)
+  (dsp/process d samples))           ; => short-array
+
+;; Player (queue + transport)
+(player/with-player [p {:volume 0.8}]
+  (player/set-queue p ["/music/a.flac" "/music/b.mp3"])
+  (player/play p)
+  (:state (player/status p)))
+```
+
+## Notes
+
+- Rich values (metadata, player status) come back as maps with **keyword
+  keys**, parsed with `clojure.data.json`.
+- Native memory is freed automatically — `with-dsp` / `with-player` free their
+  handle, and every `char*` / `int16*` the ABI returns is freed inside the
+  binding.
+- Enum arguments accept either a keyword or the raw int (see
+  `src/rockbox/enums.clj`).
+
+<Warning>
+  **Two ReplayGain encodings** — `dsp-replaygain-mode` (`:track` 0, `:album` 1,
+  `:shuffle` 2, `:off` 3) for `rockbox.ffi.dsp`, `replaygain-mode` (`:off` 0,
+  `:track` 1, `:album` 2) for `rockbox.ffi.player`. See
+  [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+<Note>
+  The FFM downcalls need `--enable-native-access=ALL-UNNAMED`, wired into the
+  project's `deps.edn` aliases. This binding lives under `rockbox.ffi.*` and
+  coexists cleanly with the separate `rockbox-clj` gRPC SDK (which owns the bare
+  `rockbox.*` namespaces).
+</Note>

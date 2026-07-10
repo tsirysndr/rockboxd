@@ -1,0 +1,98 @@
+---
+title: "TypeScript"
+description: "One typed API for the Rockbox engine across Bun, Deno, and Node.js."
+icon: 'square-js'
+---
+
+TypeScript bindings for **metadata** parsing (40+ formats), the **DSP**
+pipeline (EQ, tone, surround, compressor, ReplayGain, resampler), and a
+queue-based **player** with crossfade. One typed API, three runtimes.
+
+```sh
+npm  install rockbox-ffi        # Node.js  (also pulls in koffi)
+bun  add     rockbox-ffi        # Bun
+deno add npm:rockbox-ffi        # Deno   (or import npm:rockbox-ffi/deno)
+```
+
+Import the entry point for your runtime — all three expose the identical API:
+
+| Runtime | Import                                 | Notes                                            |
+| ------- | -------------------------------------- | ------------------------------------------------ |
+| Bun     | `import … from "rockbox-ffi/bun"`      | uses built-in `bun:ffi`                          |
+| Deno    | `import … from "npm:rockbox-ffi/deno"` | run with `--allow-ffi --allow-read --allow-env`  |
+| Node.js | `import … from "rockbox-ffi/node"`     | uses [`koffi`](https://koffi.dev) (a dependency) |
+
+<Tip>
+  Prefer one import that resolves the right backend at runtime? Use
+  `import { load } from "rockbox-ffi"` — it returns a promise for the correct
+  runtime backend.
+</Tip>
+
+The published package bundles a prebuilt native library per platform. From a
+repo checkout, point at your own build with `ROCKBOX_FFI_LIB`.
+
+## Quick start
+
+```ts
+import {
+  metadata,
+  Dsp,
+  Player,
+  sineStereo,
+  DspReplayGainMode,
+  ReplayGainMode,
+  CrossfadeMode,
+} from "rockbox-ffi/bun"; // or /node, or npm:rockbox-ffi/deno
+
+// --- metadata --------------------------------------------------------
+const meta = metadata.read("song.flac");
+console.log(meta.artist, "—", meta.title, `${meta.duration_ms} ms`);
+console.log(metadata.probe("track.opus")); // "Opus"  (extension guess, no I/O)
+
+// --- DSP: process interleaved stereo Int16 ---------------------------
+const dsp = new Dsp(44_100);
+dsp.eqEnable(true);
+dsp.setEqBand(0, /*cutoffHz*/ 60, /*q*/ 0.7, /*gainDb*/ 3.0);
+dsp.setReplaygain(DspReplayGainMode.TRACK, /*noclip*/ true, /*preampDb*/ 0.0);
+dsp.setReplaygainGains(/*trackGainDb*/ -6.02); // −6 dB ≈ half amplitude
+
+const input = sineStereo(1_000, 1.0, 44_100); // 1 s of a 1 kHz test tone
+const output: Int16Array = dsp.process(input);
+dsp.close();
+
+// --- playback (needs an audio output device) -------------------------
+const player = new Player({ volume: 0.8, crossfadeMode: CrossfadeMode.ALWAYS });
+player.setReplaygain(ReplayGainMode.TRACK, 0.0, true);
+player.setQueue(["a.flac", "b.mp3", "c.opus"]);
+player.play();
+console.log(player.status()); // { state: "playing", index: 0, ... }
+```
+
+## API
+
+Everything is fully typed — your editor has the details.
+
+**`metadata`**
+
+| Function                   | Returns          | Description                                               |
+| -------------------------- | ---------------- | -------------------------------------------------------- |
+| `metadata.read(path)`      | `Metadata`       | Parse tags, duration, ReplayGain, album-art/cue offsets  |
+| `metadata.probe(filename)` | `string \| null` | Codec label from the extension, without opening the file |
+
+**`Dsp`** — interleaved-S16LE-stereo processor. Construct with a sample rate,
+feed it `Int16Array`s, and `close()` (or `using`) when done.
+
+| Method                                                  | Description                                 |
+| ------------------------------------------------------- | ------------------------------------------- |
+| `process(samples: Int16Array): Int16Array`              | Run stereo S16 frames through the pipeline  |
+| `setInputFrequency(hz)`                                 | Change input rate (engages the resampler)   |
+| `eqEnable(on)` / `setEqBand(band, cutoffHz, q, gainDb)` | 10-band EQ (band 0 low-shelf, 9 high-shelf) |
+| `setEqPrecut(db)`                                       | Negative pre-gain to avoid EQ clipping      |
+
+**`Player`** — queue, transport, crossfade, ReplayGain, and `status()`.
+
+<Warning>
+  `Dsp.setReplaygain` and `Player.setReplaygain` use **different mode
+  integers**. Pass the exported enums — `DspReplayGainMode` for the DSP,
+  `ReplayGainMode` for the player. See [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>

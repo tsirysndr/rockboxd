@@ -1,0 +1,78 @@
+---
+title: "Elixir"
+description: "Rockbox DSP, metadata, and playback in Elixir via an erl_nif shim over the C ABI."
+icon: 'droplet'
+---
+
+```elixir
+# mix.exs
+def deps do
+  [{:rockbox_ex_ffi, "~> 0.1"}]
+end
+```
+
+Requires **Elixir 1.15+** and **OTP 27+** (uses the built-in `:json` module —
+no `jason` dependency). The NIF links the Rust static archive
+(`target/release/librockbox_ffi.a`); `mix compile` builds it automatically
+through `elixir_make` (running `cargo build --release -p rockbox-ffi` first if
+the archive is missing).
+
+```sh
+mix deps.get
+mix compile
+```
+
+## Quick start
+
+```elixir
+# --- metadata ---
+{:ok, meta} = Rockbox.Metadata.read("song.flac")
+meta.artist       # "…"
+meta.duration_ms  # 122324
+Rockbox.Metadata.probe("track.opus")   # "Opus"
+
+# --- DSP (interleaved stereo int16 binary) ---
+d = Rockbox.Dsp.new(44_100)
+Rockbox.Dsp.eq_enable(d, true)
+Rockbox.Dsp.set_eq_band(d, 0, 60, 0.7, 3.0)
+Rockbox.Dsp.set_replaygain(d, 0, true, 0.0)          # 0 = track (DSP-native)
+Rockbox.Dsp.set_replaygain_gains(d, -6.02, nil, nil, nil)
+out = Rockbox.Dsp.process(d, pcm_binary)             # int16 LE in/out
+
+# --- playback (needs an output device) ---
+p = Rockbox.Player.new(volume: 0.8, crossfade_mode: 5)   # 5 = always
+Rockbox.Player.set_replaygain(p, 1, 0.0, true)           # 1 = track (player)
+Rockbox.Player.set_queue(p, ["a.flac", "b.mp3"])
+Rockbox.Player.play(p)
+Rockbox.Player.status(p)   # %{state: "playing", index: 0, ...}
+```
+
+## API
+
+| Module                 | Contents                                                          |
+| ---------------------- | ----------------------------------------------------------------- |
+| `Rockbox.Metadata`     | `read/1 -> {:ok, map}`, `probe/1 -> String.t()`                    |
+| `Rockbox.Dsp`          | EQ / tone / surround / compressor / ReplayGain, `process/2`        |
+| `Rockbox.Player`       | queue + transport + crossfade + ReplayGain, `status/1 -> map`      |
+
+- Handles (`Rockbox.Dsp` / `Rockbox.Player`) are NIF resources freed by the
+  BEAM garbage collector — no explicit close.
+- PCM crosses the boundary as an **int16 LE binary**.
+- Rich values come back as maps with atom keys.
+
+<Warning>
+  The DSP and player use **different mode integers**:
+  `Rockbox.Dsp.set_replaygain/4` → `0` track, `1` album, `2` shuffle, `3` off;
+  `Rockbox.Player.set_replaygain/4` → `0` off, `1` track, `2` album. See
+  [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+## Docs
+
+Generate API docs locally with `mix docs` (→ `doc/index.html`), or read the
+published ones at [hexdocs.pm/rockbox_ex_ffi](https://hexdocs.pm/rockbox_ex_ffi/).
+
+<Note>
+  The Elixir and Gleam bindings share the exact same
+  `rockbox_ffi_nif.{c,erl}` NIF, vendored into each project.
+</Note>

@@ -1,0 +1,123 @@
+---
+title: "Native engine bindings"
+description: "Call the Rockbox DSP, metadata, and playback engine in-process from eight languages, all over one shared C ABI."
+icon: 'plug'
+---
+
+The **bindings** embed the Rockbox audio engine directly in your process. They
+wrap `rockbox-ffi` — a flat **C ABI** (`crates/rockbox-ffi`) — so you can parse
+tags, run PCM through the DSP pipeline, and drive a queue-based player without
+running a daemon or talking to any network port.
+
+<Note>
+  Looking to **remote-control a running `rockboxd`** over the network instead?
+  That is what the [Client SDKs](/sdks/overview) are for — they speak GraphQL on
+  port 6062. The bindings on this page are the opposite: no daemon, no sockets,
+  the engine runs **inside your program**.
+</Note>
+
+## SDKs vs. bindings
+
+| &nbsp;              | [Client SDKs](/sdks/overview)          | Bindings (this section)                     |
+| ------------------- | -------------------------------------- | ------------------------------------------- |
+| Talks to            | A running `rockboxd` over GraphQL      | The engine, linked in-process               |
+| Transport           | HTTP / WebSocket on port 6062          | Native `dlopen` / FFI — no network          |
+| Best for            | Apps that control a music server       | Embedding DSP / metadata / playback         |
+| Package family      | `rockbox-sdk`, `@rockbox-zig/sdk`, …   | `rockbox-ffi` and friends                   |
+
+## Three surfaces
+
+Every binding exposes the same three namespaces with matching method names:
+
+<CardGroup cols={3}>
+  <Card title="metadata" icon="tags">
+    `read(path)` returns parsed tags, duration, ReplayGain, album-art and
+    cuesheet offsets. `probe(filename)` guesses the codec from the extension —
+    no I/O.
+  </Card>
+  <Card title="Dsp" icon="sliders">
+    Construct with a sample rate, then EQ / tone / surround / compressor /
+    ReplayGain setters, and `process(samples)` over interleaved stereo int16.
+  </Card>
+  <Card title="Player" icon="play">
+    Queue + transport (`play` / `pause` / `next` / `seek` / …), crossfade,
+    ReplayGain, and `status()`. Needs an audio output device.
+  </Card>
+</CardGroup>
+
+## Pick a language
+
+<CardGroup cols={3}>
+  <Card title="Python" icon="python" href="/bindings/python">
+    `pip install rockbox-ffi` — cffi
+  </Card>
+  <Card title="TypeScript" icon="square-js" href="/bindings/typescript">
+    `npm install rockbox-ffi` — Bun / Deno / Node
+  </Card>
+  <Card title="Ruby" icon="gem" href="/bindings/ruby">
+    `gem install rockbox_ffi` — fiddle
+  </Card>
+  <Card title="Elixir" icon="droplet" href="/bindings/elixir">
+    `{:rockbox_ex_ffi, "~> 0.1"}` — erl_nif
+  </Card>
+  <Card title="Gleam" icon="star" href="/bindings/gleam">
+    `gleam add rockbox_ffi` — erl_nif
+  </Card>
+  <Card title="Swift" icon="swift" href="/bindings/swift">
+    SwiftPM — pure-Swift dlopen
+  </Card>
+  <Card title="Kotlin" icon="code" href="/bindings/kotlin">
+    `io.github.tsirysndr:rockbox-ffi` — Java FFM
+  </Card>
+  <Card title="Clojure" icon="lambda" href="/bindings/clojure">
+    `io.github.tsirysndr/rockbox-clj-ffi` — Java FFM
+  </Card>
+</CardGroup>
+
+## The one thing to know: two ReplayGain encodings
+
+The DSP and the player use **different integers** for the same ReplayGain
+modes — a quirk of the underlying C ABI. Every binding ships named
+enums/constants so you never have to remember which is which:
+
+| Mode    | `Dsp` (`DspReplayGainMode`) | `Player` (`ReplayGainMode`) |
+| ------- | --------------------------- | --------------------------- |
+| Off     | 3                           | 0                           |
+| Track   | 0                           | 1                           |
+| Album   | 1                           | 2                           |
+| Shuffle | 2                           | —                           |
+
+## How values cross the boundary
+
+- **Rich values** (metadata, player status) cross as **JSON** and land as a
+  native map/dict/struct in your language.
+- **Sample buffers** are raw interleaved-stereo **signed 16-bit** integers
+  (`Int16Array`, `array('h')`, `ShortArray`, a BEAM binary, …).
+- **Memory is managed for you.** Every allocation the ABI hands out has a
+  matching free called *inside* the binding — you never call a `*_free`
+  yourself. Handles close via context managers, `use`/`with`, or GC finalizers.
+
+## Build the native library
+
+Published packages bundle a prebuilt `librockbox_ffi` for your platform, so
+`pip install` / `npm install` / `gem install` need no Rust toolchain. From a
+repo checkout, build it once and every binding finds it automatically:
+
+```sh
+cargo build --release -p rockbox-ffi
+#  target/release/librockbox_ffi.dylib   (macOS)
+#  target/release/librockbox_ffi.so      (Linux)
+#  target/release/librockbox_ffi.a       (static, for the BEAM NIFs)
+```
+
+The loaders walk up to `target/release/` by default. Point them elsewhere with
+the `ROCKBOX_FFI_LIB` environment variable:
+
+```sh
+export ROCKBOX_FFI_LIB=/path/to/librockbox_ffi.dylib
+```
+
+<Note>
+  On **Linux** the shared library links ALSA — install the system
+  `libasound2` package at runtime.
+</Note>

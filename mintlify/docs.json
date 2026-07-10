@@ -128,6 +128,25 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Bindings",
+        "groups": [
+          {
+            "group": "Native engine bindings",
+            "pages": [
+              "bindings/overview",
+              "bindings/python",
+              "bindings/typescript",
+              "bindings/ruby",
+              "bindings/elixir",
+              "bindings/gleam",
+              "bindings/swift",
+              "bindings/kotlin",
+              "bindings/clojure"
+            ]
+          }
+        ]
       }
     ],
     "global": {

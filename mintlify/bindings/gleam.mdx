@@ -1,0 +1,74 @@
+---
+title: "Gleam"
+description: "Rockbox DSP, metadata, and playback in Gleam (Erlang target) via an erl_nif shim over the C ABI."
+icon: 'star'
+---
+
+```sh
+gleam add rockbox_ffi
+```
+
+Requires **Gleam ≥ 1.0** on the **Erlang target** and **OTP 27+** (JSON is
+decoded with the built-in `json` module plus `gleam/dynamic/decode` — no
+`gleam_json` dependency). The NIF links the Rust static archive
+(`target/release/librockbox_ffi.a`); build it with `make` (which runs
+`cargo build --release -p rockbox-ffi` first if needed) before `gleam test`.
+
+```sh
+make            # -> priv/rockbox_ffi_nif.so
+gleam test
+```
+
+## Quick start
+
+```gleam
+import rockbox/metadata
+import rockbox/dsp
+import rockbox/player
+import gleam/option.{None, Some}
+
+// --- metadata ---
+let assert Ok(meta) = metadata.read("song.flac")
+meta.artist        // "…"
+meta.duration_ms   // 122324
+metadata.probe("track.opus")   // Some("Opus")
+
+// --- DSP (interleaved stereo int16 BitArray) ---
+let d = dsp.new(44_100)
+dsp.eq_enable(d, True)
+dsp.set_eq_band(d, 0, 60, 0.7, 3.0)
+dsp.set_replaygain(d, 0, True, 0.0)                 // 0 = track (DSP-native)
+dsp.set_replaygain_gains(d, Some(-6.02), None, None, None)
+let out = dsp.process(d, pcm)                        // BitArray in/out
+
+// --- playback (needs an output device) ---
+let p = player.with_config(player.Config(..player.default_config(), volume: 0.8))
+player.set_replaygain(p, 1, 0.0, True)              // 1 = track (player)
+player.set_queue(p, ["a.flac", "b.mp3"])
+player.play(p)
+player.status(p)   // Status(state: "playing", index: Some(0), ...)
+```
+
+## API
+
+| Module              | Contents                                                          |
+| ------------------- | ----------------------------------------------------------------- |
+| `rockbox/metadata`  | `read(path) -> Result(Metadata, _)`, `probe(name) -> Option(String)` |
+| `rockbox/dsp`       | EQ / tone / surround / compressor / ReplayGain, `process(d, pcm)`  |
+| `rockbox/player`    | queue + transport + crossfade + ReplayGain, `status(p) -> Status` |
+
+- `Dsp` and `Player` are opaque NIF resources, freed by the BEAM garbage
+  collector — no explicit close.
+- PCM crosses the boundary as a `BitArray`.
+
+<Warning>
+  The DSP and player use **different mode integers**: `dsp.set_replaygain` →
+  `0` track, `1` album, `2` shuffle, `3` off; `player.set_replaygain` → `0`
+  off, `1` track, `2` album. See
+  [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+<Note>
+  The Gleam and Elixir bindings share the exact same
+  `rockbox_ffi_nif.{c,erl}` NIF, vendored into each project.
+</Note>

@@ -1,0 +1,82 @@
+---
+title: "Python"
+description: "Rockbox DSP, metadata, and playback in Python via cffi over the librockbox_ffi C ABI."
+icon: 'python'
+---
+
+```sh
+pip install rockbox-ffi
+# or
+uv add rockbox-ffi
+```
+
+Requires **Python 3.9+**. The wheel bundles a prebuilt `librockbox_ffi` for
+your platform — no Rust toolchain needed. From a repo checkout, the loader
+walks up to `target/release/`; override with `ROCKBOX_FFI_LIB`.
+
+## Quick start
+
+```python
+import rockbox_ffi as rb
+from rockbox_ffi import Dsp, Player, metadata
+from rockbox_ffi.enums import DspReplayGainMode, ReplayGainMode, CrossfadeMode
+
+# --- metadata ---------------------------------------------------------
+meta = metadata.read("song.flac")
+print(meta["artist"], "—", meta["title"], meta["duration_ms"], "ms")
+print(metadata.probe("track.opus"))          # -> "Opus"  (no I/O, extension guess)
+
+# --- DSP: process interleaved stereo int16 ----------------------------
+with Dsp(44_100) as dsp:
+    dsp.eq_enable(True)
+    dsp.set_eq_band(0, cutoff_hz=60, q=0.7, gain_db=3.0)
+    dsp.set_replaygain(DspReplayGainMode.TRACK, noclip=True, preamp_db=0.0)
+    dsp.set_replaygain_gains(track_gain_db=-6.02)   # −6 dB ≈ half amplitude
+    processed = dsp.process(samples)                # array('h')
+
+# --- playback (needs an output device) --------------------------------
+with Player(volume=0.8) as player:
+    player.set_replaygain(ReplayGainMode.TRACK, preamp_db=0.0, prevent_clipping=True)
+    player.set_crossfade(CrossfadeMode.ALWAYS)
+    player.set_queue(["a.flac", "b.mp3", "c.opus"])
+    player.play()
+    print(player.status())     # {'state': 'playing', 'index': 0, ...}
+```
+
+## API
+
+| Module                 | Contents                                                              |
+| ---------------------- | --------------------------------------------------------------------- |
+| `rockbox_ffi.metadata` | `read(path) -> dict`, `probe(filename) -> str \| None`                |
+| `rockbox_ffi.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`    |
+| `rockbox_ffi.Player`   | queue + transport + crossfade + ReplayGain, `status() -> dict`        |
+| `rockbox_ffi.enums`    | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, …  |
+
+- **Handles** are context managers — `with Dsp(...) as dsp:` frees the native
+  resource on exit. A GC finalizer is the backstop.
+- **Rich values** (metadata, status) come back as plain `dict`s.
+- **Sample buffers** are `array('h')` of interleaved-stereo signed 16-bit
+  samples.
+
+<Warning>
+  `Dsp.set_replaygain` and `Player.set_replaygain` take **different mode
+  integers**. Always pass the named enums — `DspReplayGainMode` for the DSP,
+  `ReplayGainMode` for the player. See [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+## Interactive console
+
+```sh
+uv pip install -e '.[dev]'      # installs IPython
+uv run python console.py
+```
+
+Drops into IPython with `rb`, `metadata`, `Dsp`, `Player`, the enums, and a
+`FIXTURE` sample track preloaded:
+
+```python
+metadata.read(str(FIXTURE))["title"]        # 'Speak'
+p = Player(volume=0.6)
+p.set_queue([str(FIXTURE)]); p.play()
+p.status()["state"]                          # 'playing'
+```

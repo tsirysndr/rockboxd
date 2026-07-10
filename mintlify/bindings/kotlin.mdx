@@ -1,0 +1,67 @@
+---
+title: "Kotlin"
+description: "Rockbox DSP, metadata, and playback on the JVM via the Java Foreign Function & Memory API — no JNI."
+icon: 'code'
+---
+
+Kotlin/JVM bindings with **no JNI and no native glue to compile**: they use the
+Java **Foreign Function & Memory API** (JEP 454, stable since **JDK 22**) to
+locate `librockbox_ffi` at runtime and bind every function to a `MethodHandle`
+downcall.
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("io.github.tsirysndr:rockbox-ffi:0.2.0")
+}
+```
+
+Requires a **JDK 22+**. The published jar bundles a prebuilt `librockbox_ffi`
+for every OS/arch — it extracts the matching one at load time, so consumers
+need no Rust toolchain. `ROCKBOX_FFI_LIB` overrides; a repo checkout falls back
+to `target/release`.
+
+<Note>
+  FFM's restricted native calls need `--enable-native-access=ALL-UNNAMED` on
+  the launch command (the project's Gradle tasks wire this in).
+</Note>
+
+## Quick start
+
+```kotlin
+import org.rockbox.ffi.*
+
+// metadata
+val meta = Metadata.read("/music/song.flac")   // Map<String, Any?>
+println(meta["title"])
+Metadata.probe("song.flac")                     // "FLAC"
+
+// DSP (interleaved stereo int16)
+Dsp(44_100).use { dsp ->
+    dsp.eqEnable(true)
+    dsp.setEqBand(band = 0, cutoffHz = 100, q = 0.7f, gainDb = 3.0f)
+    val out: ShortArray = dsp.process(samples)
+}
+
+// Player (queue + transport)
+Player(Player.Config().apply { volume = 0.8f }).use { player ->
+    player.setQueue(listOf("/music/a.flac", "/music/b.mp3"))
+    player.play()
+    println(player.status()["state"])
+}
+```
+
+## Notes
+
+- Rich values (metadata, player status) come back as `Map<String, Any?>`,
+  parsed from the ABI's JSON with `org.json`.
+- Sample buffers are `ShortArray` of interleaved-stereo signed 16-bit samples.
+- Native memory is freed automatically — handles are `AutoCloseable`
+  (`use { }`), and every `char*` / `int16*` the ABI returns is freed inside the
+  binding.
+
+<Warning>
+  **Two ReplayGain encodings** — `DspReplayGainMode` (TRACK=0, ALBUM=1,
+  SHUFFLE=2, OFF=3) for `Dsp`, `ReplayGainMode` (OFF=0, TRACK=1, ALBUM=2) for
+  `Player`. See [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
