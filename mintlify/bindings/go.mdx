@@ -1,0 +1,86 @@
+---
+title: "Go"
+description: "Rockbox DSP, metadata, and playback in Go via purego over the librockbox_ffi C ABI — no cgo."
+icon: 'golang'
+---
+
+```sh
+go get github.com/tsirysndr/rockboxd/bindings/go
+```
+
+Requires **Go 1.22+**. Calls the native engine through
+[`purego`](https://github.com/ebitengine/purego) — **no cgo and no C
+toolchain**; the package `dlopen`s a prebuilt `librockbox_ffi` at process
+start. From a repo checkout the loader walks up to `target/release/`; override
+with `ROCKBOX_FFI_LIB`.
+
+## Quick start
+
+```go
+package main
+
+import (
+	"fmt"
+
+	rockbox "github.com/tsirysndr/rockboxd/bindings/go"
+)
+
+func main() {
+	// --- metadata -----------------------------------------------------
+	meta, _ := rockbox.Metadata.Read("song.flac")
+	fmt.Println(meta.Artist, "—", meta.Title, meta.DurationMs, "ms")
+	label, _ := rockbox.Metadata.Probe("track.opus") // "Opus" (no I/O, extension guess)
+	fmt.Println(label)
+
+	// --- DSP: process interleaved stereo int16 ------------------------
+	dsp, _ := rockbox.NewDsp(44_100)
+	defer dsp.Close()
+	dsp.EqEnable(true)
+	dsp.SetEqBand(0, 60, 0.7, 3.0)
+	dsp.SetReplaygain(rockbox.DspReplayGainTrack, true, 0.0)
+	dsp.SetReplaygainGains(rockbox.Opt(-6.02), nil, nil, nil) // −6 dB ≈ half amplitude
+	processed, _ := dsp.Process(samples)                      // []int16
+	_ = processed
+
+	// --- playback (needs an output device) ----------------------------
+	cfg := rockbox.DefaultConfig()
+	cfg.Volume = 0.8
+	player, _ := rockbox.NewPlayer(cfg)
+	defer player.Close()
+	player.SetReplaygain(rockbox.ReplayGainTrack, 0.0, true)
+	player.SetCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade)
+	player.SetQueue([]string{"a.flac", "b.mp3", "c.opus"})
+	player.Play()
+	st, _ := player.Status() // &Status{State: "playing", Index: 0, ...}
+	fmt.Println(st.State)
+}
+```
+
+## API
+
+| Symbol                          | Contents                                                           |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `rockbox.Metadata`              | `Read(path) (*Meta, error)`, `Probe(name) (string, bool)`          |
+| `rockbox.NewDsp` → `*Dsp`       | EQ / tone / surround / compressor / ReplayGain, `Process([]int16)` |
+| `rockbox.NewPlayer` → `*Player` | queue + transport + crossfade + ReplayGain, `Status()`             |
+| `rockbox.*` consts              | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, `ChannelConfig` |
+
+- **Handles** own native resources — `defer dsp.Close()` / `defer player.Close()`
+  frees them.
+- **Rich values** (metadata, status) decode into typed structs (`Meta`,
+  `Status`); optional tags are `nil`-able pointer fields.
+- **Sample buffers** are `[]int16` of interleaved-stereo signed 16-bit samples.
+
+<Warning>
+  `Dsp.SetReplaygain` and `Player.SetReplaygain` take **different mode
+  integers**. Always pass the named constants — `DspReplayGain*` for the DSP,
+  `ReplayGain*` for the player. See [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+## Smoke test
+
+```sh
+cd bindings/go
+go run ./examples/smoke   # metadata + DSP + player checks
+go test ./...
+```

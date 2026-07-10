@@ -137,6 +137,7 @@
             "pages": [
               "bindings/overview",
               "bindings/python",
+              "bindings/go",
               "bindings/typescript",
               "bindings/ruby",
               "bindings/elixir",

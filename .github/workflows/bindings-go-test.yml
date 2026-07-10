@@ -1,0 +1,65 @@
+name: bindings-go-test
+
+# Build librockbox_ffi and run the Go binding's test suite. The tests dlopen
+# the freshly built shared library (via the target/release fallback) and run
+# the same native pipeline parity check as the other bindings.
+on:
+  push:
+    paths:
+      - "bindings/go/**"
+      - "crates/rockbox-ffi/**"
+      - "include/rockbox_ffi.h"
+      - ".github/workflows/bindings-go-test.yml"
+  pull_request:
+    paths:
+      - "bindings/go/**"
+      - "crates/rockbox-ffi/**"
+      - "include/rockbox_ffi.h"
+      - ".github/workflows/bindings-go-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: go test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bindings/go/go.mod
+          cache-dependency-path: bindings/go/go.sum
+
+      - name: Install Linux audio deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Load dummy sound card (best-effort)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo modprobe snd-dummy || true
+
+      - name: Build librockbox_ffi
+        run: cargo build --release -p rockbox-ffi
+
+      - name: go vet
+        working-directory: bindings/go
+        # -unsafeptr=false: purego hands back C-owned addresses as uintptr, so
+        # the uintptr->unsafe.Pointer conversions are safe (not GC-managed) but
+        # the unsafeptr analyzer can't prove it. Every other check still runs.
+        run: go vet -unsafeptr=false ./...
+
+      - name: go test
+        working-directory: bindings/go
+        run: go test -v ./...

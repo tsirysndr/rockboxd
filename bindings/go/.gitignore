@@ -1,0 +1,2 @@
+# CI-built native lib bundled next to the package for releases
+/lib/

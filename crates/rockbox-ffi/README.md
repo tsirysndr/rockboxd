@@ -39,8 +39,9 @@ cargo build --release -p rockbox-ffi
 
 ## Language bindings
 
-See [`bindings/`](../../bindings) for Python (cffi), TypeScript (Bun/Deno
-FFI), Elixir, and Gleam packages that consume this library.
+See [`bindings/`](../../bindings) for Python (cffi), Go (purego), TypeScript
+(Bun/Deno FFI), Ruby, Swift, Elixir, Gleam, Kotlin, and Clojure packages that
+consume this library.
 
 ## ABI stability
 

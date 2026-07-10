@@ -22,6 +22,7 @@
 # Staging locations (per target <t>, ext = dylib on macOS, so elsewhere):
 #   ruby       -> bindings/ruby/vendor/librockbox_ffi.<ext>
 #   python     -> bindings/python/src/rockbox_ffi/_lib/librockbox_ffi.<ext>
+#   go         -> bindings/go/lib/librockbox_ffi.<ext>
 #   typescript -> bindings/typescript/npm/<t>/librockbox_ffi.<ext>
 #   kotlin     -> bindings/kotlin/src/main/resources/native/<t>/librockbox_ffi.<ext>
 #   clojure    -> bindings/clojure/resources/native/<t>/librockbox_ffi.<ext>
@@ -134,6 +135,7 @@ stage() {  # stage <target> <dest-file>
 stage_npm()     { local t="$1"; stage "$t" "$BINDINGS_DIR/typescript/npm/${t}/librockbox_ffi.$(libext "$t")"; }
 stage_ruby()    { local t="$1"; stage "$t" "$BINDINGS_DIR/ruby/vendor/librockbox_ffi.$(libext "$t")"; }
 stage_python()  { local t="$1"; stage "$t" "$BINDINGS_DIR/python/src/rockbox_ffi/_lib/librockbox_ffi.$(libext "$t")"; }
+stage_go()      { local t="$1"; stage "$t" "$BINDINGS_DIR/go/lib/librockbox_ffi.$(libext "$t")"; }
 stage_kotlin()  { local t="$1"; stage "$t" "$BINDINGS_DIR/kotlin/src/main/resources/native/${t}/librockbox_ffi.$(libext "$t")"; }
 stage_clojure() { local t="$1"; stage "$t" "$BINDINGS_DIR/clojure/resources/native/${t}/librockbox_ffi.$(libext "$t")"; }
 
@@ -146,17 +148,19 @@ if [ "$ALL" -eq 1 ]; then
   done
   host="$(host_target)"
   if [ -n "$host" ]; then
-    echo "Staging host ($host) into ruby + python (single-slot — rerun with --target for others):"
+    echo "Staging host ($host) into ruby + python + go (single-slot — rerun with --target for others):"
     stage_ruby "$host" || true
     stage_python "$host" || true
+    stage_go "$host" || true
   fi
 else
   t="${TARGET:-$(host_target)}"
   [ -n "$t" ] || { echo "error: unsupported host $(uname -sm); pass --target" >&2; exit 1; }
-  echo "Staging $t into ruby + python + typescript/npm/$t + kotlin + clojure:"
+  echo "Staging $t into ruby + python + go + typescript/npm/$t + kotlin + clojure:"
   echo "  (JVM jars bundle every target — use --all before publishing kotlin/clojure)"
   stage_ruby "$t"
   stage_python "$t"
+  stage_go "$t"
   stage_npm "$t"
   stage_kotlin "$t"
   stage_clojure "$t"
