@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -31,7 +30,7 @@
 
 RBScreen::RBScreen(const RBRenderInfo& info, bool remote,
                    QGraphicsItem *parent)
-                       :QGraphicsItem(parent), backdrop(0), project(project),
+                       :QGraphicsItem(parent), backdrop(0), project(info.project()),
                        albumArt(0), customUI(0), defaultView(0), ax(false)
 {
 
@@ -141,7 +140,8 @@ void RBScreen::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
     {
         painter->fillRect(0, 0, width, height, bgColor);
     }
-
+    (void)option;
+    (void)widget;
 }
 
 void RBScreen::loadViewport(QString name, RBViewport *view)

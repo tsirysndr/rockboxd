@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002-2007 Björn Stenberg
  * Copyright (C) 2007-2008 Nicolas Pennequin
@@ -210,6 +209,23 @@ void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
     {
         length = 100;
         end = battery_level();
+    }
+    else if (pb->type == SKIN_TOKEN_PLAYLIST_PROGRESSBAR)
+    {
+        unsigned long pl_elapsed, pl_total;
+        if (id3 && wps_get_playlist_percent(id3,
+                       id3->elapsed + state->ff_rewind_count,
+                       &pl_elapsed, &pl_total)
+            && pl_total > 0)
+        {
+            length = pl_total;
+            end = pl_elapsed;
+        }
+        else
+        {
+            length = 1;
+            end = 0;
+        }
     }
     else if (pb->type == SKIN_TOKEN_PEAKMETER_LEFTBAR ||
              pb->type == SKIN_TOKEN_PEAKMETER_RIGHTBAR)

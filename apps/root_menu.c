@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2007 Jonathan Gordon
  *
@@ -212,8 +211,7 @@ static int browser(void* param)
                         static const struct text_message message={lines, 2};
                         if(gui_syncyesno_run(&message, NULL, NULL) == YESNO_NO)
                             break;
-                        FOR_NB_SCREENS(i)
-                            screens[i].clear_display();
+                        clear_screen_buffer(false);
 
                         /* Start initialisation */
                         tagcache_rebuild();
@@ -793,8 +791,8 @@ static int load_plugin_screen(char *key)
 
         if (ret == PLUGIN_USB_CONNECTED || ret == PLUGIN_ERROR)
             ret_val = GO_TO_ROOT;
-        else if (ret == PLUGIN_GOTO_WPS)
-            ret_val = GO_TO_WPS;
+        else if (ret == PLUGIN_GOTO_WPS) /* prevent infinite loop */
+            ret_val = old_global == GO_TO_WPS ? GO_TO_BROWSEPLUGINS : GO_TO_WPS;
         else if (ret == PLUGIN_GOTO_PLUGIN)
         {
             if(op_entry->lang_id == LANG_OPEN_PLUGIN)
@@ -856,7 +854,8 @@ static int root_menu_setup_screens(void)
     else
         new_screen = global_settings.start_in_screen - 2;
 
-    if (new_screen >= NUM_ITEMS)
+    if (new_screen >= NUM_ITEMS ||
+        (new_screen == GO_TO_WPS && global_status.resume_index == -1))
         new_screen = GO_TO_ROOT;
     else if (new_screen == GO_TO_PLUGIN)
     {

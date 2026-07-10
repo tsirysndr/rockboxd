@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2006-2007 Dave Chapman
  *
@@ -40,33 +39,34 @@
 
 #include "ipodio.h"
 
-static int lock_volume(HANDLE hDisk) 
-{ 
+static int lock_volume(HANDLE hDisk)
+{
   DWORD dummy;
 
   return DeviceIoControl(hDisk, FSCTL_LOCK_VOLUME, NULL, 0, NULL, 0,
-			 &dummy, NULL); 
+			 &dummy, NULL);
 }
 
-static int unlock_volume(HANDLE hDisk) 
-{ 
+static int unlock_volume(HANDLE hDisk)
+{
   DWORD dummy;
 
   return DeviceIoControl(hDisk, FSCTL_UNLOCK_VOLUME, NULL, 0, NULL, 0,
-			 &dummy, NULL); 
-} 
+			 &dummy, NULL);
+}
 
 void ipod_print_error(char* msg)
 {
     LPSTR pMsgBuf = NULL;
 
     printf(msg);
-    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+    if (FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
                   FORMAT_MESSAGE_IGNORE_INSERTS, NULL, GetLastError(),
-                  MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), pMsgBuf,
-                  0, NULL);
-    printf(pMsgBuf);
-    LocalFree(pMsgBuf);
+                       MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&pMsgBuf,
+                       0, NULL)) {
+        printf(pMsgBuf);
+        LocalFree(pMsgBuf);
+    }
 }
 
 int ipod_open(struct ipod_t* ipod, int silent)
@@ -224,4 +224,3 @@ ssize_t ipod_write(struct ipod_t* ipod, int nbytes)
 }
 
 #endif
-

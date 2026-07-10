@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -59,12 +58,14 @@ void RBTouchArea::paint(QPainter *painter,
         painter->setPen(Qt::NoPen);
         painter->drawRect(size);
     }
+    (void)option;
+    (void)widget;
 }
 
 void RBTouchArea::mousePressEvent(QGraphicsSceneMouseEvent *event)
 {
     if(action[0] == '&')
-        action = action.right(action.count() - 1);
+        action = action.right(action.size() - 1);
 
     action = action.toLower();
 

@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -53,6 +52,7 @@ typedef long skinoffset_t;
  * do what you expect.
  */
 #define OFFSETTYPE(type) skinoffset_t
+#define OFFSETTYPE_OFFSET
 #else
 #define SKINOFFSETTOPTR(base, offset) offset
 #define PTRTOSKINOFFSET(base, pointer) pointer

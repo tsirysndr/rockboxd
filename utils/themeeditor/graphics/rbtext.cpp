@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id: rbfont.cpp 27301 2010-07-05 22:15:17Z bieber $
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -48,4 +47,7 @@ void RBText::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
         painter->drawImage(0, 0, *image, 0, 0, image->width(), image->height());
     else
         painter->drawImage(0, 0, *image, offset, 0, maxWidth, image->height());
+
+    (void)option;
+    (void)widget;
 }

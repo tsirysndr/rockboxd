@@ -20,8 +20,9 @@
 #include <QProgressDialog>
 #include <QFileDialog>
 #include <QUrl>
-#if defined(QT_MULTIMEDIA_LIB) && (QT_VERSION < 0x060000)
-#include <QSound>
+
+#if defined(QT_MULTIMEDIA_LIB)
+#include <QSoundEffect>
 #endif
 
 #include "version.h"
@@ -38,7 +39,9 @@
 #include "comboboxviewdelegate.h"
 #if defined(Q_OS_WIN32)
 #if defined(UNICODE)
+#ifndef _UNICODE
 #define _UNICODE
+#endif
 #endif
 #include <tchar.h>
 #include <windows.h>
@@ -449,7 +452,7 @@ void Config::updateTtsState(int index)
     {
         ui.configTTSstatus->setText(tr("Configuration OK"));
         ui.configTTSstatusimg->setPixmap(QPixmap(QString::fromUtf8(":/icons/go-next.svg")));
-#if defined(QT_MULTIMEDIA_LIB) && (QT_VERSION < 0x060000)
+#if defined(QT_MULTIMEDIA_LIB)
         ui.testTTS->setEnabled(true);
 #else
         ui.testTTS->setEnabled(false);
@@ -581,7 +584,10 @@ QString Config::languageName(const QString &qmFile)
 
     QString file = "rbutil_" + qmFile;
     if(!translator.load(file, programPath))
-        translator.load(file, ":/lang");
+        if (!translator.load(file, ":/lang")) {
+            LOG_ERROR() << "Failed to load translation:" << file;
+            return ("Failed to load translation:" + file);
+        }
 
     return translator.translate("Configure", "English",
         "This is the localized language name, i.e. your language.");
@@ -608,10 +614,16 @@ void Config::updateLanguage()
     QString absolutePath = QCoreApplication::instance()->applicationDirPath();
 
     if(!translator->load("rbutil_" + language, absolutePath))
-        translator->load("rbutil_" + language, ":/lang");
+        if (!translator->load("rbutil_" + language, ":/lang")) {
+            LOG_ERROR() << "Failed to load translation:" << ("rbutil_" + language);
+            return;
+        }
     if(!qttrans->load("qt_" + language,
-                QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
-        qttrans->load("qt_" + language, ":/lang");
+                QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
+        if (!qttrans->load("qt_" + language, ":/lang")) {
+            LOG_ERROR() << "Failed to load translation:" << ("qt_" + language);
+            return;
+        }
 
     qApp->installTranslator(translator);
     qApp->installTranslator(qttrans);
@@ -899,7 +911,7 @@ void Config::configTts()
 
 void Config::testTts()
 {
-#if defined(QT_MULTIMEDIA_LIB) && (QT_VERSION < 0x060000)
+#if defined(QT_MULTIMEDIA_LIB)
     QString errstr;
     int index = ui.comboTts->currentIndex();
     TTSBase* tts;
@@ -946,7 +958,11 @@ void Config::testTts()
     }
     tts->stop();
     if(!filename.isEmpty()) {
-        QSound::play(filename);
+        QSoundEffect effect;
+        effect.setSource(QUrl::fromLocalFile(filename));
+        effect.setLoopCount(0);
+        effect.setVolume(1.0f);
+        effect.play();
     }
     ui.testTTS->setEnabled(true);
     delete tts; /* Config objects are never deleted (in fact, they are
@@ -986,4 +1002,3 @@ void Config::changeEvent(QEvent *e)
         QWidget::changeEvent(e);
     }
 }
-

@@ -24,9 +24,18 @@
 
 TTSSapi::TTSSapi(QObject* parent) : TTSBase(parent)
 {
-    m_TTSTemplate = "cscript //nologo \"%exe\" /language:%lang "
-        "/voice:\"%voice\" /speed:%speed \"%options\"";
-    m_TTSVoiceTemplate = "cscript //nologo \"%exe\" /language:%lang /listvoices";
+    m_TTSTemplate << "//nologo";
+    m_TTSTemplate << "%exe";
+    m_TTSTemplate << "/language:%lang";
+    m_TTSTemplate << "/voice:%voice";
+    m_TTSTemplate << "/speed:%speed";
+    m_TTSTemplate << "%options";
+
+    m_TTSVoiceTemplate << "//nologo";
+    m_TTSVoiceTemplate << "%exe";
+    m_TTSVoiceTemplate << "/language:%lang";
+    m_TTSVoiceTemplate << "/listvoices";
+
     m_TTSType = "sapi";
     defaultLanguage = "english";
     m_started = false;
@@ -113,17 +122,17 @@ bool TTSSapi::start(QString *errStr)
         return false;
     }
     // create the voice process
-    QString execstring = m_TTSTemplate;
-    execstring.replace("%exe",m_TTSexec);
-    execstring.replace("%options",m_TTSOpts);
-    execstring.replace("%lang",m_TTSLanguage);
-    execstring.replace("%voice",m_TTSVoice);
-    execstring.replace("%speed",m_TTSSpeed);
+    QStringList exec = m_TTSTemplate;
+    exec.replaceInStrings("%exe",m_TTSexec);
+    exec.replaceInStrings("%options",m_TTSOpts);
+    exec.replaceInStrings("%lang",m_TTSLanguage);
+    exec.replaceInStrings("%voice",m_TTSVoice);
+    exec.replaceInStrings("%speed",m_TTSSpeed);
 
-    LOG_INFO() << "Start:" << execstring;
+    LOG_INFO() << "Start: cscript " << exec;
     voicescript = new QProcess(nullptr);
     //connect(voicescript,SIGNAL(readyReadStandardError()),this,SLOT(error()));
-    voicescript->start(execstring);
+    voicescript->start("cscript", exec);
     LOG_INFO() << "wait for process";
     if(!voicescript->waitForStarted())
     {
@@ -140,11 +149,7 @@ bool TTSSapi::start(QString *errStr)
     }
 
     voicestream = new QTextStream(voicescript);
-#if QT_VERSION < 0x060000
-    voicestream->setCodec("UTF16-LE");
-#else
     voicestream->setEncoding(QStringConverter::Utf16LE);
-#endif
 
     m_started = true;
     return true;
@@ -182,13 +187,13 @@ QStringList TTSSapi::getVoiceList(QString language)
         return result;
 
     // create the voice process
-    QString execstring = m_TTSVoiceTemplate;
-    execstring.replace("%exe",m_TTSexec);
-    execstring.replace("%lang",language);
+    QStringList exec = m_TTSVoiceTemplate;
+    exec.replaceInStrings("%exe",m_TTSexec);
+    exec.replaceInStrings("%lang",language);
 
-    LOG_INFO() << "Start:" << execstring;
+    LOG_INFO() << "Start: cscript " << exec;
     voicescript = new QProcess(nullptr);
-    voicescript->start(execstring);
+    voicescript->start("cscript", exec);
     LOG_INFO() << "wait for process";
     if(!voicescript->waitForStarted()) {
         LOG_INFO() << "process startup timed out!";
@@ -201,11 +206,7 @@ QStringList TTSSapi::getVoiceList(QString language)
     if(dataRaw.startsWith("Error")) {
         LOG_INFO() << "Error:" << dataRaw;
     }
-#if QT_VERSION >= 0x050e00
     result = dataRaw.split(";", Qt::SkipEmptyParts);
-#else
-    result = dataRaw.split(";", QString::SkipEmptyParts);
-#endif
     if(result.size() > 0)
     {
         result.sort();
@@ -271,4 +272,3 @@ bool TTSSapi::configOk()
         return false;
     return true;
 }
-

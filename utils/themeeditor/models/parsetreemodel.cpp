@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -246,11 +245,14 @@ bool ParseTreeModel::setData(const QModelIndex &index, const QVariant &value,
         }
         else if(tolower(param->type_code) == 'i')
         {
-            if(!value.canConvert(QVariant::Int))
+            bool ok = false;
+            int number = value.toInt(&ok);
+
+            if (!ok)
                 return false;
 
             param->type = skin_tag_parameter::INTEGER;
-            param->data.number = value.toInt();
+            param->data.number = number;
         }
         else
         {

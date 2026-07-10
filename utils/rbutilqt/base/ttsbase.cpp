@@ -21,7 +21,6 @@
 
 #include "ttsfestival.h"
 #include "ttssapi.h"
-#include "ttssapi4.h"
 #include "ttsmssp.h"
 #include "ttsexes.h"
 #include "ttsespeak.h"
@@ -29,8 +28,11 @@
 #include "ttsflite.h"
 #include "ttsmimic.h"
 #include "ttsswift.h"
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
 #include "ttscarbon.h"
+#endif
+#if defined(QT_TEXTTOSPEECH_LIB) && defined(QT_MULTIMEDIA_LIB)
+#include "ttsqt.h"
 #endif
 
 // list of tts names and identifiers
@@ -51,17 +53,17 @@ void TTSBase::initTTSList()
     ttsList["flite"] = tr("Flite TTS Engine");
     ttsList["swift"] = tr("Swift TTS Engine");
 #if defined(Q_OS_WIN)
-#if 0 /* SAPI4 has been disabled since long. Keep support for now. */
-    ttsList["sapi4"] = tr("SAPI4 TTS Engine");
-#endif
     ttsList["sapi"] = tr("SAPI5 TTS Engine");
     ttsList["mssp"] = tr("MS Speech Platform");
 #endif
 #if defined(Q_OS_LINUX)
     ttsList["festival"] = tr("Festival TTS Engine");
 #endif
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
     ttsList["carbon"] = tr("OS X System Engine");
+#endif
+#if defined(QT_TEXTTOSPEECH_LIB) && defined(QT_MULTIMEDIA_LIB)
+    ttsList["qt"] = tr("Qt TextToSpeech Engine");
 #endif
 }
 
@@ -73,8 +75,6 @@ TTSBase* TTSBase::getTTS(QObject* parent,QString ttsName)
 #if defined(Q_OS_WIN)
     if(ttsName == "sapi")
         tts = new TTSSapi(parent);
-    else if (ttsName == "sapi4")
-        tts = new TTSSapi4(parent);
     else if (ttsName == "mssp")
         tts = new TTSMssp(parent);
     else
@@ -82,9 +82,14 @@ TTSBase* TTSBase::getTTS(QObject* parent,QString ttsName)
     if (ttsName == "festival")
         tts = new TTSFestival(parent);
     else
-#elif defined(Q_OS_MACX)
+#elif defined(Q_OS_MACOS)
     if(ttsName == "carbon")
         tts = new TTSCarbon(parent);
+    else
+#endif
+#if defined(QT_TEXTTOSPEECH_LIB) && defined(QT_MULTIMEDIA_LIB)
+    if(ttsName == "qt")
+        tts = new TTSQt(parent);
     else
 #endif
     if(ttsName == "espeak")

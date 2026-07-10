@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -167,6 +166,7 @@ static const struct tag_info legal_tags[] =
     TAG(SKIN_TOKEN_PLAYLIST_ENTRIES,      "pe", "", SKIN_REFRESH_STATIC),
     TAG(SKIN_TOKEN_PLAYLIST_NAME,         "pn", "", SKIN_REFRESH_STATIC),
     TAG(SKIN_TOKEN_PLAYLIST_SHUFFLE,      "ps", "", SKIN_REFRESH_DYNAMIC),
+    TAG(SKIN_TOKEN_PLAYLIST_ELAPSED_PERCENT, "pX", BAR_PARAMS, SKIN_REFRESH_DYNAMIC),
 
     TAG(SKIN_TOKEN_DATABASE_PLAYCOUNT,    "rp", "", SKIN_REFRESH_DYNAMIC),
     TAG(SKIN_TOKEN_DATABASE_RATING,       "rr", "", SKIN_REFRESH_DYNAMIC),

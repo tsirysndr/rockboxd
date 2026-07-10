@@ -9,8 +9,8 @@
  * Some includes are repeated just in case we want to split this file later.
  */
 
-#include <Qt>
-#include <QtGlobal>
+#include <QtCore/Qt>
+#include <QtCore/QtGlobal>
 
 // Legacy encodings are still everywhere, but the Qt team decided we
 // don't need them anymore and moved them out of Core in Qt 6.
@@ -30,10 +30,9 @@ inline bool quazip_close(QIODevice *device) {
     if (file != nullptr) {
         // We have to call the ugly commit() instead:
         return file->commit();
-    } else {
-        device->close();
-        return true;
     }
+    device->close();
+    return true;
 }
 #else
 inline bool quazip_close(QIODevice *device) {
@@ -46,12 +45,12 @@ inline bool quazip_close(QIODevice *device) {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
 using Qt::SkipEmptyParts;
 #else
-#include <QString>
+#include <QtCore/QString>
 const auto SkipEmptyParts = QString::SplitBehavior::SkipEmptyParts;
 #endif
 
 // and yet another... (why didn't they just make qSort delegate to std::sort?)
-#include <QList>
+#include <QtCore/QList>
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 2, 0))
 #include <algorithm>
 template<typename T, typename C>
@@ -59,7 +58,7 @@ inline void quazip_sort(T begin, T end, C comparator) {
     std::sort(begin, end, comparator);
 }
 #else
-#include <QtAlgorithms>
+#include <QtCore/QtAlgorithms>
 template<typename T, typename C>
 inline void quazip_sort(T begin, T end, C comparator) {
     qSort(begin, end, comparator);
@@ -67,8 +66,8 @@ inline void quazip_sort(T begin, T end, C comparator) {
 #endif
 
 // this is a stupid rename...
-#include <QDateTime>
-#include <QFileInfo>
+#include <QtCore/QDateTime>
+#include <QtCore/QFileInfo>
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 10, 0))
 inline QDateTime quazip_ctime(const QFileInfo &fi) {
     return fi.birthTime();
@@ -79,16 +78,61 @@ inline QDateTime quazip_ctime(const QFileInfo &fi) {
 }
 #endif
 
+// this is just a slightly better alternative
+#include <QtCore/QFileInfo>
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+inline bool quazip_is_symlink(const QFileInfo &fi) {
+    return fi.isSymbolicLink();
+}
+#else
+inline bool quazip_is_symlink(const QFileInfo &fi) {
+    // also detects *.lnk on Windows, but better than nothing
+    return fi.isSymLink();
+}
+#endif
+
+// I'm not even sure what this one is, but nevertheless
+#include <QtCore/QFileInfo>
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 13, 0))
+inline QString quazip_symlink_target(const QFileInfo &fi) {
+    return fi.symLinkTarget();
+}
+#else
+inline QString quazip_symlink_target(const QFileInfo &fi) {
+    return fi.readLink(); // What's the difference? I've no idea.
+}
+#endif
+
+// deprecation
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+#include <QtCore/QTimeZone>
+inline QDateTime quazip_since_epoch() {
+    return QDateTime(QDate(1970, 1, 1), QTime(0, 0), QTimeZone::utc());
+}
+
+inline QDateTime quazip_since_epoch_ntfs() {
+    return QDateTime(QDate(1601, 1, 1), QTime(0, 0), QTimeZone::utc());
+}
+#else
+inline QDateTime quazip_since_epoch() {
+    return QDateTime(QDate(1970, 1, 1), QTime(0, 0), Qt::UTC);
+}
+
+inline QDateTime quazip_since_epoch_ntfs() {
+    return QDateTime(QDate(1601, 1, 1), QTime(0, 0), Qt::UTC);
+}
+#endif
+
 // this is not a deprecation but an improvement, for a change
-#include <QDateTime>
+#include <QtCore/QDateTime>
 #if (QT_VERSION >= 0x040700)
 inline quint64 quazip_ntfs_ticks(const QDateTime &time, int fineTicks) {
-    QDateTime base(QDate(1601, 1, 1), QTime(0, 0), Qt::UTC);
+    QDateTime base = quazip_since_epoch_ntfs();
     return base.msecsTo(time) * 10000 + fineTicks;
 }
 #else
 inline quint64 quazip_ntfs_ticks(const QDateTime &time, int fineTicks) {
-    QDateTime base(QDate(1601, 1, 1), QTime(0, 0), Qt::UTC);
+    QDateTime base = quazip_since_epoch_ntfs();
     QDateTime utc = time.toUTC();
     return (static_cast<qint64>(base.date().daysTo(utc.date()))
             * Q_INT64_C(86400000)
@@ -98,7 +142,7 @@ inline quint64 quazip_ntfs_ticks(const QDateTime &time, int fineTicks) {
 #endif
 
 // yet another improvement...
-#include <QDateTime>
+#include <QtCore/QDateTime>
 #if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0) // Yay! Finally a way to get time as qint64!
 inline qint64 quazip_to_time64_t(const QDateTime &time) {
     return time.toSecsSinceEpoch();
@@ -109,7 +153,7 @@ inline qint64 quazip_to_time64_t(const QDateTime &time) {
 }
 #endif
 
-#include <QTextStream>
+#include <QtCore/QTextStream>
 // and another stupid move
 #if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
 const auto quazip_endl = Qt::endl;

@@ -49,6 +49,14 @@ public:
         BuildSourceUrl,
         BuildFontUrl,
 
+        BootloaderUrl,
+        GenlangUrl,
+        ThemesUrl,
+        ThemesInfoUrl,
+        RbutilUrl,
+        RbutilIniUrl,
+        VoiceCorrectionsUrl,
+
         DoomUrl,
         Duke3DUrl,
         PuzzFontsUrl,
@@ -81,12 +89,7 @@ public:
     };
 
     enum SystemUrl {
-        BootloaderUrl,
         BuildInfoUrl,
-        GenlangUrl,
-        ThemesUrl,
-        ThemesInfoUrl,
-        RbutilUrl,
     };
 
     static PlayerBuildInfo* instance();
@@ -104,8 +107,11 @@ public:
     // Get build information for currently selected player.
     QVariant value(BuildInfo item, BuildType type);
 
-    // Get fixed download URL information
+    // Get fixed download URL information from rbutil.ini
     QVariant value(SystemUrl item);
+
+    // Get fixed download URL information from serverInfo
+    QVariant value(BuildInfo item);
 
     QString statusAsString(QString target = "");
 

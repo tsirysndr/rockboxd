@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 Björn Stenberg
  *
@@ -822,7 +821,7 @@ refresh_info:
     gui_synclist_draw(&id3_lists);
     gui_synclist_speak_item(&id3_lists);
     while (true) {
-        if(!list_do_action(CONTEXT_LIST,HZ/2, &id3_lists, &key)
+        if(!list_do_action(CONTEXT_LIST|ALLOW_SOFTLOCK,HZ/2, &id3_lists, &key)
            && key!=ACTION_NONE && key!=ACTION_UNKNOWN)
         {
             if (key == ACTION_STD_OK)

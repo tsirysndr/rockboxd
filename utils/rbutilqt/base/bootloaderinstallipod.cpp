@@ -95,7 +95,7 @@ void BootloaderInstallIpod::installStage2(void)
     if(add_bootloader(&ipod, blfile.toLatin1().data(), FILETYPE_DOT_IPOD) == 0) {
         emit logItem(tr("Successfull added bootloader"), LOGOK);
         ipod_close(&ipod);
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
         m_remountDevice = ipod.diskname;
         connect(this, SIGNAL(remounted(bool)), this, SLOT(installStage3(bool)));
         waitRemount();
@@ -242,12 +242,12 @@ bool BootloaderInstallIpod::ipodInitialize(struct ipod_t *ipod)
             return false;
         }
 #if defined(Q_OS_WIN32)
-        sprintf(ipod->diskname, "\\\\.\\PhysicalDrive%i", devicename.toInt());
-#elif defined(Q_OS_MACX)
-        sprintf(ipod->diskname, "%s",
+        snprintf(ipod->diskname, sizeof(ipod->diskname), "\\\\.\\PhysicalDrive%i", devicename.toInt());
+#elif defined(Q_OS_MACOS)
+        snprintf(ipod->diskname, sizeof(ipod->diskname), "%s",
             qPrintable(devicename.remove(QRegularExpression("s[0-9]+$"))));
 #else
-        sprintf(ipod->diskname, "%s",
+        snprintf(ipod->diskname, sizeof(ipod->diskname), "%s",
             qPrintable(devicename.remove(QRegularExpression("[0-9]+$"))));
 #endif
         LOG_INFO() << "ipodpatcher: overriding scan, using"

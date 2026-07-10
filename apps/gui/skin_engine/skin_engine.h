@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2007 Nicolas Pennequin
  * Copyright (C) 2009 Jonathan Gordon
@@ -78,8 +77,6 @@ void skin_load(enum skinnable_screens skin, enum screen_type screen,
                const char *buf, bool isfile);
 struct gui_wps *skin_get_gwps(enum skinnable_screens skin, enum screen_type screen);
 void gui_sync_skin_init(void);
-
-void skin_unload_all(void);
 
 bool skin_do_full_update(enum skinnable_screens skin, enum screen_type screen);
 void skin_request_full_update(enum skinnable_screens skin);

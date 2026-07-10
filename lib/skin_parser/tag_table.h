@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -214,6 +213,8 @@ enum skin_token_type {
     SKIN_TOKEN_PLAYLIST_PERCENT,
     SKIN_TOKEN_PLAYLIST_PERCENTBAR,
     SKIN_TOKEN_PLAYLIST_SHUFFLE,
+    SKIN_TOKEN_PLAYLIST_ELAPSED_PERCENT,
+    SKIN_TOKEN_PLAYLIST_PROGRESSBAR,
 
 
     SKIN_TOKEN_ENABLE_THEME,

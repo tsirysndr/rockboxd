@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2006-2007 Dave Chapman
  *
@@ -179,7 +178,7 @@ int ipod_scsi_inquiry(struct ipod_t* ipod, int page_code,
     io_iterator_t iterator = IO_OBJECT_NULL;
     /* get matching services from IO registry. Consumes one reference to
      * the dictionary, so no need to release that. */
-    kr = IOServiceGetMatchingServices(kIOMasterPortDefault, match_dict, &iterator);
+    kr = IOServiceGetMatchingServices(kIOMainPortDefault, match_dict, &iterator);
 
     if(!iterator | (kr != kIOReturnSuccess))
         return -1;
@@ -339,8 +338,7 @@ int ipod_open(struct ipod_t* ipod, int silent)
 int ipod_reopen_rw(struct ipod_t* ipod)
 {
 #if defined(__APPLE__) && defined(__MACH__)
-    if (ipod_unmount(ipod) < 0)
-        return -1;
+    ipod_unmount(ipod);
 #endif
 
     close(ipod->dh);

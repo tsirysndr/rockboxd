@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (c) 2002 by Greg Haerr <greg@censoft.com>
  *
@@ -109,6 +108,7 @@ struct buflib_alloc_data {
     unsigned char buffer[];
 };
 static int buflib_allocations[MAXFONTS];
+static int ui_font = FONT_LASTUSERFONT;
 
 static int cache_fd;
 static struct font* cache_pf;
@@ -710,9 +710,10 @@ void font_enable_all(void)
  */
 struct font* font_get(int font)
 {
+    bool is_ui_font = (font == FONT_UI);
     struct font* pf;
-    if (font == FONT_UI)
-        font = MAXFONTS-1;
+    if (is_ui_font)
+        font = ui_font;
     if (font <= FONT_SYSFIXED || font >= MAXFONTS)
         return &sysfont;
 
@@ -725,8 +726,28 @@ struct font* font_get(int font)
                 return pf;
         }
         if (--font < 0)
-            return &sysfont;
+        {
+            if (is_ui_font && ui_font != FONT_LASTUSERFONT)
+            {
+                /* The users preferred UI font couldn't be loaded */
+                ui_font = FONT_LASTUSERFONT;
+                font = ui_font; /* try from the top to find something loaded */
+            }
+            else
+                return &sysfont; /* Nothing else is available */
+        }
     }
+}
+
+/* When FONT_UI is supplied to font_get this font will be tried first if it is
+ * not loaded then fall back to default of any loaded font wins */
+void set_ui_font(int font)
+{
+    /* Note: we don't allow setting FONT_SYSFIXED here */
+    if (font > FONT_SYSFIXED && font < MAXFONTS)
+        ui_font = font;
+    else /* default (same as supplying FONT_UI) */
+        ui_font = FONT_LASTUSERFONT;
 }
 
 /*
@@ -884,13 +905,14 @@ const unsigned char* font_get_bits(struct font* pf, ucschar_t char_code)
     return bits;
 }
 
-static void font_path_to_glyph_path( const char *font_path, char *glyph_path)
+extern int open_pathfmt(char *buf, size_t size, int oflag, const char *pathfmt, ...); /*misc.c*/
+static NO_INLINE int font_path_open_glyphcache(const char *font_path, int oflags)
 {
-    /* take full file name, cut extension, and add .glyphcache */
-    strmemccpy(glyph_path, font_path, MAX_PATH);
-    int dotidx = strlen(glyph_path) - sizeof(FONT_EXT);
-    strmemccpy(glyph_path + dotidx, "." GLYPH_CACHE_EXT, MAX_PATH - dotidx);
-    logf("%s %s", __func__, glyph_path);
+    char glyph_path[MAX_PATH];
+    int dotidx = strlen(font_path) - sizeof(FONT_EXT);
+    logf("%s %.*s.%s", __func__, dotidx, font_path, GLYPH_CACHE_EXT);
+    return open_pathfmt(glyph_path, sizeof(glyph_path), oflags, 
+                        "%.*s.%s", dotidx, font_path, GLYPH_CACHE_EXT);
 }
 
 /* call with NULL to flush */
@@ -945,9 +967,7 @@ static void glyph_cache_save(int font_id)
 
     if(pf && pf->fd >= 0)
     {
-        char filename[MAX_PATH];
-        font_path_to_glyph_path(pdata->path, filename);
-        fd = open(filename, O_WRONLY|O_CREAT|O_TRUNC, 0666);
+        fd = font_path_open_glyphcache(pdata->path, O_WRONLY|O_CREAT|O_TRUNC);
         if (fd >= 0)
         {
             uint32_t header = FC_HEADER_VAL;
@@ -988,10 +1008,7 @@ static NO_INLINE void glyph_cache_load(const char *font_path, struct font *pf)
         if ( sort_size > MAX_SORT )
              sort_size = MAX_SORT;
 
-        char filename[MAX_PATH];
-        font_path_to_glyph_path(font_path, filename);
-
-        fd = open(filename, O_RDONLY|O_BINARY);
+        fd = font_path_open_glyphcache(font_path, O_RDONLY|O_BINARY);
 #ifdef TRY_DEFAULT_GLYPHCACHE
         /* if font specific file fails, try default */
         if (fd < 0)

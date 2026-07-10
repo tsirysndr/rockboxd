@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2012 Amaury Pouly
  *
@@ -38,7 +37,9 @@
 #define PAD_TO_BOUNDARY(x) (((x) + 0x1ff) & ~0x1ff)
 
 /* If you find a firmware that breaks the known format ^^ */
+#ifndef assert
 #define assert(a) do { if(!(a)) { fprintf(stderr,"Assertion \"%s\" failed in %s() line %d!\n\nPlease send us your firmware!\n",#a,__func__,__LINE__); exit(1); } } while(0)
+#endif
 
 #define crypto_cbc(...) \
     do { int ret = crypto_cbc(__VA_ARGS__); \
@@ -199,4 +200,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-

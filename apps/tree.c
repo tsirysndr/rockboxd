@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 Daniel Stenberg
  *
@@ -522,7 +521,12 @@ static int update_dir(void)
     gui_synclist_set_nb_items(list, tc.filesindir);
     gui_synclist_set_icon_callback(list,
                             global_settings.show_icons?tree_get_fileicon:NULL);
-    gui_synclist_set_voice_callback(list, &tree_voice_cb);
+#ifdef HAVE_TAGCACHE
+    if(!id3db || global_settings.talk_menu)
+#endif
+    {
+        gui_synclist_set_voice_callback(list, &tree_voice_cb);
+    }
 #ifdef HAVE_LCD_COLOR
     gui_synclist_set_color_callback(list, &tree_get_filecolor);
 #endif

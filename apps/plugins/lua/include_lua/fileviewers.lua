@@ -6,7 +6,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2017 William Wilgus
  *
@@ -28,7 +27,7 @@ local _print = require("print")
 local _timer = require("timer")
 
 require("actions")
-local CANCEL_BUTTON = rb.actions.PLA_CANCEL
+_G.CANCEL_BUTTON = rb.actions.PLA_CANCEL --global 
 --------------------------------------------------------------------------------
 -- builds an index of byte position of every line at each bufsz increment
 -- in filename; bufsz == 1 would be every line; saves to filename.ext.idx_ext

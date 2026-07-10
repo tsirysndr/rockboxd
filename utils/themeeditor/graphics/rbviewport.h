@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -120,8 +119,6 @@ private:
     int baseParam;
     ParseTreeNode* node;
     SkinDocument* doc;
-
-    bool mirrored;
 };
 
 #endif // RBVIEWPORT_H

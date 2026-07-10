@@ -6,7 +6,6 @@
 #   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
 #   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
 #                     \/            \/     \/    \/            \/
-# $Id$
 #
 # Copyright (C) 2018 William Wilgus
 #
@@ -26,7 +25,7 @@ use warnings;
 #  first pass outputs a c file that shall be compiled with the -S option
 #  second pass extracts the member, offset, size, type from the assembly
 
-my $svnrev = '$Revision$';
+my $svnrev = '';
 my $helper_name = 'LUA_RB_SETTINGS_H_HELPER';
 
 ############# configuration #############

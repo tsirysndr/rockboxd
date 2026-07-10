@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2003 Linus Nielsen Feltzing
  *
@@ -39,6 +38,9 @@
 static int fm_recording_screen(void)
 {
     bool ret;
+
+    if (radio_get_current_frequency() == 0)
+        return 0;
 
     /* switch recording source to FMRADIO for the duration */
     int rec_source = global_settings.rec_source;

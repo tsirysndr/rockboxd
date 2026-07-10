@@ -127,10 +127,6 @@ class QUAZIP_EXPORT QuaZip {
             CaseSensitivity cs);
   private:
     QuaZipPrivate *p;
-    // not (and will not be) implemented
-    QuaZip(const QuaZip& that);
-    // not (and will not be) implemented
-    QuaZip& operator=(const QuaZip& that);
   public:
     /// Constructs QuaZip object.
     /** Call setName() before opening constructed object. */
@@ -140,6 +136,10 @@ class QUAZIP_EXPORT QuaZip {
     /// Constructs QuaZip object associated with ZIP file represented by \a ioDevice.
     /** The IO device must be seekable, otherwise an error will occur when opening. */
     QuaZip(QIODevice *ioDevice);
+    // not (and will not be) implemented
+    QuaZip(const QuaZip& that) = delete;
+    // not (and will not be) implemented
+    QuaZip& operator=(const QuaZip& that) = delete;
     /// Destroys QuaZip object.
     /** Calls close() if necessary. */
     ~QuaZip();
@@ -213,6 +213,11 @@ class QUAZIP_EXPORT QuaZip {
      * but at least it makes your programs work instead of crashing. Note that
      * if the auto-close flag is cleared, then this is a non-issue, and
      * commit() isn't called.
+     *
+     * Closing an already closed (or never opened) instance is safe,
+     * regardless of whether the first close attempt was successful.
+     * This second close does nothing, but is considered a success,
+     * as far as getZipError() is concerned.
       */
     void close();
     /// Sets the codec used to encode/decode file names inside archive.
@@ -298,9 +303,9 @@ class QUAZIP_EXPORT QuaZip {
     QString getComment() const;
     /// Sets the global comment in the ZIP file.
     /** The comment will be written to the archive on close operation.
-     * QuaZip makes a distinction between a null QByteArray() comment 
-     * and an empty &quot;&quot; comment in the QuaZip::mdAdd mode. 
-     * A null comment is the default and it means &quot;don't change 
+     * QuaZip makes a distinction between a null QByteArray() comment
+     * and an empty &quot;&quot; comment in the QuaZip::mdAdd mode.
+     * A null comment is the default and it means &quot;don't change
      * the comment&quot;. An empty comment removes the original comment.
      *
      * \sa open()

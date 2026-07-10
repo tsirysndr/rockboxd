@@ -13,6 +13,8 @@
 # KIND, either express or implied.
 #
 
+add_compile_definitions(QT_NO_USE_NODISCARD_FILE_OPEN)
+
 set(RBUTIL_TS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/lang/rbutil_cs.ts
     ${CMAKE_CURRENT_LIST_DIR}/lang/rbutil_de.ts
@@ -32,11 +34,7 @@ set(RBUTIL_TS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/lang/rbutil_zh_CN.ts
     ${CMAKE_CURRENT_LIST_DIR}/lang/rbutil_zh_TW.ts
     )
-if(QT_VERSION_MAJOR EQUAL 5)
-    qt5_add_translation(RBUTIL_QM_FILES ${RBUTIL_TS_FILES})
-else()
     qt6_add_translation(RBUTIL_QM_FILES ${RBUTIL_TS_FILES})
-endif()
 
 # The qrc file searches input files based on its location, and the qm files are
 # generated in the build dir. Copy the qrc file to the build dir, make it
@@ -106,14 +104,12 @@ add_executable(RockboxUtility WIN32 MACOSX_BUNDLE
     ${CMAKE_CURRENT_BINARY_DIR}/rbutilqt-lang.qrc
     )
 
+target_compile_features(RockboxUtility PRIVATE cxx_std_17 c_std_11)
+
 if(WIN32)
     target_sources(RockboxUtility PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/rbutilqt-win.qrc
         ${CMAKE_CURRENT_LIST_DIR}/rbutilqt.rc)
-    if(QT_VERSION_MAJOR EQUAL 5)
-        # needed on Windows, otherwise svg icons won't show.
-        target_link_libraries(RockboxUtility Qt${QT_VERSION_MAJOR}::QSvgIconPlugin)
-    endif()
 endif()
 if(APPLE)
     # MacOS Application Bundle specifics.
@@ -134,9 +130,7 @@ if (TARGET Qt${QT_VERSION_MAJOR}::Multimedia) # optional
         Qt${QT_VERSION_MAJOR}::Multimedia)
 endif()
 
-if(QT_VERSION_MAJOR EQUAL 6)
-    target_link_libraries(RockboxUtility Qt${QT_VERSION_MAJOR}::SvgWidgets)
-endif()
+target_link_libraries(RockboxUtility Qt${QT_VERSION_MAJOR}::SvgWidgets)
 
 target_include_directories(RockboxUtility PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/gui
@@ -236,7 +230,6 @@ add_library(rbbase
     ${CMAKE_CURRENT_LIST_DIR}/base/ttsmssp.h
     ${CMAKE_CURRENT_LIST_DIR}/base/ttssapi.cpp
     ${CMAKE_CURRENT_LIST_DIR}/base/ttssapi.h
-    ${CMAKE_CURRENT_LIST_DIR}/base/ttssapi4.h
     ${CMAKE_CURRENT_LIST_DIR}/base/ttsswift.h
     ${CMAKE_CURRENT_LIST_DIR}/base/uninstall.cpp
     ${CMAKE_CURRENT_LIST_DIR}/base/uninstall.h
@@ -249,11 +242,20 @@ add_library(rbbase
     ${CMAKE_CURRENT_LIST_DIR}/base/ziputil.cpp
     ${CMAKE_CURRENT_LIST_DIR}/base/ziputil.h
     )
-
 if(APPLE)
     target_sources(rbbase PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/base/ttscarbon.cpp
         ${CMAKE_CURRENT_LIST_DIR}/base/ttscarbon.h)
+endif()
+
+if (TARGET Qt${QT_VERSION_MAJOR}::TextToSpeech AND TARGET Qt${QT_VERSION_MAJOR}::Multimedia)
+    target_sources(rbbase PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/base/ttsqt.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/base/ttsqt.h)
+    target_link_libraries(rbbase
+        Qt${QT_VERSION_MAJOR}::TextToSpeech)
+    target_link_libraries(rbbase
+        Qt${QT_VERSION_MAJOR}::Multimedia)
 endif()
 
 target_link_libraries(rbbase
@@ -321,6 +323,7 @@ add_library(mspack
     mspack/lzxc.c
     mspack/lzxd.c
     mspack/lzx.h
+    mspack/macros.h
     mspack/mspack.h
     mspack/mszipc.c
     mspack/mszipd.c

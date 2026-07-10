@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -100,6 +99,7 @@ ProjectModel::~ProjectModel()
 int ProjectModel::rowCount(const QModelIndex& parent) const
 {
     return files.count();
+    (void)parent;
 }
 
 QVariant ProjectModel::data(const QModelIndex &index, int role) const

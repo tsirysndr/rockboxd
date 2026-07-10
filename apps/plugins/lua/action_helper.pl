@@ -1,12 +1,11 @@
 #!/usr/bin/env perl
 ############################################################################
-#             __________               __   ___.                  
-#   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___  
-#   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /  
-#   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <   
+#             __________               __   ___.
+#   Open      \______   \ ____   ____ |  | _\_ |__   _______  ___
+#   Source     |       _//  _ \_/ ___\|  |/ /| __ \ /  _ \  \/  /
+#   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
 #   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
-#                     \/            \/     \/    \/            \/ 
-# $Id$
+#                     \/            \/     \/    \/            \/
 #
 # Copyright (C) 2009 by Maurus Cuelenaere
 #
@@ -17,6 +16,8 @@
 # KIND, either express or implied.
 #
 ############################################################################
+
+my $svnrev = '';
 
 $i = 0;
 $j = 0;
@@ -42,7 +43,7 @@ while(my $line = <STDIN>)
 }
 
 print "-- Don't change this file!\n";
-printf "-- It is automatically generated of action.h %s\n", '$Revision$';
+printf "-- It is automatically generated of action.h (%s)\n", $svnrev;
 
 print "rb.actions = {\n";
 foreach $action(@actions)

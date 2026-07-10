@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2009 - Jonathan Gordon
  *
@@ -204,24 +203,11 @@ int skin_get_touchaction(struct gui_wps *gwps, int* edge_offset)
         if (!gwps->id3)
             break;
 
-        if (gevent.id == GESTURE_HOLD ||
-            gevent.id == GESTURE_DRAGSTART ||
-            gevent.id == GESTURE_DRAG)
-        {
-            audio_pre_ff_rewind();
-            gwps->id3->elapsed = gwps->id3->length * (*edge_offset) / 1000;
-        }
-        else if (gevent.id == GESTURE_RELEASE)
-        {
-            audio_ff_rewind(gwps->id3->elapsed);
-        }
-        else
-        {
-            gwps->id3->elapsed = gwps->id3->length * (*edge_offset) / 1000;
-            audio_pre_ff_rewind();
-            audio_ff_rewind(gwps->id3->elapsed);
-        }
+        audio_pre_ff_rewind();
+        gwps->id3->elapsed = gwps->id3->length / 1000 * (*edge_offset);
 
+        if (gevent.id == GESTURE_TAP || gevent.id == GESTURE_RELEASE)
+            audio_ff_rewind(gwps->id3->elapsed);
     } break;
 
     case ACTION_TOUCH_VOLUME:

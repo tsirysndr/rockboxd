@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2006 Peter D'Hoye
  *
@@ -34,6 +33,9 @@ enum props_types {
     PROPS_DIR
 };
 
+#ifdef HAVE_TAGCACHE
+static struct tagcache_search tcs;
+#endif
 static struct gui_synclist properties_lists;
 static struct mp3entry id3;
 static struct tm tm;
@@ -307,7 +309,8 @@ static bool assemble_track_info(const char *filename, struct dir_stats *stats)
         return false;
 #ifdef HAVE_TAGCACHE
     else if (props_type == PROPS_MUL_ID3 &&
-             !rb->tagtree_subentries_do_action(&mul_id3_add))
+             !rb->tagtree_entries_iterate(&tcs, &mul_id3_add, str_filename,
+                                                       sizeof str_filename))
         return false;
 #endif
 

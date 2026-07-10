@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (c) 2002 by Greg Haerr <greg@censoft.com>
  *
@@ -54,6 +53,7 @@ enum {
 /* SYSFONT, FONT_UI, FONT_UI_REMOTE + MAXUSERFONTS fonts in skins */
 #define MAXFONTS (FONT_FIRSTUSERFONT + MAXUSERFONTS)
 #define FONT_UI MAXFONTS
+#define FONT_LASTUSERFONT (MAXFONTS-1)
 
 /*
  * .fnt loadable font file format definition
@@ -132,6 +132,8 @@ void font_disable_all(void);
 void font_enable_all(void);
 
 struct font* font_get(int font);
+void set_ui_font(int font); /* when FONT_UI is supplied this font will be tried first */
+
 int font_measurestring(const unsigned char *str, size_t maxbytes, size_t maxwidth, int *w, int *h, int fontnum);
 int font_getstringnsize(const unsigned char *str, size_t maxbytes, int *w, int *h, int fontnumber);
 int font_getstringsize(const unsigned char *str, int *w, int *h, int fontnumber);

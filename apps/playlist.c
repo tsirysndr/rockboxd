@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 by wavey@wavey.org
  *
@@ -178,6 +177,9 @@
 
 static struct playlist_info current_playlist;
 static struct playlist_info on_disk_playlist;
+
+/* playlist elapsed percent function from skin_tokens.c */
+extern void wps_playlist_percent_prepare(void);
 
 /* REPEAT_ONE support function from playback.c */
 extern bool audio_pending_track_skip_is_manual(void);
@@ -492,7 +494,7 @@ static void empty_playlist_unlocked(struct playlist_info* playlist, bool resume)
     playlist->first_index = 0;
     playlist->amount = 0;
     playlist->last_insert_pos = -1;
-
+    playlist->created_tick = current_tick;
     playlist->started = false;
 
     if (!resume && playlist == &current_playlist)
@@ -3793,6 +3795,8 @@ void playlist_start(int start_index, unsigned long elapsed,
     sync_control_unlocked(playlist);
 
     playlist_write_unlock(playlist);
+
+    wps_playlist_percent_prepare();
 
     audio_play(elapsed, offset);
     audio_resume();

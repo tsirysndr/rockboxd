@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2015 by Cástor Muñoz
  *
@@ -246,6 +245,7 @@ struct dfuAPI {
 /*
  * DFU API low-level (specific) functions
  */
+#if defined(WIN32) || defined(USE_LIBUSBAPI) || defined(__APPLE__)
 static bool dfu_check_id(int vid, int pid, int *pid_list)
 {
     int *p;
@@ -264,6 +264,7 @@ static void dfu_add_reqerrstr(struct dfuDev *dfuh, struct usbControlSetup *cs)
         sizeof(dfuh->err) - strlen(dfuh->err), " (cs=%02x/%d/%d/%d/%d)",
         cs->bmRequestType, cs->bRequest, cs->wValue, cs->wIndex, cs->wLength);
 }
+#endif
 
 #ifdef WIN32
 static bool dfu_winapi_chkrc(struct dfuDev *dfuh, char *str, bool success)
@@ -603,7 +604,7 @@ static dfuAPIResult dfu_iokit_open(struct dfuDev *dfuh, int *pid_list)
 
     usb_matching_dict = IOServiceMatching(kIOUSBDeviceClassName);
     dfuh->kr = IOServiceGetMatchingServices(
-                kIOMasterPortDefault, usb_matching_dict, &usb_iterator);
+                kIOMainPortDefault, usb_matching_dict, &usb_iterator);
     if (!dfu_iokit_chkrc(dfuh, "Could not get matching services"))
         goto error;
 
@@ -696,7 +697,7 @@ static struct dfuAPI api_list[] =
  */
 static int DEBUG_DFUREQ = 0;
 
-static dfuAPIResult dfuapi_request(struct dfuDev *dfuh,
+static __attribute__ ((noinline)) dfuAPIResult dfuapi_request(struct dfuDev *dfuh,
                             struct usbControlSetup *cs, void *data)
 {
     if (!DEBUG_DFUREQ)
@@ -891,7 +892,7 @@ static void dfuapi_destroy(struct dfuDev *dfuh)
 
 static struct dfuDev *dfuapi_create(void)
 {
-    return calloc(sizeof(struct dfuDev), 1);
+        return calloc(1, sizeof(struct dfuDev));
 }
 
 
@@ -903,7 +904,7 @@ static int ipoddfu_download_file(struct dfuDev* dfuh,
 {
     unsigned int blknum, len, remaining;
     int poll_tmo;
-    DFUStatus status;
+    DFUStatus status = errNONE;
     DFUState state;
 
     if (dfuapi_req_getstate(dfuh, &state) != DFUAPISuccess)

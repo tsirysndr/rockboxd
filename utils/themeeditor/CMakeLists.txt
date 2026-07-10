@@ -13,6 +13,8 @@
 # KIND, either express or implied.
 #
 
+add_compile_definitions(QT_NO_USE_NODISCARD_FILE_OPEN)
+
 add_executable(RockboxThemeEditor WIN32 MACOSX_BUNDLE
     graphics/rbalbumart.cpp
     graphics/rbalbumart.h
@@ -109,6 +111,8 @@ add_executable(RockboxThemeEditor WIN32 MACOSX_BUNDLE
 set_target_properties(RockboxThemeEditor PROPERTIES AUTOMOC ON)
 set_target_properties(RockboxThemeEditor PROPERTIES AUTORCC ON)
 set_target_properties(RockboxThemeEditor PROPERTIES AUTOUIC ON)
+
+target_compile_features(RockboxThemeEditor PRIVATE cxx_std_17 c_std_11)
 
 target_link_libraries(RockboxThemeEditor
     Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Core

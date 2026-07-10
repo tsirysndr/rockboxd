@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2007 Jonathan Gordon
  *
@@ -59,7 +58,7 @@
 #include "onplay.h"
 #include "misc.h"
 
-#if defined(DX50) || defined(DX90) || (defined(HAVE_USB_POWER) && !defined(USB_NONE) && !defined(SIMULATOR))
+#if !defined(SIMULATOR) && !defined(USB_NONE) && (defined(HAVE_USB_ADB) || defined(HAVE_USB_POWER))
 #define HAVE_USB_MODE
 #endif
 
@@ -725,8 +724,6 @@ MAKE_MENU(voice_settings_menu, ID2P(LANG_VOICE), 0, Icon_Voice,
 
 /*    WPS_CONTEXT_MENU          */
 /***********************************/
-
-
 static char *wps_context_menu_get_name(int selected_item, void * data,
                                    char *buffer, size_t buffer_len)
 {
@@ -764,7 +761,7 @@ static int wps_context_menu_speak_item(int selected_item, void * data)
 #endif
     {
         talk_id(LANG_SET_CONTEXT_ITEM, false);
-        talk_number((intptr_t)data, true);
+        talk_number(item, true);
     }
     talk_id(cur->lang_id, true);
     return 0;
@@ -828,7 +825,6 @@ MAKE_MENU(wps_settings, ID2P(LANG_WPS), 0, Icon_Playback_menu
             ,&wps_set_context_item_4
             ,&reset_wps_item
             );
-
 /*    WPS Settings MENU            */
 /***********************************/
 

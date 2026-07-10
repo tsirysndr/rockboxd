@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2011 by Michael Sevakis
  *
@@ -522,6 +521,9 @@ void mixer_set_frequency(unsigned int samplerate)
 {
     if(pcm_get_frequency() == samplerate)
         return;
+
+    pcm_play_stop();
+    idle_counter = 0;
 
     pcm_set_frequency(samplerate);
     mixer_handle_sampr_change(SAMPR_NUM(pcm_get_frequency()));

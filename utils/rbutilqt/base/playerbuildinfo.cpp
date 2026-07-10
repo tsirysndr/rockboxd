@@ -36,14 +36,23 @@ const static struct {
     const char* name;
 } ServerInfoList[] = {
     { PlayerBuildInfo::BuildVoiceLangs,   "voices/:version:"    },
-    { PlayerBuildInfo::BuildVersion,      ":build:/:target:"     },
+    { PlayerBuildInfo::BuildVersion,      ":build:/:target:"    },
     { PlayerBuildInfo::BuildUrl,          ":build:/build_url"   },
     { PlayerBuildInfo::BuildVoiceUrl,     ":build:/voice_url"   },
     { PlayerBuildInfo::BuildManualUrl,    ":build:/manual_url"  },
     { PlayerBuildInfo::BuildSourceUrl,    ":build:/source_url"  },
     { PlayerBuildInfo::BuildFontUrl,      ":build:/font_url"    },
 
-    // other URLs -- those are not directly related to the build, but handled here.
+    // system URLs -- not directly related to build but pulled out of build-info
+    { PlayerBuildInfo::BootloaderUrl,     "bootloader/download_url" },
+    { PlayerBuildInfo::GenlangUrl,        "genlang_url"             },
+    { PlayerBuildInfo::ThemesUrl,         "themes_url"              },
+    { PlayerBuildInfo::ThemesInfoUrl,     "themes_info_url"         },
+    { PlayerBuildInfo::RbutilUrl,         "rbutil_url"              },
+    { PlayerBuildInfo::RbutilIniUrl,      "rbutilini_url"           },
+    { PlayerBuildInfo::VoiceCorrectionsUrl, "voicecorrections_url"  },
+
+    // other URLs -- those are not directly related to the build either .
     { PlayerBuildInfo::DoomUrl,           "other/doom_url"      },
     { PlayerBuildInfo::Duke3DUrl,         "other/duke3d_url"    },
     { PlayerBuildInfo::PuzzFontsUrl,      "other/puzzfonts_url" },
@@ -81,22 +90,14 @@ const static struct {
     PlayerBuildInfo::SystemUrl item;
     const char* name;
 } PlayerSystemUrls[] = {
-    { PlayerBuildInfo::BootloaderUrl,     "bootloader/download_url" },
     { PlayerBuildInfo::BuildInfoUrl,      "build_info_url"          },
-    { PlayerBuildInfo::GenlangUrl,        "genlang_url"             },
-    { PlayerBuildInfo::ThemesUrl,         "themes_url"              },
-    { PlayerBuildInfo::ThemesInfoUrl,     "themes_info_url"         },
-    { PlayerBuildInfo::RbutilUrl,         "rbutil_url"              },
 };
 
 PlayerBuildInfo::PlayerBuildInfo() :
      serverInfo(nullptr),
      playerInfo(":/ini/rbutil.ini", QSettings::IniFormat)
 {
-#if QT_VERSION < 0x060000
-    playerInfo.setIniCodec("UTF-8");
-#endif
-
+        // Nothing to do here.
 }
 
 void PlayerBuildInfo::setBuildInfo(QString file)
@@ -195,11 +196,7 @@ QVariant PlayerBuildInfo::value(BuildInfo item, BuildType type)
     // if the value is a string we can replace some patterns.
     // if we cannot convert it (f.e. for a QStringList) we leave as-is, since
     // the conversion would return an empty type.
-#if QT_VERSION < 0x060000
-    if (result.type() == QVariant::String)
-#else
     if (result.metaType().id() == QMetaType::QString)
-#endif
         result = result.toString()
                     .replace("%TARGET%", target)
                     .replace("%VERSION%", version.at(0));
@@ -323,7 +320,7 @@ QVariant PlayerBuildInfo::value(DeviceInfo item, unsigned int match)
 
 QVariant PlayerBuildInfo::value(SystemUrl item)
 {
-    // locate setting item in server info file
+    // locate setting item in the rbutil.ini file
     int i = 0;
     while(PlayerSystemUrls[i].item != item)
         i++;
@@ -333,6 +330,17 @@ QVariant PlayerBuildInfo::value(SystemUrl item)
     return result;
 }
 
+QVariant PlayerBuildInfo::value(BuildInfo item)
+{
+    // locate setting item in the serverInfo file
+    int i = 0;
+    while(ServerInfoList[i].item != item)
+        i++;
+
+    QVariant result = serverInfo->value(ServerInfoList[i].name);
+    LOG_INFO() << "U:" << ServerInfoList[i].name << result;
+    return result;
+}
 
 QString PlayerBuildInfo::statusAsString(QString platform)
 {

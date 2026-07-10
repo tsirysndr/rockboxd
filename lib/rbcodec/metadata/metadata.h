@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2005 Dave Chapman
  *
@@ -24,8 +23,9 @@
 
 #include "platform.h"
 
-#define METADATA_EXCLUDE_ID3_PATH (0x01) /* don't copy filename path to the id3 path buffer */
-#define METADATA_CLOSE_FD_ON_EXIT (0x02) /* close the filedescriptor when finished */
+#define METADATA_EXCLUDE_ID3_PATH  (0x01) /* don't copy filename path to the id3 path buffer */
+#define METADATA_CLOSE_FD_ON_EXIT  (0x02) /* close the filedescriptor when finished */
+#define METADATA_EXCLUDE_NORMALIZE (0x04) /* don't normalize id3 text entries */
 /* Audio file types. */
 /* NOTE: The values of the AFMT_* items are used for the %fc tag in the WPS
          - so new entries MUST be added to the end to maintain compatibility.
@@ -333,9 +333,10 @@ struct mp3entry {
     bool is_asf_stream;
 };
 
-unsigned int probe_file_format(const char *filename);
+unsigned int probe_file_format(const char *filename); /* returns audio_fmt */
 bool get_metadata(struct mp3entry* id3, int fd, const char* trackname);
 bool get_metadata_ex(struct mp3entry* id3, int fd, const char* trackname, int flags);
+bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int audio_fmt, int flags);
 void adjust_mp3entry(struct mp3entry *entry, void *dest, const void *orig);
 void copy_mp3entry(struct mp3entry *dest, const struct mp3entry *orig);
 void wipe_mp3entry(struct mp3entry *id3);

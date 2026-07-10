@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 by Stuart Martin
  *
@@ -109,11 +108,6 @@ static long lasttime = 0;
 
 #if defined(DX50) || defined(DX90)
 #include "governor-ibasso.h"
-#include "usb-ibasso.h"
-#endif
-
-#if (defined(HIBY_R3PROII) || defined(HIBY_R1))
-#include "usb-hiby-gadget.h"
 #endif
 
 #ifdef LOGF_ENABLE
@@ -1180,11 +1174,7 @@ void settings_apply(bool read_disk)
     memcpy(&calibration_parameters, &global_settings.ts_calibration_data, sizeof(struct touchscreen_parameter));
 #endif
 
-#if defined(DX50) || defined(DX90)
-    ibasso_set_usb_mode(global_settings.usb_mode);
-#elif (defined(HIBY_R3PROII) || defined(HIBY_R1)) && !defined(SIMULATOR)
-    hiby_set_usb_mode(global_settings.usb_mode);
-#elif defined(HAVE_USB_POWER) && !defined(USB_NONE) && !defined(SIMULATOR)
+#if !defined(SIMULATOR) && !defined(USB_NONE) && (defined(HAVE_USB_ADB) || defined(HAVE_USB_POWER))
     usb_set_mode(global_settings.usb_mode);
 #endif
 #if defined(HAVE_GENERAL_PURPOSE_LED)

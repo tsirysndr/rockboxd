@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2004 by Jörg Hohensohn
  *
@@ -97,8 +96,13 @@ int voicefont(FILE* voicefontids,int targetnum,char* filedir, FILE* output, unsi
     for (i=0; i<count; i++)
     {
         pos[i] = ftell(output);
-        sprintf(encfilename1, "%s%s.enc", filedir, names[i]);
-        sprintf(encfilename2, "%s%s.wav.enc", filedir, names[i]);
+        if (snprintf(encfilename1, sizeof(encfilename1), "%s%s.enc", filedir, names[i]) >= (int)sizeof(encfilename1) ||
+            snprintf(encfilename2, sizeof(encfilename2), "%s%s.wav.enc", filedir, names[i]) >= (int)sizeof(encfilename2)) {
+                printf("enc filename '%s' too long!\n", encfilename1);
+                size[i] = 0;
+                continue;
+        }
+
         encfilename = encfilename1;
         pEncFile = fopen(encfilename, "rb");
         if (pEncFile == NULL)

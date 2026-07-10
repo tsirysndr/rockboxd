@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2006 Jonathan Gordon
  * Copyright (C) 2017 William Wilgus
@@ -430,6 +429,7 @@ static inline bool get_action_touchscreen(action_last_t *last, action_cur_t *cur
     {
         intptr_t data = button_get_data();
         long now = current_tick;
+        last->repeated = false;
 
         if (has_flag(last->button, BUTTON_TOUCHSCREEN) &&
             !has_flag(last->button, BUTTON_REL))
@@ -439,7 +439,6 @@ static inline bool get_action_touchscreen(action_last_t *last, action_cur_t *cur
             if (!has_flag(cur->button, BUTTON_REL))
                 last->ts_data = data;
 
-            /* Historical baggage... may be unnecessary. */
             if (has_flag(cur->button, BUTTON_REPEAT))
                 last->repeated = true;
         }

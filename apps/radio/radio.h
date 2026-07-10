@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2003 Linus Nielsen Feltzing
  *
@@ -61,7 +60,7 @@ void toggle_mono_mode(bool mono);
 #define MAX_FMPRESET_LEN 27
 
 int radio_get_preset_freq(int preset);
-const char* radio_get_preset_name(int preset);
+const char* radio_get_preset_name(int preset, char *buffer, size_t buffer_len);
 #if 0 /* disabled in draw_progressbar() */
 void presets_draw_markers(struct screen *screen, int x, int y, int w, int h);
 #endif

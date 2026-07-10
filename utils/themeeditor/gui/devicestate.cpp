@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -483,7 +482,7 @@ void DeviceState::setData(QString tag, QVariant data)
         break;
 
     case Combo:
-        if(data.type() == QVariant::String)
+        if(data.typeId() == QMetaType::QString)
             dynamic_cast<QComboBox*>
                     (found.second)->
                     setCurrentIndex(dynamic_cast<QComboBox*>

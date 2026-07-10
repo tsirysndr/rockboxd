@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 by Daniel Stenberg
  *
@@ -201,7 +200,9 @@ static void button_tick(void)
 {
     static int count = 0;
     static int repeat_speed = REPEAT_INTERVAL_START;
+#ifdef HAVE_SW_POWEROFF
     static int repeat_count = 0;
+#endif
     static bool repeat = false;
     static bool post = false;
 #ifdef HAVE_BACKLIGHT
@@ -291,12 +292,12 @@ static void button_tick(void)
 
                         count = repeat_speed;
 
+#ifdef HAVE_SW_POWEROFF
                         repeat_count++;
-
                         /* Send a SYS_POWEROFF event if we have a device
                            which doesn't shut down easily with the OFF
                            key */
-#ifdef HAVE_SW_POWEROFF
+
                         if (enable_sw_poweroff &&
                             (btn & POWEROFF_BUTTON
 #ifdef RC_POWEROFF_BUTTON
@@ -336,7 +337,9 @@ static void button_tick(void)
                     {
                         post = true;
                         repeat = true;
+#ifdef HAVE_SW_POWEROFF
                         repeat_count = 0;
+#endif
                         /* initial repeat */
 #ifdef HAVE_TOUCHSCREEN
                         if (btn & BUTTON_TOUCHSCREEN)
@@ -456,7 +459,6 @@ static int button_flip(int button)
 {
     int newbutton = button;
 
-#if (CONFIG_PLATFORM & PLATFORM_NATIVE)
     newbutton &= ~(
 #if defined(BUTTON_LEFT) && defined(BUTTON_RIGHT)
         BUTTON_LEFT | BUTTON_RIGHT
@@ -518,7 +520,6 @@ static int button_flip(int button)
     if (button & BUTTON_PREV)
         newbutton |= BUTTON_NEXT;
 #endif
-#endif /* !SIMULATOR */
     return newbutton;
 }
 

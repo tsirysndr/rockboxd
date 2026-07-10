@@ -6,7 +6,6 @@
 #   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
 #   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
 #                     \/            \/     \/    \/            \/
-# $Id$
 #
 # Copyright (C) 2009 by Maurus Cuelenaere
 # Copyright (C) 2021 by William Wilgus
@@ -21,7 +20,7 @@
 #expects -dM -E source input on STDIN
 use strict;
 use warnings;
-my $svnrev = '$Revision$';
+my $svnrev = '';
 my @buttons = ();
 my $count = 1; #null sentinel
 my $val;
@@ -51,7 +50,7 @@ while(my $line = <STDIN>)
 my @sorted = sort { @$a{'value'} <=> @$b{'value'} } @buttons;
 print <<EOF
 /* Don't change this file! */
-/* It is automatically generated of button.h */
+/* It is automatically generated of button.h ($svnrev) */
 #include "plugin.h"
 #include "button.h"
 #include "button_helper.h"

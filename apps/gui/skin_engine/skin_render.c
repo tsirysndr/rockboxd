@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id: skin_parser.c 26752 2010-06-10 21:22:16Z bieber $
  *
  * Copyright (C) 2010 Jonathan Gordon
  *
@@ -228,6 +227,7 @@ static bool do_non_text_tags(struct gui_wps *gwps, struct skin_draw_info *info,
         case SKIN_TOKEN_PLAYLIST_PERCENTBAR:
         case SKIN_TOKEN_SETTINGBAR:
         case SKIN_TOKEN_PROGRESSBAR:
+        case SKIN_TOKEN_PLAYLIST_PROGRESSBAR:
         case SKIN_TOKEN_TUNER_RSSI_BAR:
         case SKIN_TOKEN_LIST_SCROLLBAR:
         {

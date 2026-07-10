@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -56,6 +55,8 @@ void RBMovable::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
         painter->fillRect(bottomLeftHandle(), Qt::green);
         painter->fillRect(bottomRightHandle(), Qt::green);
     }
+    (void)option;
+    (void)widget;
 }
 
 QVariant RBMovable::itemChange(GraphicsItemChange change, const QVariant &value)

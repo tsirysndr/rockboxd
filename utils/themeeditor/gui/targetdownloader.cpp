@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Robert Bieber
  *
@@ -130,6 +129,7 @@ void TargetDownloader::finished()
 void TargetDownloader::netError(QNetworkReply::NetworkError code)
 {
     ui->label->setText(tr("Network error: ") + reply->errorString());
+    (void)code;
 }
 
 void TargetDownloader::closeEvent(QCloseEvent *event)

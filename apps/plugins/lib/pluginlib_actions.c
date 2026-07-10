@@ -5,7 +5,6 @@
 *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
 *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
 *                     \/            \/     \/    \/            \/
-* $Id$
 *
 * Copyright (C) 2006 Jonathan Gordon
 *
@@ -324,7 +323,9 @@ const struct button_mapping pla_main_ctx[] =
    || (CONFIG_KEYPAD == IPOD_3G_PAD) \
    || (CONFIG_KEYPAD == IPOD_4G_PAD)
     {PLA_CANCEL,            BUTTON_MENU|BUTTON_SELECT,          BUTTON_NONE },
+    {PLA_CANCEL,            BUTTON_MENU|BUTTON_SELECT|BUTTON_REPEAT, BUTTON_NONE },
     {PLA_EXIT,              BUTTON_PLAY|BUTTON_SELECT,          BUTTON_NONE },
+    {PLA_EXIT,              BUTTON_PLAY|BUTTON_SELECT|BUTTON_REPEAT, BUTTON_NONE },
     {PLA_SELECT,            BUTTON_SELECT,                      BUTTON_NONE },
     {PLA_SELECT_REL,        BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
     {PLA_SELECT_REPEAT,     BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_NONE },

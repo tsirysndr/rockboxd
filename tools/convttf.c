@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2007 Jonas Hurrelmann
  *
@@ -94,6 +93,7 @@ int pct                     = 0; /* display ttc table if it is not zero. */
 FT_Long         max_char    = 0x10FFFF;
 int             pixel_size  = 15;
 FT_Long         start_char  = 0;
+FT_Long         defaultchar = -1;
 FT_Long         limit_char;
 FT_Long         firstchar   = 0;
 FT_Long         lastchar;
@@ -192,8 +192,9 @@ void usage(void)
         "                               default output-file is: \n"
         "                             <font-size>-<internal postscript-name of input-file>.fnt.\n"
         "Options:\n"
-        "    -s N   Start output at character encodings >= N\n"
-        "    -l N   Limit output to character encodings <= N\n"
+        "    -s N   Start output at character encodings >= N (default is first glyph in font)\n"
+        "    -l N   Limit output to character encodings <= N (default is last glyph in font)\n"
+        "    -D N   Default character to use for those not present in font (default is first glyph)\n"
         "    -p N   Font size N in pixel (default N=15)\n"
         "    -c N   Character separation in pixel.Insert space between lines.\n"
         "    -x     Trim glyphs horizontally of nearly empty space\n"
@@ -712,7 +713,15 @@ void convttf(char* path, char* destfile, FT_Long face_index)
         if (code <= firstchar)
             firstchar = code;
     }
-    export_font.header.defaultchar = firstchar;
+
+    /* calc default char */
+    if (defaultchar < 0 ||
+        defaultchar < firstchar ||
+        defaultchar > limit_char ||
+        defaultchar > lastchar)
+        defaultchar = firstchar;
+
+    export_font.header.defaultchar = defaultchar;
     export_font.header.firstchar = firstchar;
     export_font.header.size = lastchar - firstchar + 1;
     export_font.header.nbits = idx;
@@ -764,11 +773,12 @@ void convttf(char* path, char* destfile, FT_Long face_index)
         charindex = getcharindex( face, code);
         if ( !charindex )
         {
+            FT_Long defchar = defaultchar - firstchar;
             if ( use_long_offset )
-                export_font.offset_long[code - firstchar] = export_font.offset_long[0];
+                export_font.offset_long[code - firstchar] = export_font.offset_long[defchar];
             else
-                export_font.offset[code - firstchar] = export_font.offset[0];
-            export_font.width[code - firstchar] = export_font.width[0];
+                export_font.offset[code - firstchar] = export_font.offset[defchar];
+            export_font.width[code - firstchar] = export_font.width[defchar];
             continue;
         }
 
@@ -1141,6 +1151,19 @@ void getopts(int *pac, char ***pav)
                 while (*p && *p != ' ')
                     p++;
                 break;
+            case 'D':       /* set default char*/
+                if (*p) {
+                    start_char = atol(p);
+                    while (*p && *p != ' ')
+                        p++;
+                }
+                else {
+                    av++; ac--;
+                    if (ac > 0)
+                        defaultchar = atol(av[0]);
+                }
+                break;
+
             case 'x':
                 trimming = 1;
                 while (*p && *p != ' ')

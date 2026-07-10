@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2007 Nicolas Pennequin, Dan Everton, Matthias Mohr
  *               2010 Jonathan Gordon
@@ -1235,6 +1234,13 @@ static int parse_progressbar_tag(struct skin_element* element,
         token->type = SKIN_TOKEN_VOLUMEBAR;
     else if (token->type == SKIN_TOKEN_BATTERY_PERCENT)
         token->type = SKIN_TOKEN_BATTERY_PERCENTBAR;
+    else if (token->type == SKIN_TOKEN_PLAYLIST_ELAPSED_PERCENT)
+    {
+#ifndef __PCTOOL__
+        wps_playlist_percent_enable(); /* enable scanning track lengths */
+#endif
+        token->type = SKIN_TOKEN_PLAYLIST_PROGRESSBAR;
+    }
     else if (token->type == SKIN_TOKEN_TUNER_RSSI)
         token->type = SKIN_TOKEN_TUNER_RSSI_BAR;
     else if (token->type == SKIN_TOKEN_PEAKMETER_LEFT)
@@ -2417,6 +2423,7 @@ static int skin_element_callback(struct skin_element* element, void* data)
                 case SKIN_TOKEN_PROGRESSBAR:
                 case SKIN_TOKEN_VOLUME:
                 case SKIN_TOKEN_BATTERY_PERCENT:
+                case SKIN_TOKEN_PLAYLIST_ELAPSED_PERCENT:
                 case SKIN_TOKEN_PLAYER_PROGRESSBAR:
                 case SKIN_TOKEN_PEAKMETER_LEFT:
                 case SKIN_TOKEN_PEAKMETER_RIGHT:

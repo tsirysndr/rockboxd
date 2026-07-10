@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 Heikki Hannikainen
  *
@@ -219,6 +218,22 @@ static int dbg_threads_action_callback(int action, struct gui_synclist *lists)
     }
 #if LCD_WIDTH <= 128
     int *x_offset = ((int*) lists->data);
+#if CONFIG_CPU == AS3525v2
+    if (action == ACTION_STD_MENU)
+    {
+        *x_offset += 1;
+        action = ACTION_REDRAW;
+    }
+    else if (IS_SYSEVENT(action))
+    {
+        return ACTION_REDRAW;
+    }
+    else if (action == ACTION_STD_OK)
+    {
+        *x_offset = 0;
+        action = ACTION_REDRAW;
+    }
+#else
     if (action == ACTION_STD_OK)
     {
         *x_offset += 1;
@@ -232,6 +247,7 @@ static int dbg_threads_action_callback(int action, struct gui_synclist *lists)
     {
         *x_offset = 0;
     }
+#endif
 #else
     (void) lists;
 #endif

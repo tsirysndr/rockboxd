@@ -28,7 +28,9 @@
 // Windows Includes
 #if defined(Q_OS_WIN32)
 #if defined(UNICODE)
+#ifndef _UNICODE
 #define _UNICODE
+#endif
 #endif
 #include <windows.h>
 #include <tchar.h>
@@ -38,7 +40,7 @@
 #endif
 
 // Linux and Mac includes
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACX)
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
 #include <sys/utsname.h>
 #include <unistd.h>
 #include <pwd.h>
@@ -51,7 +53,7 @@
 #endif
 
 // Mac includes
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
 #include <sys/param.h>
 #include <sys/ucred.h>
 #include <sys/mount.h>
@@ -145,7 +147,7 @@ QString System::userName(void)
 
     return QString::fromWCharArray(userbuf);
 #endif
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACX)
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     struct passwd *user;
     user = getpwuid(geteuid());
     return QString(user->pw_name);
@@ -168,25 +170,18 @@ QString System::osVersionString(void)
     GetSystemInfo(&sysinfo);
 
     result = QString("Windows version %1.%2, ").arg(osvi.dwMajorVersion).arg(osvi.dwMinorVersion);
-    if(osvi.szCSDVersion)
-        result += QString("build %1 (%2)").arg(osvi.dwBuildNumber)
-            .arg(QString::fromWCharArray(osvi.szCSDVersion));
-    else
-        result += QString("build %1").arg(osvi.dwBuildNumber);
+    result += QString("build %1 (%2)").arg(osvi.dwBuildNumber)
+        .arg(QString::fromWCharArray(osvi.szCSDVersion));
     result += QString("<br/>CPU: %1, %2 processor(s)").arg(sysinfo.dwProcessorType)
               .arg(sysinfo.dwNumberOfProcessors);
 #endif
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACX)
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     struct utsname u;
     int ret;
+    int cores;
     ret = uname(&u);
+    cores = QThread::idealThreadCount();
 
-#if defined(Q_OS_MACX)
-    SInt32 cores;
-    Gestalt(gestaltCountOfCPUs, &cores);
-#else
-    long cores = sysconf(_SC_NPROCESSORS_ONLN);
-#endif
     if(ret != -1) {
         result = QString("CPU: %1, %2 processor(s)").arg(u.machine).arg(cores);
         result += QString("<br/>System: %2<br/>Release: %3<br/>Version: %4")
@@ -195,34 +190,23 @@ QString System::osVersionString(void)
     else {
         result = QString("(Error when retrieving system information)");
     }
-#if defined(Q_OS_MACX)
-    SInt32 major;
-    SInt32 minor;
-    SInt32 bugfix;
-    Gestalt(gestaltSystemVersionMajor, &major);
-    Gestalt(gestaltSystemVersionMinor, &minor);
-    Gestalt(gestaltSystemVersionBugFix, &bugfix);
+#if defined(Q_OS_MACOS)
+    auto ver = QOperatingSystemVersion::current();
 
-    result += QString("<br/>OS X %1.%2.%3 ").arg(major).arg(minor).arg(bugfix);
-    // 1: 86k, 2: ppc, 10: i386
-    SInt32 arch;
-    Gestalt(gestaltSysArchitecture, &arch);
-    switch(arch) {
-        case 1:
-            result.append("(86k)");
-            break;
-        case 2:
-            result.append("(ppc)");
-            break;
-        case 10:
-            result.append("(x86)");
-            break;
-        default:
-            result.append("(unknown)");
-            break;
-    }
+    result += QString("<br/>macOS %1.%2.%3")
+        .arg(ver.majorVersion())
+        .arg(ver.minorVersion())
+        .arg(ver.microVersion());
+
+#if defined(__arm64__)
+    result += " (arm64)";
+#elif defined(__x86_64__)
+    result += " (x86_64)";
+#else
+    result += " (unknown)";
 #endif
-#endif
+#endif /* defined(Q_OS_MACOS) */
+#endif /* defined(Q_OS_LINUX) || defined(Q_OS_MACOS) */
     result += QString("<br/>Qt version %1").arg(qVersion());
     return result;
 }
@@ -282,12 +266,12 @@ QMultiMap<uint32_t, QString> System::listUsbDevices(void)
     libusb_exit(nullptr);
 #endif
 
-#if defined(Q_OS_MACX)
+#if defined(Q_OS_MACOS)
     kern_return_t result = KERN_FAILURE;
     CFMutableDictionaryRef usb_matching_dictionary;
     io_iterator_t usb_iterator = IO_OBJECT_NULL;
     usb_matching_dictionary = IOServiceMatching(kIOUSBDeviceClassName);
-    result = IOServiceGetMatchingServices(kIOMasterPortDefault, usb_matching_dictionary,
+    result = IOServiceGetMatchingServices(kIOMainPortDefault, usb_matching_dictionary,
                                           &usb_iterator);
     if(result) {
         LOG_ERROR() << "USB: IOKit: Could not get matching services.";
@@ -352,7 +336,7 @@ QMultiMap<uint32_t, QString> System::listUsbDevices(void)
         }
 
         if(id) {
-            usbids.insertMulti(id, name);
+            usbids.insert(id, name);
             LOG_INFO() << "USB:" << QString("0x%1").arg(id, 8, 16) << name;
         }
 
@@ -469,15 +453,13 @@ QUrl System::systemProxy(void)
         return QUrl("http://" + QString::fromWCharArray(proxyval));
     else
         return QUrl("");
-#elif defined(Q_OS_MACX)
+#elif defined(Q_OS_MACOS)
 
     CFDictionaryRef dictref;
     CFStringRef stringref;
     CFNumberRef numberref;
     int enable = 0;
     int port = 0;
-    unsigned int bufsize = 0;
-    char *buf;
     QUrl proxy;
 
     dictref = SCDynamicStoreCopyProxies(NULL);
@@ -490,24 +472,14 @@ QUrl System::systemProxy(void)
         // get proxy string
         stringref = (CFStringRef)CFDictionaryGetValue(dictref, kSCPropNetProxiesHTTPProxy);
         if(stringref != NULL) {
-            // get number of characters. CFStringGetLength uses UTF-16 code pairs
-            bufsize = CFStringGetLength(stringref) * 2 + 1;
-            buf = (char*)malloc(sizeof(char) * bufsize);
-            if(buf == NULL) {
-                LOG_ERROR() << "can't allocate memory for proxy string!";
-                CFRelease(dictref);
-                return QUrl("");
-            }
-            CFStringGetCString(stringref, buf, bufsize, kCFStringEncodingUTF16);
+            QString host = QString::fromCFString(stringref);
             numberref = (CFNumberRef)CFDictionaryGetValue(dictref, kSCPropNetProxiesHTTPPort);
             if(numberref != NULL)
                 CFNumberGetValue(numberref, kCFNumberIntType, &port);
             proxy.setScheme("http");
-            proxy.setHost(QString::fromUtf16((unsigned short*)buf));
+            proxy.setHost(host);
             proxy.setPort(port);
-
-            free(buf);
-            }
+        }
     }
     CFRelease(dictref);
 
@@ -516,5 +488,3 @@ QUrl System::systemProxy(void)
     return QUrl("");
 #endif
 }
-
-

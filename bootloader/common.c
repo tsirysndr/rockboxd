@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id: main.c 11997 2007-01-13 09:08:18Z miipekk $
  *
  * Copyright (C) 2005 by Linus Nielsen Feltzing
  *
@@ -166,3 +165,17 @@ int load_raw_firmware(unsigned char* buf, char* firmware, int buffer_size)
     close(fd);
     return len;
 }
+
+#if (!defined(MISC_H) && CONFIG_PLATFORM & PLATFORM_HOSTED)
+/* open but with a builtin printf for assembling the path */
+int open_pathfmt(char *buf, size_t size, int oflag, const char *pathfmt, ...)
+{
+    va_list ap;
+    va_start(ap, pathfmt);
+    vsnprintf(buf, size, pathfmt, ap);
+    va_end(ap);
+    if ((oflag & O_PATH) == O_PATH)
+        return -1;
+    return open(buf, oflag, 0666);
+}
+#endif
