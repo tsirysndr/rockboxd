@@ -67,15 +67,18 @@ jobs:
       - name: Build librockbox_ffi
         run: cargo build --release -p rockbox-ffi
 
-      - name: Stage binary
+      - name: Stage binaries
         run: |
           mkdir -p out
+          # dynamic lib (Ruby/Python/npm dlopen it) + static archive (the Swift
+          # RockboxFFI product bundles it). Both fall out of the one build.
           cp "target/release/${{ matrix.libfile }}" "out/${{ matrix.libfile }}"
+          cp "target/release/librockbox_ffi.a" "out/librockbox_ffi.a"
 
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-${{ matrix.target }}
-          path: out/${{ matrix.libfile }}
+          path: out/
           if-no-files-found: error
 
   # 1b. FreeBSD amd64 — built inside a VM (no native GitHub runner).
@@ -96,10 +99,11 @@ jobs:
             cargo build --release -p rockbox-ffi
             mkdir -p out
             cp target/release/librockbox_ffi.so out/librockbox_ffi.so
+            cp target/release/librockbox_ffi.a out/librockbox_ffi.a
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-freebsd-x64
-          path: out/librockbox_ffi.so
+          path: out/
           if-no-files-found: error
 
   # 1c. NetBSD amd64 — built inside a VM (no native GitHub runner).
@@ -119,10 +123,68 @@ jobs:
             cargo build --release -p rockbox-ffi
             mkdir -p out
             cp target/release/librockbox_ffi.so out/librockbox_ffi.so
+            cp target/release/librockbox_ffi.a out/librockbox_ffi.a
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-netbsd-x64
-          path: out/librockbox_ffi.so
+          path: out/
+          if-no-files-found: error
+
+  # 1d. iOS static archives — device + simulator, cross-compiled on a macOS
+  # runner. Only the static lib is produced/used: an iOS app links it in (it
+  # can't dlopen an arbitrary library), so these feed the xcframework only and
+  # are not wired into the dlopen Ruby / Python / npm bindings.
+  build-lib-ios:
+    name: build-lib-ios (${{ matrix.target }})
+    runs-on: macos-latest
+    # Deployment floor for both the Rust codegen and the cc-compiled C objects
+    # (rustc + cc both honour *_DEPLOYMENT_TARGET). Without it the build picks
+    # the host SDK's version, pinning the xcframework to a bleeding-edge iOS.
+    # Matches Package.swift's .iOS(.v14).
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Device (arm64) — plain triple, no bindgen override needed.
+          - target: aarch64-apple-ios
+            bindgen: ""
+          # Simulator slices. coreaudio-sys runs bindgen, and libclang rejects
+          # the `-sim` triple ("version 'sim' … is invalid"), so hand it an
+          # explicit `-simulator` target. The x86_64 slice gets the matching
+          # arch so its objects are tagged IOSSIMULATOR, not IOS.
+          - target: aarch64-apple-ios-sim
+            bindgen: "--target=arm64-apple-ios14.0-simulator"
+          - target: x86_64-apple-ios
+            bindgen: "--target=x86_64-apple-ios14.0-simulator"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+
+      # staticlib only: the cdylib crate-type doesn't link for iOS (a shared
+      # library must resolve every symbol up front, and some codec objects
+      # aren't reachable that way) — and an iOS app links the .a anyway, so the
+      # cdylib is never needed. --crate-type overrides Cargo.toml's list.
+      - name: Build librockbox_ffi.a
+        env:
+          BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.bindgen }}
+        run: cargo rustc --release -p rockbox-ffi --target ${{ matrix.target }} --crate-type staticlib
+
+      - name: Stage archive
+        run: |
+          mkdir -p out
+          cp "target/${{ matrix.target }}/release/librockbox_ffi.a" out/librockbox_ffi.a
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: librockbox_ffi-ios-${{ matrix.target }}
+          path: out/
           if-no-files-found: error
 
   # 2a. Ruby platform gems (packaging is host-independent — build all on one runner).
@@ -286,9 +348,126 @@ jobs:
           name: npm-tarballs
           path: bindings/typescript/tarballs/*.tgz
 
+  # 2d. Swift: bundle the static archive into distributable, reproducible
+  # artifacts. Unlike the dlopen bindings, the Swift `RockboxFFI` product
+  # statically links librockbox_ffi.a, so consumers get a self-contained
+  # binary. Two deliverables:
+  #   * RockboxFFI.xcframework.zip — static lib + header for macOS (universal),
+  #     iOS (arm64 device), and the iOS simulator (arm64+x86_64 universal); the
+  #     canonical Swift binary distributable (drop in as a binaryTarget).
+  #   * rockbox-ffi-swift-macos.tar.gz — the SwiftPM package source with the
+  #     universal macOS archive vendored under Libs/, so `swift build` works
+  #     turnkey off the monorepo (Package.swift falls back to Libs/…). macOS
+  #     only; iOS consumers use the xcframework.
+  # Both are packed deterministically (sorted entries, fixed timestamps,
+  # numeric owners, gzip -n) for reproducibility.
+  swift:
+    needs: [build-lib, build-lib-ios]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build universal macOS static archive
+        run: |
+          set -euxo pipefail
+          arm="artifacts/librockbox_ffi-darwin-arm64/librockbox_ffi.a"
+          x64="artifacts/librockbox_ffi-darwin-x64/librockbox_ffi.a"
+          mkdir -p universal
+          slices=()
+          [ -f "$arm" ] && slices+=("$arm")
+          [ -f "$x64" ] && slices+=("$x64")
+          if [ "${#slices[@]}" -eq 0 ]; then
+            echo "no darwin static archives found" >&2; exit 1
+          fi
+          lipo -create "${slices[@]}" -output universal/librockbox_ffi.a
+          lipo -info universal/librockbox_ffi.a
+
+      - name: Build iOS static archives (device + universal simulator)
+        run: |
+          set -euxo pipefail
+          device="artifacts/librockbox_ffi-ios-aarch64-apple-ios/librockbox_ffi.a"
+          simarm="artifacts/librockbox_ffi-ios-aarch64-apple-ios-sim/librockbox_ffi.a"
+          simx64="artifacts/librockbox_ffi-ios-x86_64-apple-ios/librockbox_ffi.a"
+          mkdir -p ios
+          # Device slice (arm64) — copied straight through.
+          if [ -f "$device" ]; then
+            cp "$device" ios/librockbox_ffi-device.a
+            lipo -info ios/librockbox_ffi-device.a
+          fi
+          # Simulator slice — the two arches share the ios-simulator platform,
+          # so they must be lipo'd into one fat archive (one xcframework slice).
+          simslices=()
+          [ -f "$simarm" ] && simslices+=("$simarm")
+          [ -f "$simx64" ] && simslices+=("$simx64")
+          if [ "${#simslices[@]}" -gt 0 ]; then
+            lipo -create "${simslices[@]}" -output ios/librockbox_ffi-sim.a
+            lipo -info ios/librockbox_ffi-sim.a
+          fi
+
+      - name: Assemble RockboxFFI.xcframework
+        run: |
+          set -euxo pipefail
+          mkdir -p headers
+          cp include/rockbox_ffi.h headers/
+          # One -library/-headers pair per platform slice. iOS slices are added
+          # only if their build produced an archive, so a partial rerun still
+          # yields a valid (smaller) xcframework.
+          args=(-library universal/librockbox_ffi.a -headers headers)
+          [ -f ios/librockbox_ffi-device.a ] && args+=(-library ios/librockbox_ffi-device.a -headers headers)
+          [ -f ios/librockbox_ffi-sim.a ] && args+=(-library ios/librockbox_ffi-sim.a -headers headers)
+          rm -rf RockboxFFI.xcframework
+          xcodebuild -create-xcframework "${args[@]}" -output RockboxFFI.xcframework
+          echo "=== xcframework slices ===" && ls RockboxFFI.xcframework
+
+      - name: Stage vendored SwiftPM package
+        run: |
+          set -euxo pipefail
+          pkg="rockbox-ffi-swift-macos"
+          rm -rf "$pkg"
+          mkdir -p "$pkg"
+          # SwiftPM sources only — never the local .build cache.
+          cp -R bindings/swift/Package.swift bindings/swift/README.md \
+                bindings/swift/Sources "$pkg/"
+          mkdir -p "$pkg/Libs"
+          cp universal/librockbox_ffi.a "$pkg/Libs/librockbox_ffi.a"
+
+      - name: Pack deterministically
+        env:
+          TZ: UTC
+        run: |
+          set -euxo pipefail
+          mkdir -p swift-dist
+          # Fix all mtimes (files + symlinks) so the archives are byte-stable
+          # across runs; this is what makes the bundles reproducible.
+          find RockboxFFI.xcframework rockbox-ffi-swift-macos \
+            -exec touch -h -t 200001010000 {} +
+          # List files only (never directories): a directory in bsdtar's -T /
+          # zip's -@ list would be re-recursed and double-add every entry.
+          # Parent dirs are recreated from the file paths on extraction.
+          # xcframework -> deterministic zip (sorted entries, no extra attrs).
+          find RockboxFFI.xcframework \( -type f -o -type l \) -print \
+            | LC_ALL=C sort > xc.list
+          zip -X -q swift-dist/RockboxFFI.xcframework.zip -@ < xc.list
+          # package source -> deterministic tar.gz (sorted, numeric root owner,
+          # gzip -n to drop gzip's embedded timestamp).
+          find rockbox-ffi-swift-macos \( -type f -o -type l \) -print \
+            | LC_ALL=C sort > pkg.list
+          tar --uid 0 --gid 0 --numeric-owner -cf - -T pkg.list \
+            | gzip -n > swift-dist/rockbox-ffi-swift-macos.tar.gz
+          ls -l swift-dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift-dist
+          path: swift-dist/*
+
   # 3. Collect every artifact and attach it to the GitHub Release.
   release:
-    needs: [build-lib, build-lib-freebsd, build-lib-netbsd, ruby, python, npm]
+    needs: [build-lib, build-lib-freebsd, build-lib-netbsd, ruby, python, npm, swift]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -301,11 +480,12 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p release
-          # packaged: gems, wheels + sdist, npm tarballs
+          # packaged: gems, wheels + sdist, npm tarballs, Swift bundles
           cp artifacts/ruby-gems/*.gem release/ 2>/dev/null || true
           cp artifacts/python-wheels/* release/ 2>/dev/null || true
           cp artifacts/npm-tarballs/*.tgz release/ 2>/dev/null || true
-          # raw shared libs, renamed per target so they don't collide
+          cp artifacts/swift-dist/* release/ 2>/dev/null || true
+          # raw shared + static libs, renamed per target so they don't collide
           for d in artifacts/librockbox_ffi-*; do
             [ -d "$d" ] || continue
             t="$(basename "$d" | sed 's/^librockbox_ffi-//')"

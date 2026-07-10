@@ -1,3 +1,6 @@
 .build/
 .swiftpm/
 Package.resolved
+# Vendored static archive for the RockboxFFI (static) product's Libs/ fallback —
+# populated by the release workflow / local packaging, never committed.
+Libs/

@@ -3,7 +3,7 @@
 // Run: swift run rockbox-ffi-play [path-to-audio]
 
 import Foundation
-import RockboxFFI
+import RockboxFFIDynamic
 
 let repo = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent()

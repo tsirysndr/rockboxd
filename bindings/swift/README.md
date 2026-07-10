@@ -3,25 +3,79 @@
 Swift bindings for the Rockbox **DSP**, **metadata**, and **playback** engine,
 over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
 
-Pure Swift, no C target or module map: the binding `dlopen`s `librockbox_ffi`
-at runtime and `dlsym`s every function into a typed `@convention(c)` closure —
-exactly like the Ruby / Python bindings. Keep
-[`Loader.swift`](Sources/RockboxFFI/Loader.swift) in sync with
+The public API (`Dsp`, `Player`, `Metadata`, enums) and the `dlsym` loader live
+in the `RockboxFFICore` module and are shared by **two products** — pick one:
+
+| Product              | Native code        | Runtime lookup | Use when                                       |
+| -------------------- | ------------------ | -------------- | ---------------------------------------------- |
+| `RockboxFFI`         | statically linked  | none           | you want a single self-contained binary        |
+| `RockboxFFIDynamic`  | `dlopen`ed         | file lookup    | you'd rather ship the library beside your app  |
+
+Both drive the same `@convention(c)` closures; the loader decides at runtime
+whether to resolve the `rb_*` symbols from the process image (static) or from a
+`dlopen`ed library (dynamic). Keep
+[`Loader.swift`](Sources/RockboxFFICore/Loader.swift) — and the `ffiSymbols`
+list in [`Package.swift`](Package.swift) — in sync with
 [`include/rockbox_ffi.h`](../../include/rockbox_ffi.h).
 
 ## Build & run
 
-Build the shared library once from the repo root (the loader also honours
-`ROCKBOX_FFI_LIB`, else walks up to `target/release`):
+Build the Rust artifacts once from the repo root — this produces **both**
+`librockbox_ffi.a` (bundled by `RockboxFFI`) and `librockbox_ffi.dylib`
+(loaded by `RockboxFFIDynamic`):
 
 ```sh
 cargo build --release -p rockbox-ffi
 ```
 
 ```sh
-swift run rockbox-ffi-smoke                 # end-to-end smoke test
-swift run rockbox-ffi-play /path/to/audio   # play through the output device
+swift run rockbox-ffi-smoke                 # static product, end-to-end smoke test
+swift run rockbox-ffi-play /path/to/audio   # dynamic product, plays via output device
 ```
+
+`rockbox-ffi-smoke` links `RockboxFFI`, so it needs no library at runtime — the
+engine is baked into the binary. `rockbox-ffi-play` links `RockboxFFIDynamic`,
+which honours `ROCKBOX_FFI_LIB`, else walks up to `target/release`.
+
+### `RockboxFFI` (static)
+
+`RockboxFFI` pulls the `rb_*` entry points out of `librockbox_ffi.a` (with a
+`-u <symbol>` per function, since the loader reaches them via `dlsym` and the
+linker would otherwise strip them) and links the system libraries the engine
+needs. Consumers get a binary with **no** dependency on `librockbox_ffi.dylib`
+and no `ROCKBOX_FFI_LIB` / path lookup at runtime. Required system libraries:
+
+| Platform | Linked automatically by the package                            |
+| -------- | -------------------------------------------------------------- |
+| macOS    | `AudioUnit`, `CoreAudio`, `CoreFoundation`, `iconv`            |
+| Linux    | `asound` (ALSA, backs cpal)                                    |
+
+The archive is resolved absolutely from the manifest location: first
+`../../target/release/librockbox_ffi.a` (in-repo cargo output), else a vendored
+`Libs/librockbox_ffi.a` next to `Package.swift` (distributable tarball).
+
+## Distribution
+
+The `bindings-release` GitHub workflow publishes reproducible, prebuilt Swift
+artifacts to the release (sorted entries, fixed timestamps, `gzip -n` — byte
+stable across runs):
+
+| Asset                              | Contents                                                                     |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `RockboxFFI.xcframework.zip`       | Static lib + header for macOS (universal), iOS (arm64), iOS-sim (arm64+x64)   |
+| `rockbox-ffi-swift-macos.tar.gz`   | This SwiftPM package with the universal macOS archive vendored under `Libs/`  |
+| `librockbox_ffi-<target>.a`        | Raw per-target static archives (macOS, Linux, BSD)                            |
+
+**Apple apps (macOS + iOS):** drop `RockboxFFI.xcframework` into Xcode, or
+reference it as a `binaryTarget` in a `Package.swift`. Because it's a static
+xcframework, an iOS/macOS app that calls the C ABI directly retains the symbols;
+if you consume it through this package's `dlsym` loader instead, keep the
+`-u`-per-symbol linker settings so `-dead_strip` doesn't drop them. iOS apps
+must additionally link `AudioToolbox` / `AVFoundation` and configure an
+`AVAudioSession` before using `Player`.
+
+**macOS off the monorepo:** unpack `rockbox-ffi-swift-macos.tar.gz` and
+`swift build` — `Package.swift` picks up the vendored `Libs/librockbox_ffi.a`.
 
 ## Usage
 

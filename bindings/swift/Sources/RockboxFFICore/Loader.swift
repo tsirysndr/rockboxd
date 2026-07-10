@@ -1,8 +1,18 @@
-// Runtime loader for the prebuilt librockbox_ffi shared library.
+// Runtime loader for the rockbox-ffi C ABI.
 //
-// Nothing is linked at build time: the library is `dlopen`ed and every
-// function is `dlsym`ed into a typed `@convention(c)` closure. This mirrors
-// include/rockbox_ffi.h — keep the signatures in sync with the C ABI.
+// Every function is resolved with `dlsym` into a typed `@convention(c)`
+// closure. This mirrors include/rockbox_ffi.h — keep the signatures in sync
+// with the C ABI. Symbols are located one of two ways, tried in order:
+//
+//   1. Statically linked (the `RockboxFFI` product `-force_load`s
+//      librockbox_ffi.a): the `rb_*` symbols are already in the process
+//      image, so they resolve through `RTLD_DEFAULT` with no file lookup.
+//   2. Dynamically loaded (the `RockboxFFIDynamic` product): the shared
+//      library is `dlopen`ed from ROCKBOX_FFI_LIB / target/release / a
+//      bundled `Libs` dir, exactly like the Ruby / Python bindings.
+//
+// Both products share this one code path; which branch runs is decided at
+// runtime by whether the symbols were linked in.
 
 import Foundation
 
@@ -10,6 +20,16 @@ import Foundation
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#endif
+
+// dlfcn's RTLD_DEFAULT is a `#define` (a magic pseudo-handle), so it doesn't
+// import into Swift — spell it out per platform. dlsym with this handle
+// searches every image already loaded in the process, which is where the
+// `rb_*` symbols live when librockbox_ffi.a is statically linked in.
+#if canImport(Darwin)
+private let RTLD_DEFAULT = UnsafeMutableRawPointer(bitPattern: -2)
+#else
+private let RTLD_DEFAULT: UnsafeMutableRawPointer? = nil
 #endif
 
 /// Errors thrown by the bindings.
@@ -80,7 +100,9 @@ final class Lib {
         catch { fatalError("\(error)") }
     }()
 
-    private let handle: UnsafeMutableRawPointer
+    // nil when the symbols are statically linked into the process image
+    // (resolved through RTLD_DEFAULT); otherwise the dlopen'd library handle.
+    private let handle: UnsafeMutableRawPointer?
 
     // Deallocators
     let abiVersion: FnAbiVersion
@@ -137,8 +159,11 @@ final class Lib {
 
         // Capture `h` locally so the loader doesn't touch `self` before every
         // stored property is initialized (Swift definite-initialization).
+        // `h == nil` means the symbols are statically linked in — look them up
+        // through RTLD_DEFAULT (the whole-process image) instead of a handle.
+        let lookup = h ?? RTLD_DEFAULT
         func sym<T>(_ name: String, _ type: T.Type) throws -> T {
-            guard let s = dlsym(h, name) else { throw RockboxError.symbolNotFound(name) }
+            guard let s = dlsym(lookup, name) else { throw RockboxError.symbolNotFound(name) }
             return unsafeBitCast(s, to: T.self)
         }
 
@@ -198,11 +223,19 @@ final class Lib {
 
     // MARK: - library location
 
-    /// Locate and dlopen the shared library. Precedence:
+    /// Resolve the native library. Precedence:
+    ///   0. already in the process image (statically linked) → nil handle
     ///   1. ROCKBOX_FFI_LIB env var (explicit override)
     ///   2. bundled next to the package (published distributions)
     ///   3. target/release, walking up from this source file / cwd
-    private static func open() throws -> (UnsafeMutableRawPointer, String) {
+    private static func open() throws -> (UnsafeMutableRawPointer?, String) {
+        // 0. Static link: the RockboxFFI product force_loads librockbox_ffi.a,
+        //    so the symbols are already resolvable. Probe one; if present,
+        //    skip all file lookup and resolve everything via RTLD_DEFAULT.
+        if dlsym(RTLD_DEFAULT, "rb_ffi_abi_version") != nil {
+            return (nil, "<statically linked>")
+        }
+
         var tried: [String] = []
         let names = ["librockbox_ffi.dylib", "librockbox_ffi.so"]
 
