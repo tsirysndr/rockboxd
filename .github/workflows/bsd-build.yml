@@ -79,15 +79,21 @@ jobs:
           bun run build
 
       # cross-platform-actions rsyncs the whole working directory into the
-      # guest, whose disk is tight. Drop the web UI node_modules once the
-      # embedded dist/ folders exist (~1.6 GB; only dist/ is compiled in, and
-      # node_modules is not needed inside the VM). Keep .git — the build reads
-      # the git ref for the version string.
+      # guest, whose disk is tight. Drop everything the BSD build doesn't need:
+      #  - web UI node_modules (~1.6 GB) — only the built dist/ is embedded.
+      #  - deno test/bench fixtures (~0.9 GB) — the deno submodule is never
+      #    compiled on BSD (cargo only reads its manifests for workspace
+      #    resolution); wpt/node_compat/cli-bench contain no Cargo.toml, so
+      #    removing them keeps resolution working (verified with cargo metadata).
+      # Keep .git — the build reads the git ref for the version string.
       - name: Shrink workspace before syncing into the VM
         run: |
           du -sh . 2>/dev/null | awk '{print "workspace before: "$1}'
           rm -rf webui/rockbox/node_modules
           rm -rf crates/s3/s3webui/node_modules
+          rm -rf deno/tests/wpt
+          rm -rf deno/tests/node_compat
+          rm -rf deno/cli/bench
           du -sh . 2>/dev/null | awk '{print "workspace after:  "$1}'
 
       - name: Build rockboxd in ${{ matrix.os }} VM
