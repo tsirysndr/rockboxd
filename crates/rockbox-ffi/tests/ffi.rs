@@ -22,7 +22,6 @@ fn take_json(p: *mut c_char) -> Option<String> {
     Some(s)
 }
 
-
 #[test]
 fn url_detection() {
     assert!(rb_is_url(c("https://example.com/a.flac").as_ptr()));

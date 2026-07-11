@@ -51,9 +51,7 @@ extern "C" {
         read_cb: Option<
             unsafe extern "C" fn(*mut c_void, *mut c_void, std::ffi::c_ulong) -> std::ffi::c_long,
         >,
-        seek_cb: Option<
-            unsafe extern "C" fn(*mut c_void, i64) -> std::ffi::c_int,
-        >,
+        seek_cb: Option<unsafe extern "C" fn(*mut c_void, i64) -> std::ffi::c_int>,
         user: *mut c_void,
         size: i64,
         frequency: std::ffi::c_ulong,
@@ -315,7 +313,10 @@ impl Decoder {
         let reader = Box::new(ReaderCtx { reader });
 
         let rc = unsafe {
-            rbcodec_set_sink(Some(sink_trampoline), &*sink as *const SinkCtx as *mut c_void);
+            rbcodec_set_sink(
+                Some(sink_trampoline),
+                &*sink as *const SinkCtx as *mut c_void,
+            );
             rbcodec_open_stream(
                 Some(stream_read_trampoline),
                 &*reader as *const ReaderCtx as *mut c_void,
@@ -378,7 +379,10 @@ impl Decoder {
         let seek = Box::new(SeekCtx { source });
 
         let rc = unsafe {
-            rbcodec_set_sink(Some(sink_trampoline), &*sink as *const SinkCtx as *mut c_void);
+            rbcodec_set_sink(
+                Some(sink_trampoline),
+                &*sink as *const SinkCtx as *mut c_void,
+            );
             rbcodec_open_seekable(
                 Some(seek_read_trampoline),
                 Some(seek_seek_trampoline),
