@@ -1,24 +1,35 @@
-# Best-effort build of the full rockboxd binary on FreeBSD and NetBSD
-# (amd64 only), using cross-platform-actions VMs. There are no native
-# GitHub runners for these platforms, so the whole build runs inside the VM.
+# Builds the rockboxd binary for FreeBSD and NetBSD (amd64) and uploads a
+# tar.gz + sha256 to the GitHub release. There are no native GitHub runners for
+# these platforms, so the whole build runs inside a cross-platform-actions VM;
+# the produced binary is synced back to the host, packaged and uploaded.
 #
-# The build goes through scripts/build-headless.sh, which needs GNU make
-# (gmake), Zig 0.16.0, protobuf (protoc), cmake and the Rust toolchain — so
-# this installs more than the FFI-only BSD jobs in bindings-release.yml.
-name: bsd-build
+# Triggers on a published release, or manually (workflow_dispatch) with a tag
+# input. The build goes through scripts/build-headless.sh, which needs GNU make
+# (gmake), Zig 0.16.0, protobuf (protoc), cmake and the Rust toolchain.
+name: bsd-release
 on:
-  push:
-    branches:
-      - master
-  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The existing tag to publish"
+        type: "string"
+        required: true
 
 jobs:
   build:
     name: build-${{ matrix.name }}
+    # Skip the ignored release tags (bindings / clojure); always run on manual
+    # dispatch.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!startsWith(github.event.release.tag_name, 'clojure-v') &&
+       !startsWith(github.event.release.tag_name, 'clojure-ffi-v') &&
+       !startsWith(github.event.release.tag_name, 'bindings-v'))
     runs-on: ubuntu-latest
-    # A broken toolchain on one BSD shouldn't hide the result on the other,
-    # and these are best-effort "does it still build?" checks.
-    continue-on-error: true
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -98,12 +109,15 @@ jobs:
 
       - name: Build rockboxd in ${{ matrix.os }} VM
         uses: cross-platform-actions/action@v1.3.0
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
         with:
           operating_system: ${{ matrix.os }}
           version: ${{ matrix.version }}
           architecture: x86_64
           shell: bash
-          environment_variables: ZIG_VERSION
+          # TAG is baked into the version string by cargo (option_env!("TAG")).
+          environment_variables: ZIG_VERSION TAG
           run: |
             set -eux
 
@@ -190,3 +204,30 @@ jobs:
             # --- Result -------------------------------------------------------
             ls -lh zig/zig-out/bin/rockboxd
             file zig/zig-out/bin/rockboxd || true
+
+      # cross-platform-actions rsyncs the working directory back to the host, so
+      # zig/zig-out/bin/rockboxd is now available here for packaging + upload.
+      - name: Determine version
+        id: vars
+        run: echo "version=${{ inputs.tag || github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Package binary
+        run: |
+          VERSION="${{ steps.vars.outputs.version }}"
+          OS="${{ matrix.os }}"
+          test -f zig/zig-out/bin/rockboxd
+          cp zig/zig-out/bin/rockboxd .
+          tar czvf "rockbox_${VERSION}_x86_64-${OS}.tar.gz" rockboxd
+          sha256sum "rockbox_${VERSION}_x86_64-${OS}.tar.gz" \
+            > "rockbox_${VERSION}_x86_64-${OS}.tar.gz.sha256"
+          ls -lh rockbox_${VERSION}_x86_64-${OS}.tar.gz*
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            rockbox_${{ steps.vars.outputs.version }}_x86_64-${{ matrix.os }}.tar.gz
+            rockbox_${{ steps.vars.outputs.version }}_x86_64-${{ matrix.os }}.tar.gz.sha256
+          tag_name: ${{ steps.vars.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
