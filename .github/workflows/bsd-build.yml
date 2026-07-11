@@ -54,27 +54,6 @@ jobs:
         with:
           submodules: recursive
 
-      # Speed up repeat builds by caching the Rust target/, the cargo registry
-      # and the Zig cache. These all live in the working directory (CARGO_HOME
-      # is redirected to .cargo-home in the VM run script), so cross-platform-
-      # actions rsyncs them into the guest before the build and back out after,
-      # and actions/cache saves the updated state at job end. Keyed on
-      # Cargo.lock so a dependency change starts fresh; restore-keys lets an
-      # older cache seed the build. NOTE: a warm target/ is rsync'd into the
-      # tight guest disk — if that reintroduces ENOSPC, drop `target` from the
-      # paths below and keep only the registry + zig cache.
-      - name: Cache cargo + Zig build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            .cargo-home/registry
-            .cargo-home/git
-            target
-            zig/.zig-cache
-          key: bsd-${{ matrix.name }}-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            bsd-${{ matrix.name }}-build-
-
       # Both web UIs are embedded into the server crate via rust_embed —
       # webui/src/lib.rs -> rockbox/dist/ and crates/s3/src/admin.rs ->
       # s3webui/dist/. rust_embed errors at compile time if a folder is
@@ -136,11 +115,6 @@ jobs:
             # debug info and strip symbols from release artifacts.
             export CARGO_PROFILE_RELEASE_DEBUG=0
             export CARGO_PROFILE_RELEASE_STRIP=symbols
-
-            # Keep the cargo registry/git caches inside the synced working dir
-            # so they persist across runs via actions/cache (see the cache step
-            # on the host). target/ and zig/.zig-cache are already in-workspace.
-            export CARGO_HOME="$PWD/.cargo-home"
 
             # --- Dependencies -------------------------------------------------
             case "$OS" in
