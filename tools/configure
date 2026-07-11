@@ -722,9 +722,39 @@ headlesshostcc () {
             # Expose POSIX timer extensions and suppress FORTIFY wrapping.
             host_extra_defines="-D_GNU_SOURCE -D_FORTIFY_SOURCE=0"
             ;;
+        FreeBSD)
+            # Use the GCC installed from the lang/gcc package (base is Clang).
+            # objcopy comes from the ELF Tool Chain in base (supports
+            # --redefine-sym for CODECS_STATIC).
+            CC="${CC:-gcc}"
+            CXX="${CXX:-g++}"
+            AR="${AR:-ar}"
+            RANLIB="${RANLIB:-ranlib}"
+            OC="${OC:-objcopy}"
+            LD="${LD:-$CC}"
+            CPP="$CC -E"
+            endian="little"
+            # __BSD_VISIBLE exposes timer_create/sigevent_t etc.; suppress the
+            # FORTIFY_SOURCE wrapping of strlcat/strlcpy.
+            host_extra_defines="-D__BSD_VISIBLE=1 -D_FORTIFY_SOURCE=0"
+            ;;
+        NetBSD)
+            # NetBSD's base toolchain is GCC + GNU binutils objcopy.
+            CC="${CC:-gcc}"
+            CXX="${CXX:-g++}"
+            AR="${AR:-ar}"
+            RANLIB="${RANLIB:-ranlib}"
+            OC="${OC:-objcopy}"
+            LD="${LD:-$CC}"
+            CPP="$CC -E"
+            endian="little"
+            # _NETBSD_SOURCE exposes the POSIX/BSD extensions we rely on;
+            # suppress FORTIFY wrapping.
+            host_extra_defines="-D_NETBSD_SOURCE -D_FORTIFY_SOURCE=0"
+            ;;
         *)
             echo "ERROR: headlesshostcc(): unsupported build host '$uname'"
-            echo "       (expected Darwin or Linux)"
+            echo "       (expected Darwin, Linux, FreeBSD or NetBSD)"
             exit 1
             ;;
     esac

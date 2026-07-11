@@ -173,9 +173,27 @@ rm -rf "$TMP_LIBOPUS"
 
 echo "    Done — ${#OGG_SYMS[@]} ogg_* symbols namespaced in libopus.a + opus.o"
 
-echo "==> Step 3: Build Rust crates (features: cpal-sink)"
-cargo build $CARGO_FLAG --features cpal-sink -p rockbox-cli
-cargo build $CARGO_FLAG -p rockbox-server
+# On the BSDs there is no prebuilt Typesense binary to download/spawn, so
+# search must run in-process against SQLite FTS5. The `fts5` feature has to
+# be passed to BOTH staticlibs (rockbox-cli and rockbox-server) since they
+# are linked into the same Zig binary.
+CLI_FEATURES="cpal-sink"
+SERVER_FEATURES=""
+case "$(uname)" in
+    FreeBSD|NetBSD)
+        echo "    BSD host detected — enabling fts5 (no Typesense subprocess)"
+        CLI_FEATURES="$CLI_FEATURES,fts5"
+        SERVER_FEATURES="fts5"
+        ;;
+esac
+
+echo "==> Step 3: Build Rust crates (cli features: $CLI_FEATURES)"
+cargo build $CARGO_FLAG --features "$CLI_FEATURES" -p rockbox-cli
+if [ -n "$SERVER_FEATURES" ]; then
+    cargo build $CARGO_FLAG --features "$SERVER_FEATURES" -p rockbox-server
+else
+    cargo build $CARGO_FLAG -p rockbox-server
+fi
 
 echo "==> Step 4: Link rockboxd with Zig (headless)"
 ZIG_EXTRA_ARGS=""
