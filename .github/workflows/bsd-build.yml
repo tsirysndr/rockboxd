@@ -78,6 +78,18 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
+      # cross-platform-actions rsyncs the whole working directory into the
+      # guest, whose disk is tight. Drop the web UI node_modules once the
+      # embedded dist/ folders exist (~1.6 GB; only dist/ is compiled in, and
+      # node_modules is not needed inside the VM). Keep .git — the build reads
+      # the git ref for the version string.
+      - name: Shrink workspace before syncing into the VM
+        run: |
+          du -sh . 2>/dev/null | awk '{print "workspace before: "$1}'
+          rm -rf webui/rockbox/node_modules
+          rm -rf crates/s3/s3webui/node_modules
+          du -sh . 2>/dev/null | awk '{print "workspace after:  "$1}'
+
       - name: Build rockboxd in ${{ matrix.os }} VM
         uses: cross-platform-actions/action@v1.3.0
         with:
