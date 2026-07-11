@@ -32,6 +32,12 @@ player.play();
   set — insert next, insert last, insert (grow a block after the current
   track), shuffled, last-shuffled, prepend, replace and insert-at-index —
   with single- and multi-track variants (see [Queue insertion](#queue-insertion)).
+- **Resume, exactly like Rockbox**: the queue and the *exact* playback
+  position auto-persist as you listen and restore on the next launch (see
+  [Resume](#resume)).
+- **`.m3u` / `.m3u8` playlists**: first-class import, export, insert and
+  update in the same UTF-8 extended-M3U format Rockbox uses (see
+  [M3U playlists](#m3u--m3u8-playlists)).
 - **Gapless by default** — the buffered tail of each track plays out before
   the next begins, so there's no click or silence at a boundary.
 - **Crossfade**: a port of `apps/pcmbuf.c` (see below). Fade-in/out delays
@@ -110,6 +116,73 @@ one contiguous block right after the current track, in call order. A
 multi-track `insert_tracks(.., InsertLastShuffled)` shuffles the new
 tracks among themselves at the tail while leaving every earlier track in
 place.
+
+## Resume
+
+Like Rockbox, the player can pick up **exactly** where it left off across
+runs. Set `resume_file` and the engine auto-saves the queue plus the
+current track index and the exact playback position — on every track
+change, pause, stop and shutdown, and periodically while playing (so a
+crash loses at most `resume_save_interval`). When the queue plays to its
+natural end the file is removed, so a finished playlist doesn't resume.
+
+```rust
+use rockbox_playback::{Player, PlayerConfig};
+use std::time::Duration;
+
+let cfg = PlayerConfig {
+    resume_file: Some("~/.config/rockbox.org/resume.m3u8".into()),
+    resume_save_interval: Duration::from_secs(5),
+    ..Default::default()
+};
+let player = Player::with_config(cfg)?;
+
+// On startup: restore the queue + exact position, then start playing.
+if player.resume().is_some() {
+    player.play();          // resumes mid-track at the saved millisecond
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`resume()` restores state but does **not** auto-play (call `play()` to
+resume, mirroring Rockbox's resume-on-startup). `load_resume(path)` peeks
+at a saved snapshot without building a `Player` — e.g. to show a "Resume
+playback" prompt. The resume file is a valid `.m3u8`: the track list is
+plain, and the index/position ride along in `#RESUME-INDEX` /
+`#RESUME-ELAPSED` header comments any other player ignores.
+
+Position resolution mirrors `apps/playlist.c:playlist_update_resume_info`
+(`resume_index` + `resume_elapsed`); the saved elapsed is the true
+*playback* position, corrected for the decode-ahead buffer.
+
+## M3U / M3U8 playlists
+
+Import, export, insert and update playlists in Rockbox's native
+extended-M3U format (UTF-8 `.m3u8`). Relative paths resolve against the
+playlist's directory and `#EXTINF` duration/title hints are parsed; writes
+are atomic (temp + rename).
+
+```rust
+use rockbox_playback::{Player, InsertPosition, m3u};
+
+let player = Player::new()?;
+
+// Import — replace the queue, or insert at any position.
+player.load_m3u("/music/Favourites.m3u8")?;                       // replace
+player.import_m3u("/music/More.m3u8", InsertPosition::InsertLast)?; // append
+player.import_m3u("/music/Next.m3u8", InsertPosition::InsertNext)?; // play next
+
+// Export / update — write the live queue back out (same path = update).
+player.export_m3u("/music/Now Playing.m3u8")?;
+
+// The queue is also readable directly:
+let paths = player.queue();
+
+// Standalone parsing/writing without a Player:
+let entries = m3u::read("/music/Favourites.m3u8")?;   // Vec<M3uEntry> w/ EXTINF
+m3u::write_paths("/tmp/out.m3u8", &paths)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ## Crossfade fidelity
 

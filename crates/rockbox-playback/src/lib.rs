@@ -30,17 +30,28 @@
 //! the two — never by opening two decoders at once.
 
 mod crossfade;
+pub mod m3u;
+mod resume;
 
 pub use crossfade::{CrossfadeMode, CrossfadeSettings, MixMode};
+pub use m3u::M3uEntry;
+pub use resume::ResumeState;
 pub use rockbox_codecs::Decoder;
 pub use rockbox_metadata::Metadata;
+
+/// Read a resume snapshot written by a previous session without constructing
+/// a [`Player`] — e.g. to decide whether to offer "resume playback" in a UI.
+/// See [`Player::resume`] to actually restore it.
+pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
+    resume::load(path.as_ref())
+}
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -153,6 +164,14 @@ pub struct PlayerConfig {
     pub replaygain_prevent_clipping: bool,
     /// Initial volume, 0.0..=1.0.
     pub volume: f32,
+    /// When set, the queue and the exact playback position are auto-saved to
+    /// this file (an extended `.m3u8`) as playback proceeds, and
+    /// [`Player::resume`] restores them. `None` disables persistence.
+    pub resume_file: Option<PathBuf>,
+    /// How often the resume file is refreshed while playing (in addition to
+    /// immediate saves on pause / stop / track change / shutdown). Only used
+    /// when `resume_file` is set.
+    pub resume_save_interval: Duration,
 }
 
 impl Default for PlayerConfig {
@@ -165,6 +184,8 @@ impl Default for PlayerConfig {
             replaygain_preamp_db: 0.0,
             replaygain_prevent_clipping: true,
             volume: 1.0,
+            resume_file: None,
+            resume_save_interval: Duration::from_secs(5),
         }
     }
 }
@@ -174,6 +195,10 @@ enum Command {
     Enqueue(PathBuf),
     /// Insert one or more tracks at a Rockbox insertion position.
     Insert(Vec<PathBuf>, InsertPosition),
+    /// Restore a persisted queue + exact position (does not auto-play).
+    Resume(ResumeState),
+    /// Force an immediate resume-file save.
+    SaveResume,
     Play,
     Pause,
     Toggle,
@@ -206,6 +231,9 @@ struct Shared {
     output_rate: AtomicU32,
     ring: Mutex<VecDeque<i16>>,
     meta: Mutex<Option<Metadata>>,
+    /// Mirror of the engine's queue so the handle can read it (for
+    /// `queue()` / `export_m3u`) without a round-trip to the engine thread.
+    queue: Mutex<Vec<PathBuf>>,
 }
 
 impl Shared {
@@ -249,6 +277,9 @@ pub struct Player {
     shared: Arc<Shared>,
     _stream: cpal::Stream,
     engine: Option<std::thread::JoinHandle<()>>,
+    /// Resume file path (mirrors `PlayerConfig::resume_file`) so
+    /// [`Player::resume`] can read it on the handle side.
+    resume_file: Option<PathBuf>,
 }
 
 impl Player {
@@ -280,6 +311,7 @@ impl Player {
             output_rate: AtomicU32::new(rate),
             ring: Mutex::new(VecDeque::new()),
             meta: Mutex::new(None),
+            queue: Mutex::new(Vec::new()),
         });
 
         let stream = build_stream(&device, rate, Arc::clone(&shared))?;
@@ -287,6 +319,7 @@ impl Player {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let engine_shared = Arc::clone(&shared);
+        let resume_file = config.resume_file.clone();
         let engine_cfg = EngineConfig {
             output_rate: rate,
             buffer_frames: (config.buffer_seconds.max(0.5) * rate as f32) as usize,
@@ -296,6 +329,8 @@ impl Player {
                 preamp_db: config.replaygain_preamp_db,
                 prevent_clipping: config.replaygain_prevent_clipping,
             },
+            resume_file: resume_file.clone(),
+            resume_save_interval: config.resume_save_interval,
         };
         let engine = std::thread::Builder::new()
             .name("rbplayback".into())
@@ -307,6 +342,7 @@ impl Player {
             shared,
             _stream: stream,
             engine: Some(engine),
+            resume_file,
         })
     }
 
@@ -411,6 +447,72 @@ impl Player {
         P: Into<PathBuf>,
     {
         self.insert_tracks(tracks, InsertPosition::InsertLastShuffled);
+    }
+
+    // ---- resume (auto-persist / restore) --------------------------------
+
+    /// A snapshot of the current queue, in order.
+    pub fn queue(&self) -> Vec<PathBuf> {
+        self.shared.queue.lock().unwrap().clone()
+    }
+
+    /// Restore the queue and the exact position saved by a previous session
+    /// (from `PlayerConfig::resume_file`). Returns the restored state, or
+    /// `None` if resume is disabled or there is nothing to resume.
+    ///
+    /// Playback is **not** started — call [`Player::play`] to resume from the
+    /// stored position, mirroring Rockbox's resume-on-startup.
+    pub fn resume(&self) -> Option<ResumeState> {
+        let path = self.resume_file.as_ref()?;
+        let state = resume::load(path)?;
+        let _ = self.tx.send(Command::Resume(state.clone()));
+        Some(state)
+    }
+
+    /// Force an immediate write of the resume file (the engine also saves on
+    /// pause / stop / track change / shutdown and periodically while
+    /// playing). No-op when resume is disabled.
+    pub fn save_resume(&self) {
+        let _ = self.tx.send(Command::SaveResume);
+    }
+
+    /// Delete the resume file so the next launch starts fresh.
+    pub fn clear_resume(&self) {
+        if let Some(p) = &self.resume_file {
+            resume::clear(p);
+        }
+    }
+
+    // ---- m3u / m3u8 playlist files --------------------------------------
+
+    /// Import an `.m3u` / `.m3u8` file into the queue at `position`
+    /// (relative paths resolve against the file's directory). Returns the
+    /// tracks that were read.
+    pub fn import_m3u(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        position: InsertPosition,
+    ) -> std::io::Result<Vec<PathBuf>> {
+        let tracks = m3u::read_paths(path.as_ref())?;
+        if !tracks.is_empty() || position == InsertPosition::Replace {
+            let _ = self.tx.send(Command::Insert(tracks.clone(), position));
+        }
+        Ok(tracks)
+    }
+
+    /// Replace the queue with the contents of an `.m3u` / `.m3u8` file.
+    /// Does not change playback state; call [`Player::play`] to start.
+    pub fn load_m3u(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<PathBuf>> {
+        let tracks = m3u::read_paths(path.as_ref())?;
+        self.set_queue(tracks.clone());
+        Ok(tracks)
+    }
+
+    /// Export the current queue to an `.m3u8` file (UTF-8, `#EXTM3U`
+    /// header, one path per line), written atomically. Use the same path to
+    /// **update** an existing playlist.
+    pub fn export_m3u(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        m3u::write_paths(path.as_ref(), &self.queue())
     }
 
     pub fn play(&self) {
@@ -561,6 +663,8 @@ struct EngineConfig {
     buffer_frames: usize,
     crossfade: CrossfadeSettings,
     replaygain: ReplayGainConfig,
+    resume_file: Option<PathBuf>,
+    resume_save_interval: Duration,
 }
 
 struct Engine {
@@ -593,6 +697,12 @@ struct Engine {
     /// inner `push_frames` back-off, which may consume the command before the
     /// main loop does — unwinds instead of decoding forever.
     shutdown: bool,
+    /// A `(index, position)` seek to apply the next time `index`'s decoder is
+    /// opened — set by a resume restore so the track starts at the exact
+    /// saved position. Discarded if the user navigates elsewhere first.
+    pending_seek: Option<(usize, Duration)>,
+    /// Last time the resume file was written (for interval throttling).
+    last_save: Instant,
 }
 
 impl Engine {
@@ -615,6 +725,8 @@ impl Engine {
             last_insert_pos: None,
             rng_state: seed_rng(),
             shutdown: false,
+            pending_seek: None,
+            last_save: Instant::now(),
         }
     }
 
@@ -655,6 +767,10 @@ impl Engine {
                 } else {
                     self.finishing = false;
                     self.playing = false;
+                    // Queue played to the end — don't resume a finished
+                    // playlist next launch. Clear before signalling Stopped so
+                    // an observer never sees Stopped with a stale file.
+                    self.clear_resume();
                     self.set_state(ST_STOPPED);
                     self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
                     self.shared.index.store(usize::MAX, Ordering::Relaxed);
@@ -690,6 +806,14 @@ impl Engine {
 
             self.set_state(ST_PLAYING);
             self.decode_step();
+
+            // Refresh the resume file periodically so a crash loses at most
+            // `resume_save_interval` of position.
+            if self.cfg.resume_file.is_some()
+                && self.last_save.elapsed() >= self.cfg.resume_save_interval
+            {
+                self.save_resume();
+            }
         }
     }
 
@@ -860,27 +984,43 @@ impl Engine {
     fn handle(&mut self, cmd: Command) -> bool {
         match cmd {
             Command::Shutdown => {
+                // Persist the exact position on exit, like Rockbox saves on
+                // power-off — but only mid-session (a finished queue already
+                // cleared its resume file).
+                if self.playing || self.paused {
+                    self.save_resume();
+                }
                 self.shutdown = true;
                 return false;
             }
             Command::SetQueue(q) => {
                 self.queue = q;
-                self.shared
-                    .queue_len
-                    .store(self.queue.len(), Ordering::Relaxed);
                 self.index = 0;
                 self.finishing = false;
                 self.paused = false;
                 self.last_insert_pos = None;
+                self.pending_seek = None;
                 self.reset_current();
+                self.sync_queue();
             }
             Command::Enqueue(p) => {
                 self.queue.push(p);
-                self.shared
-                    .queue_len
-                    .store(self.queue.len(), Ordering::Relaxed);
+                self.sync_queue();
             }
             Command::Insert(tracks, position) => self.insert_tracks(tracks, position),
+            Command::Resume(state) => {
+                self.queue = state.tracks;
+                self.index = state.index.min(self.queue.len().saturating_sub(1));
+                self.pending_seek = Some((self.index, state.elapsed));
+                self.finishing = false;
+                self.paused = false;
+                self.last_insert_pos = None;
+                self.reset_current();
+                self.sync_queue();
+                // Reflect the restored index in status before play().
+                self.shared.index.store(self.index, Ordering::Relaxed);
+            }
+            Command::SaveResume => self.save_resume(),
             Command::Play => {
                 if self.queue.is_empty() {
                     return true;
@@ -950,6 +1090,7 @@ impl Engine {
                 self.shared
                     .target_amp
                     .store(0f32.to_bits(), Ordering::Relaxed);
+                self.save_resume();
             }
         } else if self.paused || (!self.playing && !self.queue.is_empty()) {
             self.paused = false;
@@ -964,6 +1105,11 @@ impl Engine {
     }
 
     fn stop_playback(&mut self) {
+        // Save the position before tearing down so a manual stop can still be
+        // resumed (Rockbox keeps its last resume info on stop).
+        if self.playing || self.paused || self.finishing {
+            self.save_resume();
+        }
         self.playing = false;
         self.paused = false;
         self.finishing = false;
@@ -1020,6 +1166,7 @@ impl Engine {
             self.shared
                 .decode_pos_ms
                 .store(pos.as_millis() as u64, Ordering::Relaxed);
+            self.save_resume();
         }
     }
 
@@ -1030,17 +1177,28 @@ impl Engine {
             return false;
         };
         match Decoder::open(&path) {
-            Ok(dec) => {
+            Ok(mut dec) => {
                 self.input_rate = 0; // force resampler reconfigure on first chunk
                 let meta = dec.metadata().clone();
                 self.shared
                     .duration_ms
                     .store(meta.duration.as_millis() as u64, Ordering::Relaxed);
-                self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
+                // A resume restore seeks this track to its exact saved
+                // position; any other track (or a stale target) starts at 0.
+                let mut start_ms = 0u64;
+                if let Some((idx, pos)) = self.pending_seek.take() {
+                    if idx == self.index && !pos.is_zero() {
+                        dec.seek(pos);
+                        start_ms = pos.as_millis() as u64;
+                    }
+                }
+                self.shared.decode_pos_ms.store(start_ms, Ordering::Relaxed);
                 self.shared.index.store(self.index, Ordering::Relaxed);
                 apply_replaygain_track(&mut self.dsp, &meta);
                 *self.shared.meta.lock().unwrap() = Some(meta);
                 self.decoder = Some(dec);
+                // Track change (or resume) — refresh the resume index.
+                self.save_resume();
                 true
             }
             Err(_) => false,
@@ -1072,11 +1230,54 @@ impl Engine {
         if is_replace {
             // Cue the new queue from the top; the run loop reopens index 0.
             self.finishing = false;
+            self.pending_seek = None;
             self.reset_current();
         }
+        self.sync_queue();
+    }
+
+    // ---- resume persistence ---------------------------------------------
+
+    /// Mirror the queue (len + contents) into `Shared` for the handle.
+    fn sync_queue(&self) {
         self.shared
             .queue_len
             .store(self.queue.len(), Ordering::Relaxed);
+        *self.shared.queue.lock().unwrap() = self.queue.clone();
+    }
+
+    /// The playback position within the current track (decode position minus
+    /// the ring-buffer lag) — what the listener has actually heard.
+    fn playback_pos_ms(&self) -> u64 {
+        let decode = self.shared.decode_pos_ms.load(Ordering::Relaxed);
+        let rate = self.cfg.output_rate.max(1) as u64;
+        let lag = (self.shared.ring_frames() as u64 * 1000) / rate;
+        decode.saturating_sub(lag)
+    }
+
+    /// Write the resume file (queue + current index + exact position). No-op
+    /// when resume is disabled or the queue is empty.
+    fn save_resume(&mut self) {
+        let Some(path) = self.cfg.resume_file.clone() else {
+            return;
+        };
+        self.last_save = Instant::now();
+        if self.queue.is_empty() {
+            return;
+        }
+        let state = ResumeState {
+            tracks: self.queue.clone(),
+            index: self.index.min(self.queue.len() - 1),
+            elapsed: Duration::from_millis(self.playback_pos_ms()),
+        };
+        let _ = resume::save(&path, &state);
+    }
+
+    /// Delete the resume file (queue finished — nothing to resume).
+    fn clear_resume(&self) {
+        if let Some(path) = &self.cfg.resume_file {
+            resume::clear(path);
+        }
     }
 
     /// The index the next auto/manual transition moves to, if any.
