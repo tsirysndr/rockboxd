@@ -5,7 +5,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use rockbox_playback::{CrossfadeMode, CrossfadeSettings, PlaybackState, Player, ReplayGainMode};
+use rockbox_playback::{
+    CrossfadeMode, CrossfadeSettings, InsertPosition, PlaybackState, Player, ReplayGainMode,
+};
 
 const RATE: u32 = 44100;
 
@@ -169,6 +171,81 @@ fn manual_next_skips_immediately() {
             p.status().index == Some(1)
         }),
         "manual next should reach track 2 quickly"
+    );
+}
+
+#[test]
+fn insertions_update_queue_length() {
+    let _serial = serial();
+    let Some(player) = player_or_skip() else {
+        return;
+    };
+    let a = wav("ins_a.wav", 0.4, 330.0);
+    let b = wav("ins_b.wav", 0.4, 440.0);
+    let c = wav("ins_c.wav", 0.4, 550.0);
+    let d = wav("ins_d.wav", 0.4, 660.0);
+
+    player.set_queue(vec![a.0.clone(), b.0.clone()]);
+    assert!(wait_until(&player, Duration::from_secs(2), |p| {
+        p.status().queue_len == 2
+    }));
+
+    // Every insertion flavour lands one or more tracks in the queue.
+    player.insert_next(c.0.clone()); // InsertNext
+    player.insert_last(d.0.clone()); // InsertLast
+    player.insert(a.0.clone(), InsertPosition::InsertShuffled);
+    player.insert_tracks_last_shuffled(vec![b.0.clone(), c.0.clone()]);
+
+    assert!(
+        wait_until(&player, Duration::from_secs(2), |p| {
+            p.status().queue_len == 7
+        }),
+        "queue should grow to 7 after the inserts"
+    );
+
+    // Replace erases and cues the new set.
+    player.insert_tracks(vec![a.0.clone(), b.0.clone()], InsertPosition::Replace);
+    assert!(
+        wait_until(&player, Duration::from_secs(2), |p| {
+            p.status().queue_len == 2
+        }),
+        "Replace should reset the queue to 2 tracks"
+    );
+}
+
+#[test]
+fn insert_next_plays_before_the_rest() {
+    let _serial = serial();
+    let Some(player) = player_or_skip() else {
+        return;
+    };
+    // Long neighbours, short insert. If insert_next lands C at index 1, then
+    // skipping onto it will auto-advance to index 2 quickly (C is 0.4 s); a
+    // 5 s B at index 1 would not. That behavioural difference identifies the
+    // track without relying on (unavailable) WAV metadata duration.
+    let a = wav("inx_a.wav", 5.0, 330.0);
+    let b = wav("inx_b.wav", 5.0, 440.0);
+    let c = wav("inx_c.wav", 0.4, 550.0);
+    player.set_queue(vec![a.0.clone(), b.0.clone()]);
+    player.play();
+
+    assert!(wait_until(&player, Duration::from_secs(3), |p| {
+        p.status().index == Some(0) && p.status().state == PlaybackState::Playing
+    }));
+
+    player.insert_next(c.0.clone());
+    assert!(wait_until(&player, Duration::from_secs(2), |p| {
+        p.status().queue_len == 3
+    }));
+
+    // Skip onto the inserted track and let it play out: it must auto-advance
+    // to index 2, proving the short C (not the 5 s B) sits at index 1.
+    player.next();
+    assert!(
+        wait_until(&player, Duration::from_secs(3), |p| {
+            p.status().index == Some(2)
+        }),
+        "the short insert_next track at index 1 should auto-advance to index 2"
     );
 }
 

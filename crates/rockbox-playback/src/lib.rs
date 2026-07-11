@@ -81,6 +81,43 @@ pub enum PlaybackState {
     Paused,
 }
 
+/// Where to insert tracks into the queue, mirroring Rockbox's
+/// `playlist_insert_track` position constants (`apps/playlist.h`).
+///
+/// Positions are resolved relative to the currently-playing track: the
+/// engine shifts its play index as needed so the current track keeps
+/// playing when tracks are inserted before or at it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertPosition {
+    /// Add at the very beginning of the queue (`PLAYLIST_PREPEND`).
+    Prepend,
+    /// Add after the last inserted track, or immediately after the current
+    /// track if none were inserted since (`PLAYLIST_INSERT`). Successive
+    /// `Insert`s therefore keep their relative order, growing a block right
+    /// after the current track.
+    Insert,
+    /// Add immediately after the current track — "play next"
+    /// (`PLAYLIST_INSERT_FIRST`).
+    InsertNext,
+    /// Add to the end of the queue — "play last" (`PLAYLIST_INSERT_LAST`).
+    InsertLast,
+    /// Add at a random point between the current track and the end of the
+    /// queue (`PLAYLIST_INSERT_SHUFFLED`). When stopped (not started), the
+    /// random point spans the whole queue.
+    InsertShuffled,
+    /// Add at a random point within the region appended by this call,
+    /// leaving all earlier tracks in place (`PLAYLIST_INSERT_LAST_SHUFFLED`).
+    /// With a multi-track insert this shuffles the new tracks among
+    /// themselves at the tail of the queue.
+    InsertLastShuffled,
+    /// Erase the queue and cue the new tracks from the start
+    /// (`PLAYLIST_REPLACE`). If playing, playback continues into the first
+    /// new track.
+    Replace,
+    /// Insert at an explicit index (clamped to the queue length).
+    Index(usize),
+}
+
 const ST_STOPPED: u8 = 0;
 const ST_PLAYING: u8 = 1;
 const ST_PAUSED: u8 = 2;
@@ -135,6 +172,8 @@ impl Default for PlayerConfig {
 enum Command {
     SetQueue(Vec<PathBuf>),
     Enqueue(PathBuf),
+    /// Insert one or more tracks at a Rockbox insertion position.
+    Insert(Vec<PathBuf>, InsertPosition),
     Play,
     Pause,
     Toggle,
@@ -290,6 +329,88 @@ impl Player {
     /// Append one track to the end of the queue.
     pub fn enqueue(&self, track: impl Into<PathBuf>) {
         let _ = self.tx.send(Command::Enqueue(track.into()));
+    }
+
+    /// Insert one track at a Rockbox insertion position (see
+    /// [`InsertPosition`]). Does not change playback state.
+    pub fn insert(&self, track: impl Into<PathBuf>, position: InsertPosition) {
+        let _ = self.tx.send(Command::Insert(vec![track.into()], position));
+    }
+
+    /// Insert several tracks at a Rockbox insertion position, preserving
+    /// their order (except for the shuffled positions). See
+    /// [`InsertPosition`].
+    pub fn insert_tracks<I, P>(&self, tracks: I, position: InsertPosition)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        let v: Vec<PathBuf> = tracks.into_iter().map(Into::into).collect();
+        let _ = self.tx.send(Command::Insert(v, position));
+    }
+
+    /// "Play next" — insert a track immediately after the current one
+    /// ([`InsertPosition::InsertNext`]).
+    pub fn insert_next(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertNext);
+    }
+
+    /// "Play last" — append a track to the end of the queue
+    /// ([`InsertPosition::InsertLast`]).
+    pub fn insert_last(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertLast);
+    }
+
+    /// Insert a track at a random point between the current track and the
+    /// end ([`InsertPosition::InsertShuffled`]).
+    pub fn insert_shuffled(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertShuffled);
+    }
+
+    /// Insert a track at a random point in the tail region
+    /// ([`InsertPosition::InsertLastShuffled`]).
+    pub fn insert_last_shuffled(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertLastShuffled);
+    }
+
+    /// Insert several tracks immediately after the current one, in order
+    /// ([`InsertPosition::InsertNext`]).
+    pub fn insert_tracks_next<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertNext);
+    }
+
+    /// Append several tracks to the end of the queue, in order
+    /// ([`InsertPosition::InsertLast`]).
+    pub fn insert_tracks_last<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertLast);
+    }
+
+    /// Insert several tracks at random points between the current track and
+    /// the end ([`InsertPosition::InsertShuffled`]).
+    pub fn insert_tracks_shuffled<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertShuffled);
+    }
+
+    /// Insert several tracks shuffled among themselves at the tail of the
+    /// queue ([`InsertPosition::InsertLastShuffled`]).
+    pub fn insert_tracks_last_shuffled<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertLastShuffled);
     }
 
     pub fn play(&self) {
@@ -462,6 +583,16 @@ struct Engine {
     /// Set for the duration of a manual-skip crossfade so [`Engine::next_index`]
     /// resolves to the skip target instead of `index + 1`.
     pending_manual_target: Option<usize>,
+    /// Position of the last inserted track, so successive
+    /// [`InsertPosition::Insert`]s append to the same block (mirrors
+    /// Rockbox's `last_insert_pos`). `None` once invalidated.
+    last_insert_pos: Option<usize>,
+    /// xorshift64 state for the shuffled insertion positions.
+    rng_state: u64,
+    /// Set once a `Shutdown` command is seen so every loop — including the
+    /// inner `push_frames` back-off, which may consume the command before the
+    /// main loop does — unwinds instead of decoding forever.
+    shutdown: bool,
 }
 
 impl Engine {
@@ -481,11 +612,19 @@ impl Engine {
             finishing: false,
             input_rate: 0,
             pending_manual_target: None,
+            last_insert_pos: None,
+            rng_state: seed_rng(),
+            shutdown: false,
         }
     }
 
     fn run(mut self) {
         loop {
+            // Break even if a Shutdown was consumed by an inner loop
+            // (e.g. push_frames) rather than the pump below.
+            if self.shutdown {
+                break;
+            }
             // Drain pending commands; returns false on Shutdown.
             if !self.pump_commands(false) {
                 break;
@@ -720,7 +859,10 @@ impl Engine {
     /// Returns false on Shutdown.
     fn handle(&mut self, cmd: Command) -> bool {
         match cmd {
-            Command::Shutdown => return false,
+            Command::Shutdown => {
+                self.shutdown = true;
+                return false;
+            }
             Command::SetQueue(q) => {
                 self.queue = q;
                 self.shared
@@ -729,6 +871,7 @@ impl Engine {
                 self.index = 0;
                 self.finishing = false;
                 self.paused = false;
+                self.last_insert_pos = None;
                 self.reset_current();
             }
             Command::Enqueue(p) => {
@@ -737,6 +880,7 @@ impl Engine {
                     .queue_len
                     .store(self.queue.len(), Ordering::Relaxed);
             }
+            Command::Insert(tracks, position) => self.insert_tracks(tracks, position),
             Command::Play => {
                 if self.queue.is_empty() {
                     return true;
@@ -909,6 +1053,32 @@ impl Engine {
         self.shared.ring.lock().unwrap().clear();
     }
 
+    // ---- insertion (Rockbox playlist_insert_track semantics) ------------
+
+    /// Insert `tracks` at the given [`InsertPosition`]. Delegates to the
+    /// pure [`perform_insert`] model, then reconciles engine-side state
+    /// (decoder/ring for `Replace`, the shared queue length).
+    fn insert_tracks(&mut self, tracks: Vec<PathBuf>, position: InsertPosition) {
+        let is_replace = position == InsertPosition::Replace;
+        perform_insert(
+            &mut self.queue,
+            &mut self.index,
+            &mut self.last_insert_pos,
+            &mut self.rng_state,
+            self.playing,
+            tracks,
+            position,
+        );
+        if is_replace {
+            // Cue the new queue from the top; the run loop reopens index 0.
+            self.finishing = false;
+            self.reset_current();
+        }
+        self.shared
+            .queue_len
+            .store(self.queue.len(), Ordering::Relaxed);
+    }
+
     /// The index the next auto/manual transition moves to, if any.
     fn next_index(&self, _auto: bool) -> Option<usize> {
         if let Some(t) = self.pending_manual_target {
@@ -935,6 +1105,147 @@ impl Engine {
     }
 }
 
+/// Pure Rockbox `playlist_insert_track` model: mutate `queue` / `index` /
+/// `last_insert_pos` in place for `position`. `started` means playback has
+/// begun (so the current track under `index` must be kept playing).
+///
+/// Ordered positions ([`InsertPosition::Prepend`], `Insert`, `InsertNext`,
+/// `InsertLast`, `Index`) place the tracks as a contiguous, order-preserving
+/// block. The shuffled positions place each track at its own random point;
+/// `Replace` erases the queue and cues the new tracks from the top.
+///
+/// Kept free of engine/audio state so it is unit-testable in isolation.
+fn perform_insert(
+    queue: &mut Vec<PathBuf>,
+    index: &mut usize,
+    last_insert_pos: &mut Option<usize>,
+    rng: &mut u64,
+    started: bool,
+    tracks: Vec<PathBuf>,
+    position: InsertPosition,
+) {
+    if tracks.is_empty() && position != InsertPosition::Replace {
+        return;
+    }
+
+    match position {
+        InsertPosition::Replace => {
+            *queue = tracks;
+            *index = 0;
+            *last_insert_pos = None;
+        }
+        InsertPosition::InsertShuffled => {
+            for t in tracks {
+                let amount = queue.len();
+                let at = if started && amount > 0 {
+                    // Random point between the current track and the end.
+                    let offset = rand_below(rng, amount - *index);
+                    (*index + offset + 1).min(amount)
+                } else {
+                    rand_below(rng, amount + 1)
+                };
+                insert_one(queue, index, last_insert_pos, started, at, t, false);
+            }
+        }
+        InsertPosition::InsertLastShuffled => {
+            // Freeze the region start, then drop each new track at a random
+            // point within the growing tail so the batch ends up shuffled
+            // among itself while earlier tracks stay put.
+            let start = queue.len();
+            for t in tracks {
+                let span = queue.len() - start + 1;
+                let at = start + rand_below(rng, span);
+                insert_one(queue, index, last_insert_pos, started, at, t, false);
+            }
+        }
+        _ => {
+            let (mut at, sets_last) = block_start(queue, *index, *last_insert_pos, position);
+            for t in tracks {
+                insert_one(queue, index, last_insert_pos, started, at, t, sets_last);
+                at += 1;
+            }
+        }
+    }
+}
+
+/// Insert one track at raw position `at`, keeping the currently-playing
+/// track under `index` and shifting `last_insert_pos` if it moved.
+fn insert_one(
+    queue: &mut Vec<PathBuf>,
+    index: &mut usize,
+    last_insert_pos: &mut Option<usize>,
+    started: bool,
+    at: usize,
+    path: PathBuf,
+    sets_last: bool,
+) {
+    let at = at.min(queue.len());
+    let pre_amount = queue.len();
+    queue.insert(at, path);
+
+    if started && pre_amount > 0 && at <= *index {
+        *index += 1;
+    }
+    if let Some(lp) = *last_insert_pos {
+        if at <= lp {
+            *last_insert_pos = Some(lp + 1);
+        }
+    }
+    if sets_last {
+        *last_insert_pos = Some(at);
+    }
+}
+
+/// Resolve the start index for an ordered-block insertion and whether it
+/// updates `last_insert_pos`.
+fn block_start(
+    queue: &[PathBuf],
+    index: usize,
+    last_insert_pos: Option<usize>,
+    position: InsertPosition,
+) -> (usize, bool) {
+    let amount = queue.len();
+    match position {
+        InsertPosition::Prepend => (0, false),
+        InsertPosition::InsertNext => (if amount > 0 { index + 1 } else { 0 }, true),
+        InsertPosition::InsertLast => (amount, true),
+        InsertPosition::Insert => {
+            let p = match last_insert_pos {
+                Some(lp) if lp < amount => lp + 1,
+                _ if amount > 0 => index + 1,
+                _ => 0,
+            };
+            (p, true)
+        }
+        InsertPosition::Index(i) => (i.min(amount), false),
+        // Shuffled / Replace are handled by perform_insert directly.
+        _ => (amount, false),
+    }
+}
+
+/// Uniform random in `0..n` via xorshift64 (`0` when `n == 0`).
+fn rand_below(rng: &mut u64, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    let mut x = *rng;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *rng = x;
+    (x % n as u64) as usize
+}
+
+/// Seed the shuffled-insertion PRNG. xorshift64 must not start at 0, so a
+/// non-zero fallback constant is used if the clock is unavailable.
+fn seed_rng() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    nanos | 0x9E37_79B9_7F4A_7C15
+}
+
 fn apply_replaygain_mode(dsp: &mut rockbox_dsp::Dsp, rg: &ReplayGainConfig) {
     let mode = match rg.mode {
         ReplayGainMode::Off => rockbox_dsp::REPLAYGAIN_OFF,
@@ -952,4 +1263,208 @@ fn apply_replaygain_track(dsp: &mut rockbox_dsp::Dsp, meta: &Metadata) {
         rg.raw_track_peak,
         rg.raw_album_peak,
     );
+}
+
+#[cfg(test)]
+mod insertion_tests {
+    //! Unit tests for the pure Rockbox insertion model ([`perform_insert`]).
+    //! These need no audio device — they exercise the queue/index bookkeeping
+    //! directly.
+
+    use super::*;
+
+    /// Build a queue of single-letter paths.
+    fn q(names: &str) -> Vec<PathBuf> {
+        names
+            .chars()
+            .map(|c| PathBuf::from(c.to_string()))
+            .collect()
+    }
+
+    /// Render a queue back to a compact string for assertions.
+    fn s(queue: &[PathBuf]) -> String {
+        queue
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Run one insertion against a fresh state and return
+    /// `(queue_string, index, last_insert_pos)`.
+    fn run(
+        start: &str,
+        index: usize,
+        last: Option<usize>,
+        started: bool,
+        tracks: &str,
+        pos: InsertPosition,
+    ) -> (String, usize, Option<usize>) {
+        let mut queue = q(start);
+        let mut idx = index;
+        let mut lip = last;
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        perform_insert(
+            &mut queue,
+            &mut idx,
+            &mut lip,
+            &mut rng,
+            started,
+            q(tracks),
+            pos,
+        );
+        (s(&queue), idx, lip)
+    }
+
+    #[test]
+    fn insert_next_after_current_shifts_nothing_before() {
+        // Playing "B" (index 1) in A B C; InsertNext X → A B X C, index unchanged.
+        let (queue, idx, lip) = run("ABC", 1, None, true, "X", InsertPosition::InsertNext);
+        assert_eq!(queue, "ABXC");
+        assert_eq!(idx, 1);
+        assert_eq!(lip, Some(2));
+    }
+
+    #[test]
+    fn insert_next_block_preserves_order() {
+        let (queue, idx, _) = run("ABC", 0, None, true, "XY", InsertPosition::InsertNext);
+        assert_eq!(queue, "AXYBC");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn insert_last_appends_in_order() {
+        let (queue, idx, lip) = run("ABC", 1, None, true, "XY", InsertPosition::InsertLast);
+        assert_eq!(queue, "ABCXY");
+        assert_eq!(idx, 1);
+        assert_eq!(lip, Some(4)); // last inserted position
+    }
+
+    #[test]
+    fn prepend_before_current_shifts_index() {
+        // Playing index 1; prepend at 0 pushes the current track to index 2.
+        let (queue, idx, _) = run("ABC", 1, None, true, "X", InsertPosition::Prepend);
+        assert_eq!(queue, "XABC");
+        assert_eq!(idx, 2);
+    }
+
+    #[test]
+    fn prepend_when_stopped_keeps_index() {
+        // Not started: index does not chase the insertion.
+        let (queue, idx, _) = run("ABC", 0, None, false, "X", InsertPosition::Prepend);
+        assert_eq!(queue, "XABC");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn insert_chaining_grows_one_block_after_current() {
+        // Two separate Insert calls should build a contiguous block right
+        // after the current track, in call order.
+        let mut queue = q("ABC");
+        let mut idx = 0usize;
+        let mut lip = None;
+        let mut rng = 1u64;
+        perform_insert(
+            &mut queue,
+            &mut idx,
+            &mut lip,
+            &mut rng,
+            true,
+            q("X"),
+            InsertPosition::Insert,
+        );
+        perform_insert(
+            &mut queue,
+            &mut idx,
+            &mut lip,
+            &mut rng,
+            true,
+            q("Y"),
+            InsertPosition::Insert,
+        );
+        assert_eq!(s(&queue), "AXYBC");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn explicit_index_inserts_and_clamps() {
+        let (queue, _, _) = run("ABC", 0, None, true, "X", InsertPosition::Index(2));
+        assert_eq!(queue, "ABXC");
+        let (clamped, _, _) = run("ABC", 0, None, true, "X", InsertPosition::Index(99));
+        assert_eq!(clamped, "ABCX");
+    }
+
+    #[test]
+    fn replace_erases_and_cues_from_top() {
+        let (queue, idx, lip) = run("ABC", 2, Some(1), true, "XYZ", InsertPosition::Replace);
+        assert_eq!(queue, "XYZ");
+        assert_eq!(idx, 0);
+        assert_eq!(lip, None);
+    }
+
+    #[test]
+    fn insert_shuffled_stays_after_current_and_keeps_it() {
+        // Every random placement must land strictly after the current track
+        // and leave the played prefix intact.
+        for rng_seed in 1..200u64 {
+            let mut queue = q("ABCDE");
+            let mut idx = 2usize; // playing "C"
+            let mut lip = None;
+            let mut rng = rng_seed;
+            perform_insert(
+                &mut queue,
+                &mut idx,
+                &mut lip,
+                &mut rng,
+                true,
+                q("X"),
+                InsertPosition::InsertShuffled,
+            );
+            assert_eq!(queue.len(), 6);
+            let xpos = queue.iter().position(|p| p == &PathBuf::from("X")).unwrap();
+            assert!(xpos > idx, "X at {xpos} must be after current index {idx}");
+            // Prefix up to and including the current track is untouched.
+            assert_eq!(s(&queue[..=idx]), "ABC");
+        }
+    }
+
+    #[test]
+    fn insert_last_shuffled_keeps_prefix_and_adds_batch() {
+        for rng_seed in 1..200u64 {
+            let mut queue = q("ABC");
+            let mut idx = 1usize;
+            let mut lip = None;
+            let mut rng = rng_seed;
+            perform_insert(
+                &mut queue,
+                &mut idx,
+                &mut lip,
+                &mut rng,
+                true,
+                q("XYZ"),
+                InsertPosition::InsertLastShuffled,
+            );
+            // Original tracks stay in their original order and positions.
+            assert_eq!(s(&queue[..3]), "ABC");
+            assert_eq!(queue.len(), 6);
+            // The batch is entirely in the tail region.
+            let tail = s(&queue[3..]);
+            for c in ['X', 'Y', 'Z'] {
+                assert!(
+                    tail.contains(c),
+                    "batch member {c} missing from tail {tail}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn empty_insert_is_a_noop_except_replace() {
+        let (queue, idx, _) = run("ABC", 1, None, true, "", InsertPosition::InsertLast);
+        assert_eq!(queue, "ABC");
+        assert_eq!(idx, 1);
+        // Replace with no tracks clears the queue.
+        let (empty, ridx, _) = run("ABC", 1, None, true, "", InsertPosition::Replace);
+        assert_eq!(empty, "");
+        assert_eq!(ridx, 0);
+    }
 }

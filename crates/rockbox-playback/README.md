@@ -28,6 +28,10 @@ player.play();
 
 - **Queue + transport**: `play` / `pause` / `toggle` / `stop`, `next` /
   `previous` / `skip_to`, `seek`, `set_volume`, `enqueue`.
+- **Rockbox queue insertion**: the full `playlist_insert_track` position
+  set — insert next, insert last, insert (grow a block after the current
+  track), shuffled, last-shuffled, prepend, replace and insert-at-index —
+  with single- and multi-track variants (see [Queue insertion](#queue-insertion)).
 - **Gapless by default** — the buffered tail of each track plays out before
   the next begins, so there's no click or silence at a boundary.
 - **Crossfade**: a port of `apps/pcmbuf.c` (see below). Fade-in/out delays
@@ -55,6 +59,57 @@ overlapping regions, then continues with the incoming track as current.
 `Player::status()` returns a snapshot — state, queue index, position
 (corrected for the decode-ahead buffer so it tracks what you actually
 hear), duration, current-track metadata and queue length.
+
+## Queue insertion
+
+Beyond `set_queue` / `enqueue`, the player exposes Rockbox's full
+`playlist_insert_track` position model
+([`apps/playlist.h`](../../apps/playlist.h)). All of these keep the
+currently-playing track playing — the play cursor is shifted as needed
+when tracks land before or at it — and none of them change playback
+state (call `play()` to start):
+
+```rust
+use rockbox_playback::{Player, InsertPosition};
+
+let player = Player::new()?;
+player.set_queue(vec!["a.flac", "b.mp3"]);
+player.play();
+
+player.insert_next("cue.flac");        // right after the current track
+player.insert_last("later.flac");      // end of the queue
+player.insert_shuffled("random.flac"); // random point after the current track
+player.insert_last_shuffled("x.flac"); // random point in the tail region
+
+// Multi-track variants keep their order (except the shuffled ones):
+player.insert_tracks_next(vec!["1.flac", "2.flac"]);
+player.insert_tracks_last(vec!["3.flac", "4.flac"]);
+player.insert_tracks_shuffled(vec!["5.flac", "6.flac"]);
+player.insert_tracks_last_shuffled(vec!["7.flac", "8.flac"]);
+
+// Or address a position explicitly:
+player.insert("p.flac", InsertPosition::Prepend);
+player.insert("i.flac", InsertPosition::Index(2));
+player.insert_tracks(vec!["new.flac"], InsertPosition::Replace);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+| `InsertPosition`     | Rockbox constant                | Where the track lands                                              |
+| -------------------- | ------------------------------- | ----------------------------------------------------------------- |
+| `Prepend`            | `PLAYLIST_PREPEND`              | Very beginning of the queue                                       |
+| `Insert`             | `PLAYLIST_INSERT`               | After the last inserted track, else after the current one         |
+| `InsertNext`         | `PLAYLIST_INSERT_FIRST`         | Immediately after the current track ("play next")                 |
+| `InsertLast`         | `PLAYLIST_INSERT_LAST`          | End of the queue ("play last")                                    |
+| `InsertShuffled`     | `PLAYLIST_INSERT_SHUFFLED`      | Random point between the current track and the end                |
+| `InsertLastShuffled` | `PLAYLIST_INSERT_LAST_SHUFFLED` | Random point in the region appended by the call (batch-shuffled)  |
+| `Replace`            | `PLAYLIST_REPLACE`              | Erases the queue and cues the new tracks from the top             |
+| `Index(i)`           | explicit position               | At index `i` (clamped to the queue length)                        |
+
+`Insert` is stateful the way Rockbox's is: successive `Insert` calls grow
+one contiguous block right after the current track, in call order. A
+multi-track `insert_tracks(.., InsertLastShuffled)` shuffles the new
+tracks among themselves at the tail while leaving every earlier track in
+place.
 
 ## Crossfade fidelity
 
