@@ -30,6 +30,26 @@ jobs:
             os: netbsd
             version: "10.1"
     steps:
+      # The BSD build runs inside a QEMU VM whose disk is a sparse qcow2 that
+      # grows into the host runner's free space. The full Rust workspace +
+      # firmware build writes many GB, so reclaim the ~30 GB of preinstalled
+      # tooling the ubuntu-latest image ships with, or the guest hits
+      # "no space left on device".
+      - name: Free up host disk space
+        run: |
+          echo "Before:"; df -h /
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/lib/jvm
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+          echo "After:"; df -h /
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -72,6 +92,11 @@ jobs:
             ZIG_VERSION=0.16.0
 
             OS="$(uname)"
+
+            # Trim the guest's target/ footprint (the VM disk is tight): drop
+            # debug info and strip symbols from release artifacts.
+            export CARGO_PROFILE_RELEASE_DEBUG=0
+            export CARGO_PROFILE_RELEASE_STRIP=symbols
 
             # --- Dependencies -------------------------------------------------
             case "$OS" in
