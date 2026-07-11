@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# NetBSD rc.d script for the Rockbox music server (rockboxd).
+#
+# Install:
+#   cp rockboxd /etc/rc.d/rockboxd
+#   chmod 555 /etc/rc.d/rockboxd
+#
+# Enable in /etc/rc.conf:
+#   rockboxd=YES
+#   rockboxd_user="rockbox"            # user the daemon runs as
+#
+# Then:
+#   /etc/rc.d/rockboxd start
+#   /etc/rc.d/rockboxd status
+#   /etc/rc.d/rockboxd stop
+#
+# PROVIDE: rockboxd
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+
+$_rc_subr_loaded . /etc/rc.subr
+
+name="rockboxd"
+rcvar="rockboxd"
+command="/usr/pkg/bin/rockboxd"
+pidfile="/var/run/${name}.pid"
+start_cmd="rockboxd_start"
+
+# rockboxd runs in the foreground and does not write a pidfile, so background
+# it ourselves and record the pid. NetBSD has no daemon(8) supervisor; use a
+# process manager (e.g. daemontools, runit) if you need automatic restarts.
+rockboxd_start()
+{
+    [ -x "${command}" ] || command="/usr/local/bin/rockboxd"
+    [ -x "${command}" ] || err 1 "rockboxd binary not found"
+
+    : ${rockboxd_user:="rockbox"}
+    : ${rockboxd_logfile:="/var/log/rockboxd.log"}
+    # rockboxd is a server; force SDL's dummy video driver so it runs headless.
+    : ${rockboxd_env:="SDL_VIDEODRIVER=dummy"}
+
+    echo "Starting ${name}."
+    /usr/bin/env ${rockboxd_env} \
+        /usr/bin/su -m "${rockboxd_user}" -c \
+        "exec ${command} ${rockboxd_flags}" \
+        >> "${rockboxd_logfile}" 2>&1 &
+    echo $! > "${pidfile}"
+}
+
+load_rc_config $name
+run_rc_command "$1"

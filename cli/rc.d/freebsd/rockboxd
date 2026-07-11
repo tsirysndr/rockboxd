@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# FreeBSD rc.d script for the Rockbox music server (rockboxd).
+#
+# Install:
+#   cp rockboxd /usr/local/etc/rc.d/rockboxd
+#   chmod 555 /usr/local/etc/rc.d/rockboxd
+#
+# Enable in /etc/rc.conf:
+#   sysrc rockboxd_enable="YES"
+#   sysrc rockboxd_user="rockbox"      # user the daemon runs as
+#
+# Then:
+#   service rockboxd start
+#   service rockboxd status
+#   service rockboxd stop
+#
+# PROVIDE: rockboxd
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="rockboxd"
+desc="Rockbox music server"
+rcvar="rockboxd_enable"
+
+load_rc_config $name
+
+: ${rockboxd_enable:="NO"}
+: ${rockboxd_user:="rockbox"}
+: ${rockboxd_group:="${rockboxd_user}"}
+: ${rockboxd_bin:="/usr/local/bin/rockboxd"}
+: ${rockboxd_logfile:="/var/log/rockboxd.log"}
+# rockboxd is a server; force SDL's dummy video driver so it runs headless.
+: ${rockboxd_env:="SDL_VIDEODRIVER=dummy"}
+# Extra flags passed through to rockboxd.
+: ${rockboxd_flags:=""}
+
+pidfile="/var/run/${name}.pid"
+procname="${rockboxd_bin}"
+
+# rockboxd runs in the foreground, so wrap it with daemon(8) to background it,
+# supervise/restart it, drop privileges, and capture its output to a log file.
+command="/usr/sbin/daemon"
+command_args="-c -f -r -P ${pidfile} -o ${rockboxd_logfile} \
+    -t ${name} -u ${rockboxd_user} \
+    /usr/bin/env ${rockboxd_env} ${rockboxd_bin} ${rockboxd_flags}"
+
+start_precmd="rockboxd_precmd"
+
+rockboxd_precmd()
+{
+    if [ ! -e "${rockboxd_logfile}" ]; then
+        install -o "${rockboxd_user}" -g "${rockboxd_group}" -m 640 \
+            /dev/null "${rockboxd_logfile}"
+    fi
+}
+
+run_rc_command "$1"
