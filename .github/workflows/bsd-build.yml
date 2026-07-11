@@ -34,6 +34,22 @@ jobs:
         with:
           submodules: recursive
 
+      # The web UI is embedded into the server crate via rust_embed
+      # (webui/src/lib.rs -> rockbox/dist/), so it must be built before the
+      # native build runs. bun has no BSD builds, so build it here on the
+      # Linux host — cross-platform-actions syncs the working directory
+      # (including the freshly built dist/) into the VM.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build Web UI
+        working-directory: webui/rockbox
+        run: |
+          bun install
+          bun run build
+
       - name: Build rockboxd in ${{ matrix.os }} VM
         uses: cross-platform-actions/action@v0.27.0
         with:
@@ -53,12 +69,12 @@ jobs:
             case "$OS" in
               FreeBSD)
                 sudo pkg install -y \
-                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib wget xz
+                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib perl5 wget xz
                 ;;
               NetBSD)
                 # pkgin ships in the cross-platform-actions NetBSD image.
                 sudo pkgin -y install \
-                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib wget xz
+                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib perl wget xz
                 ;;
               *)
                 echo "Unsupported OS: $OS" >&2
