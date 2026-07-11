@@ -167,6 +167,15 @@ pub fn build(b: *std.Build) void {
     }
 
     if (target.result.os.tag == .freebsd or target.result.os.tag == .netbsd) {
+        // alsa-lib is installed by the package manager outside lld's default
+        // search paths (/lib, /usr/lib): FreeBSD's pkg prefix is /usr/local,
+        // NetBSD's pkgsrc prefix is /usr/pkg. Add the right one so -lasound
+        // resolves. (libgcc_s is in the base system's /usr/lib.)
+        if (target.result.os.tag == .freebsd) {
+            exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+        } else {
+            exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/pkg/lib" });
+        }
         // Rust std references the C++ unwinder (_Unwind_Resume/_Unwind_Backtrace
         // /_Unwind_GetIP …) for backtraces, thread-local destructors and the
         // gcc personality routine. On the BSDs those symbols live in libgcc_s
