@@ -11,8 +11,9 @@ keywords = ["ffi", "audio", "dsp", "metadata", "rockbox"]
 categories = ["multimedia::audio", "external-ffi-bindings"]
 
 [lib]
-# staticlib: for embedding; cdylib: for dlopen from Python/TS/BEAM NIFs.
-crate-type = ["cdylib", "staticlib"]
+# staticlib: for embedding; cdylib: for dlopen from Python/TS/BEAM NIFs;
+# lib (rlib): so Rust integration tests can call the exported functions.
+crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
 rockbox-dsp = { version = "0.2.0", path = "../rockbox-dsp" }
