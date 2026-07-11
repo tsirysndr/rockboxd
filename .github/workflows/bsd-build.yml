@@ -85,6 +85,16 @@ jobs:
                 ;;
             esac
 
+            # --- perl at /usr/bin/perl ---------------------------------------
+            # tools/genlang (and other Rockbox perl tools) have a hardcoded
+            # `#!/usr/bin/perl` shebang, but the BSDs install perl under
+            # /usr/local/bin (FreeBSD) or /usr/pkg/bin (NetBSD), so the build
+            # dies with "genlang: not found" (exit 127). Symlink it into place.
+            if [ ! -e /usr/bin/perl ]; then
+              sudo ln -sf "$(command -v perl)" /usr/bin/perl
+            fi
+            /usr/bin/perl --version | head -n2 | tail -n1
+
             # --- `make` -> gmake shim ----------------------------------------
             # Rockbox's Makefiles are GNU make only; the BSD base `make` fails.
             # build-headless.sh calls `make` literally, so shadow it with gmake.
