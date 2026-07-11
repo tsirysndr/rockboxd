@@ -50,7 +50,10 @@ impl ConfigBuilderExt for ConfigBuilder<ClientConfig, WantsVerifier> {
     }
 
     #[cfg(feature = "rustls-native-certs")]
-    #[cfg_attr(not(feature = "logging"), allow(unused_variables))]
+    #[cfg_attr(
+        not(feature = "logging"),
+        allow(unused_variables, unused_assignments)
+    )]
     fn with_native_roots(self) -> Result<ConfigBuilder<ClientConfig, WantsClientCert>, io::Error> {
         let mut roots = rustls::RootCertStore::empty();
         let mut valid_count = 0;
