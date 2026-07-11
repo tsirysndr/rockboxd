@@ -2048,7 +2048,10 @@ target/hosted/android/app/button-application.c
 target/hosted/headless/kernel-headless.c
 target/hosted/filesystem-unix.c
 target/hosted/headless/system-headless.c
-#ifdef ARMHFHOST
+/* ARMHFHOST and the *BSDs use the direct libasound sink (pcm-alsa.c):
+ * cpal's ALSA backend is Linux-only, so cpal produces no audio on FreeBSD /
+ * NetBSD. alsa-lib is available there via the audio/alsa-lib port. */
+#if defined(ARMHFHOST) || defined(__FreeBSD__) || defined(__NetBSD__)
 target/hosted/headless/pcm-alsa.c
 #else
 target/hosted/headless/pcm-cpal.c

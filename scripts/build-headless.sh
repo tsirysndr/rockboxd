@@ -181,8 +181,11 @@ CLI_FEATURES="cpal-sink"
 SERVER_FEATURES=""
 case "$(uname)" in
     FreeBSD|NetBSD)
-        echo "    BSD host detected — enabling fts5 (no Typesense subprocess)"
-        CLI_FEATURES="$CLI_FEATURES,fts5"
+        # cpal's ALSA backend is Linux-only, so the BSDs use the direct
+        # libasound sink (rockbox-alsa-sink + pcm-alsa.c) instead of cpal.
+        # Also enable fts5 — there is no prebuilt Typesense for the BSDs.
+        echo "    BSD host detected — using alsa-sink + fts5 (no cpal, no Typesense)"
+        CLI_FEATURES="alsa-sink,fts5"
         SERVER_FEATURES="fts5"
         ;;
 esac

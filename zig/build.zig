@@ -166,9 +166,11 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    if (target.result.os.tag == .freebsd) {
+    if (target.result.os.tag == .freebsd or target.result.os.tag == .netbsd) {
         if (headless) {
-            // cpal uses the ALSA backend on FreeBSD via the audio/alsa-lib port.
+            // The BSDs use the direct libasound sink (pcm-alsa.c +
+            // rockbox-alsa-sink), not cpal — cpal's ALSA backend is
+            // Linux-only. alsa-lib comes from the audio/alsa-lib port.
             exe.root_module.linkSystemLibrary("asound", .{});
         }
     }
@@ -179,8 +181,6 @@ pub fn build(b: *std.Build) void {
             exe.root_module.linkSystemLibrary("sndio", .{});
         }
     }
-
-    // NetBSD: cpal uses OSS which is built into the kernel — no extra link flags needed.
 
     const librockbox = b.path(b.pathJoin(&.{ fw_dir, "librockbox.a" }));
     const libfirmware = b.path(b.pathJoin(&.{ fw_dir, "firmware/libfirmware.a" }));

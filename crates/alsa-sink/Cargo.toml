@@ -9,8 +9,9 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 tracing = { workspace = true }
 
-# libasound is Linux-only; the C pcm-alsa.c is also compiled only for ARMHFHOST
-# (a Linux target). Gate the dependency so macOS / WASM builds never try to
-# find or link libasound.
-[target.'cfg(target_os = "linux")'.dependencies]
+# libasound ships on Linux and, via the audio/alsa-lib port, on FreeBSD and
+# NetBSD. pcm-alsa.c is compiled for ARMHFHOST and the BSD headless targets.
+# Gate the dependency so macOS / WASM builds never try to find or link
+# libasound (matches the `alsa_backend` cfg from build.rs).
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9"

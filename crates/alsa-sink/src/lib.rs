@@ -20,41 +20,41 @@ pub fn _link_alsa_sink() {}
 
 // ── Linux-only implementation ─────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use alsa::pcm::{Access, Format, HwParams, PCM};
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use alsa::{Direction, ValueOr};
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use std::collections::VecDeque;
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use std::sync::{Condvar, Mutex, OnceLock};
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use std::thread::JoinHandle;
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 use std::time::Duration;
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 const RING_CAPACITY: usize = 512 * 1024; // 512 KB ≈ 3 s at 44.1 kHz stereo S16LE
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 const PERIOD_FRAMES: alsa::pcm::Frames = 1024; // ~23 ms @ 44.1 kHz
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 const BUFFER_FRAMES: alsa::pcm::Frames = 8192; // ~185 ms
 
 // ── Ring buffer ───────────────────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 struct Ring {
     buf: VecDeque<u8>,
     running: bool,
     shutdown: bool, // set once at daemon shutdown to exit the writer thread
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 static RING: OnceLock<(Mutex<Ring>, Condvar)> = OnceLock::new();
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 fn ring() -> &'static (Mutex<Ring>, Condvar) {
     RING.get_or_init(|| {
         (
@@ -70,27 +70,27 @@ fn ring() -> &'static (Mutex<Ring>, Condvar) {
 
 // ── Writer thread state ───────────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 static CURRENT_RATE: OnceLock<Mutex<u32>> = OnceLock::new();
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 static WRITER_HANDLE: OnceLock<Mutex<Option<JoinHandle<()>>>> = OnceLock::new();
 // Set to true while the writer thread is alive so pcm_alsa_postinit is idempotent.
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 static WRITER_ALIVE: AtomicBool = AtomicBool::new(false);
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 fn current_rate() -> &'static Mutex<u32> {
     CURRENT_RATE.get_or_init(|| Mutex::new(44100))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 fn writer_handle() -> &'static Mutex<Option<JoinHandle<()>>> {
     WRITER_HANDLE.get_or_init(|| Mutex::new(None))
 }
 
 // ── ALSA helpers ──────────────────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 fn open_pcm(rate: u32) -> Option<PCM> {
     let pcm = match PCM::new("default", Direction::Playback, false) {
         Ok(p) => p,
@@ -132,7 +132,7 @@ fn open_pcm(rate: u32) -> Option<PCM> {
 
 // ── Writer thread — lives for the daemon lifetime ─────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 fn run_writer(initial_rate: u32) {
     let mut pcm: Option<PCM> = open_pcm(initial_rate);
     let mut rate = initial_rate;
@@ -220,7 +220,7 @@ fn run_writer(initial_rate: u32) {
 
 // ── C ABI — called from firmware/target/hosted/headless/pcm-alsa.c ───────────
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_init() {
     let _ = ring();
@@ -230,7 +230,7 @@ pub extern "C" fn pcm_alsa_init() {
 
 /// Open ALSA and start the persistent writer thread. Called once after
 /// kernel init; subsequent calls are no-ops if the thread is already alive.
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_postinit() {
     if WRITER_ALIVE.swap(true, Ordering::Relaxed) {
@@ -246,7 +246,7 @@ pub extern "C" fn pcm_alsa_postinit() {
     );
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_set_sample_rate(rate_hz: u32) {
     *current_rate().lock().unwrap() = rate_hz;
@@ -258,7 +258,7 @@ pub extern "C" fn pcm_alsa_set_sample_rate(rate_hz: u32) {
 ///
 /// # Safety
 /// `addr` must be valid for `size` bytes for the duration of this call.
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub unsafe extern "C" fn pcm_alsa_push(addr: *const u8, size: usize) {
     let data = unsafe { std::slice::from_raw_parts(addr, size) };
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn pcm_alsa_push(addr: *const u8, size: usize) {
 
 /// Arm the ring for playback. The persistent writer thread wakes up and
 /// starts draining immediately — no ALSA re-open, no thread creation.
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_start() {
     let (lock, cvar) = ring();
@@ -299,7 +299,7 @@ pub extern "C" fn pcm_alsa_start() {
 /// Pause the ring. The writer thread sees running=false and blocks on the
 /// condvar; ALSA stays open. Any underrun on next write is recovered by
 /// try_recover, typically transparent to the listener.
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_stop() {
     let (lock, cvar) = ring();
@@ -308,7 +308,7 @@ pub extern "C" fn pcm_alsa_stop() {
     cvar.notify_all();
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_flush() {
     let (lock, cvar) = ring();
@@ -317,7 +317,7 @@ pub extern "C" fn pcm_alsa_flush() {
     cvar.notify_all();
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(alsa_backend)]
 #[no_mangle]
 pub extern "C" fn pcm_alsa_is_running() -> bool {
     ring().0.lock().unwrap().running
