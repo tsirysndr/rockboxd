@@ -27,6 +27,9 @@ use rockbox_library::{create_connection_pool, repo};
 use rockbox_playlists::PlaylistStore;
 #[allow(unused_imports)]
 use rockbox_slim::_link_slim as _;
+#[cfg(feature = "sndio-sink")]
+#[allow(unused_imports)]
+use rockbox_sndio_sink::_link_sndio_sink as _;
 #[cfg(not(feature = "fts5"))]
 use rockbox_typesense::client::*;
 #[cfg(not(feature = "fts5"))]

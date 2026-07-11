@@ -9576,6 +9576,7 @@ dependencies = [
  "rockbox-rocksky",
  "rockbox-settings",
  "rockbox-slim",
+ "rockbox-sndio-sink",
  "rockbox-typesense",
  "rockbox-upnp",
  "serde",
@@ -10136,6 +10137,13 @@ dependencies = [
 
 [[package]]
 name = "rockbox-slim"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
+name = "rockbox-sndio-sink"
 version = "0.1.0"
 dependencies = [
  "tracing",

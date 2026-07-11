@@ -177,7 +177,8 @@ pub fn build(b: *std.Build) void {
 
     if (target.result.os.tag == .openbsd) {
         if (headless) {
-            // cpal uses sndio on OpenBSD.
+            // OpenBSD uses the direct libsndio sink (pcm-sndio.c +
+            // rockbox-sndio-sink); libsndio ships in the base system.
             exe.root_module.linkSystemLibrary("sndio", .{});
         }
     }

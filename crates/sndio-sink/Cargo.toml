@@ -1,0 +1,15 @@
+[package]
+name = "rockbox-sndio-sink"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+tracing = { workspace = true }
+
+# libsndio is OpenBSD's native audio API (it ships in the base system). The
+# `sndio_backend` cfg and the `-lsndio` link directive are emitted from
+# build.rs only for target_os = "openbsd"; every other target compiles this
+# crate down to the empty `_link_sndio_sink` stub.

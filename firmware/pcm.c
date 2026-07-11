@@ -89,6 +89,10 @@ static struct pcm_sink* sinks[PCM_SINK_NUM] = {
     [PCM_SINK_BUILTIN]      = &webapi_pcm_sink,    /* Web Audio API = default on WASM */
 #elif defined(ARMHFHOST)
     [PCM_SINK_BUILTIN]      = &alsa_pcm_sink,      /* direct ALSA = default on arm-linux-gnueabihf */
+#elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+    /* *BSD headless builds compile pcm-alsa.c (FreeBSD/NetBSD) or pcm-sndio.c
+     * (OpenBSD) — both define builtin_pcm_sink, and cpal_pcm_sink is absent. */
+    [PCM_SINK_BUILTIN]      = &builtin_pcm_sink,
 #elif defined(CODECS_STATIC)
     [PCM_SINK_BUILTIN]      = &cpal_pcm_sink,      /* cpal = default on Android cdylib + headless */
 #else
@@ -104,7 +108,8 @@ static struct pcm_sink* sinks[PCM_SINK_NUM] = {
 #if !(CONFIG_PLATFORM & PLATFORM_WASM) && !(CONFIG_PLATFORM & PLATFORM_ANDROID)
     [PCM_SINK_CMAF]         = &cmaf_pcm_sink,
 #endif
-#if defined(CODECS_STATIC) && !defined(ARMHFHOST)
+#if defined(CODECS_STATIC) && !defined(ARMHFHOST) && \
+    !defined(__FreeBSD__) && !defined(__NetBSD__) && !defined(__OpenBSD__)
     [PCM_SINK_CPAL]         = &cpal_pcm_sink,      /* also addressable by name */
 #endif
 #if defined(ARMHFHOST)

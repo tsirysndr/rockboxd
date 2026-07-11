@@ -188,6 +188,14 @@ case "$(uname)" in
         CLI_FEATURES="alsa-sink,fts5"
         SERVER_FEATURES="fts5"
         ;;
+    OpenBSD)
+        # OpenBSD has no ALSA and cpal has no sndio backend, so use the direct
+        # libsndio sink (rockbox-sndio-sink + pcm-sndio.c). fts5 for the same
+        # reason as the other BSDs (no prebuilt Typesense).
+        echo "    OpenBSD host detected — using sndio-sink + fts5 (no cpal, no Typesense)"
+        CLI_FEATURES="sndio-sink,fts5"
+        SERVER_FEATURES="fts5"
+        ;;
 esac
 
 echo "==> Step 3: Build Rust crates (cli features: $CLI_FEATURES)"

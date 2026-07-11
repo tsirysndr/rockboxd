@@ -34,11 +34,13 @@ jobs:
         with:
           submodules: recursive
 
-      # The web UI is embedded into the server crate via rust_embed
-      # (webui/src/lib.rs -> rockbox/dist/), so it must be built before the
-      # native build runs. bun has no BSD builds, so build it here on the
-      # Linux host — cross-platform-actions syncs the working directory
-      # (including the freshly built dist/) into the VM.
+      # Both web UIs are embedded into the server crate via rust_embed —
+      # webui/src/lib.rs -> rockbox/dist/ and crates/s3/src/admin.rs ->
+      # s3webui/dist/. rust_embed errors at compile time if a folder is
+      # missing, so both must be built before the native build. bun has no BSD
+      # builds, so build them here on the Linux host — cross-platform-actions
+      # syncs the working directory (including the freshly built dist/) into
+      # the VM.
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -50,8 +52,14 @@ jobs:
           bun install
           bun run build
 
+      - name: Build S3 admin UI
+        working-directory: crates/s3/s3webui
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
       - name: Build rockboxd in ${{ matrix.os }} VM
-        uses: cross-platform-actions/action@v0.27.0
+        uses: cross-platform-actions/action@v1.3.0
         with:
           operating_system: ${{ matrix.os }}
           version: ${{ matrix.version }}
