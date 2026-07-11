@@ -1,0 +1,100 @@
+# Best-effort build of the full rockboxd binary on FreeBSD and NetBSD
+# (amd64 only), using cross-platform-actions VMs. There are no native
+# GitHub runners for these platforms, so the whole build runs inside the VM.
+#
+# The build goes through scripts/build-headless.sh, which needs GNU make
+# (gmake), Zig 0.16.0, protobuf (protoc), cmake and the Rust toolchain — so
+# this installs more than the FFI-only BSD jobs in bindings-release.yml.
+name: bsd-build
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    name: build-${{ matrix.name }}
+    runs-on: ubuntu-latest
+    # A broken toolchain on one BSD shouldn't hide the result on the other,
+    # and these are best-effort "does it still build?" checks.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: freebsd-amd64
+            os: freebsd
+            version: "14.2"
+          - name: netbsd-amd64
+            os: netbsd
+            version: "10.1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build rockboxd in ${{ matrix.os }} VM
+        uses: cross-platform-actions/action@v0.27.0
+        with:
+          operating_system: ${{ matrix.os }}
+          version: ${{ matrix.version }}
+          architecture: x86_64
+          shell: bash
+          environment_variables: ZIG_VERSION
+          run: |
+            set -eux
+
+            ZIG_VERSION=0.16.0
+
+            OS="$(uname)"
+
+            # --- Dependencies -------------------------------------------------
+            case "$OS" in
+              FreeBSD)
+                sudo pkg install -y \
+                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib wget xz
+                ;;
+              NetBSD)
+                # pkgin ships in the cross-platform-actions NetBSD image.
+                sudo pkgin -y install \
+                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib wget xz
+                ;;
+              *)
+                echo "Unsupported OS: $OS" >&2
+                exit 1
+                ;;
+            esac
+
+            # --- `make` -> gmake shim ----------------------------------------
+            # Rockbox's Makefiles are GNU make only; the BSD base `make` fails.
+            # build-headless.sh calls `make` literally, so shadow it with gmake.
+            mkdir -p "$HOME/bin"
+            ln -sf "$(command -v gmake)" "$HOME/bin/make"
+            export PATH="$HOME/bin:$PATH"
+            make --version | head -n1
+
+            # --- Zig 0.16.0 ---------------------------------------------------
+            # build.zig relies on the 0.16.0 API, so pin the official prebuilt
+            # tarball. ziglang.org hosts both freebsd and netbsd x86_64 builds.
+            case "$OS" in
+              FreeBSD) ZIG_TRIPLE="x86_64-freebsd" ;;
+              NetBSD)  ZIG_TRIPLE="x86_64-netbsd" ;;
+            esac
+            ZIG_TARBALL="zig-${ZIG_TRIPLE}-${ZIG_VERSION}.tar.xz"
+            wget -q "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_TARBALL}"
+            tar xf "$ZIG_TARBALL"
+            export PATH="$PWD/zig-${ZIG_TRIPLE}-${ZIG_VERSION}:$PATH"
+            zig version
+
+            # --- Toolchain sanity --------------------------------------------
+            cargo --version
+            protoc --version
+            cmake --version | head -n1
+
+            # --- Build --------------------------------------------------------
+            bash scripts/build-headless.sh
+
+            # --- Result -------------------------------------------------------
+            ls -lh zig/zig-out/bin/rockboxd
+            file zig/zig-out/bin/rockboxd || true
