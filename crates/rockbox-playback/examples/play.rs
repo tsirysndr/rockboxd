@@ -12,8 +12,8 @@
 //! # a remote file (starts as soon as the header is buffered)
 //! cargo run --release --example play -- https://example.com/song.flac
 //!
-//! # internet radio (unbounded live stream — Ctrl-C to stop)
-//! cargo run --release --example play -- http://ice1.somafm.com/groovesalad-128-mp3
+//! # internet radio (unbounded live stream, shows ICY song/station — Ctrl-C to stop)
+//! cargo run --release --example play -- https://ec7.yesstreaming.net:1360/stream
 //!
 //! # mix local + remote, with 2 s crossfade + track ReplayGain
 //! cargo run --release --example play -- --crossfade 2 --replaygain track \

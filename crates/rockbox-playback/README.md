@@ -202,7 +202,8 @@ use rockbox_playback::{Player, HttpSource, MediaSource};
 let player = Player::new()?;
 player.set_queue(vec![
     "/music/local.flac".to_string(),
-    "https://example.com/song".to_string(), // format from Content-Type
+    "https://example.com/song".to_string(),          // finite remote file
+    "https://ec7.yesstreaming.net:1360/stream".to_string(), // live radio
 ]);
 player.play();
 
@@ -258,7 +259,12 @@ if let Some(m) = st.metadata {
 
 The mapping into [`Metadata`]: `StreamTitle` → `artist` / `title`
 (split on `" - "`), `icy-name` → `album`, `icy-br` → `bitrate`, and the
-decoded rate → `sample_rate`. The `play` example renders these live.
+decoded rate → `sample_rate`. The `play` example renders these live:
+
+```sh
+# live radio — prints the now-playing song, station, bitrate & sample rate
+cargo run --release --example play -- https://ec7.yesstreaming.net:1360/stream
+```
 
 ## Crossfade fidelity
 
