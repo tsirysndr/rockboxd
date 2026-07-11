@@ -75,9 +75,9 @@ jobs:
                 ;;
               NetBSD)
                 # pkgin ships in the cross-platform-actions NetBSD image.
-                # xz is in the NetBSD base system too.
+                # gcc and xz are in the NetBSD base system, so no package.
                 sudo pkgin -y install \
-                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib perl wget
+                  bash gmake cmake protobuf rust pkgconf alsa-lib perl wget
                 ;;
               *)
                 echo "Unsupported OS: $OS" >&2
