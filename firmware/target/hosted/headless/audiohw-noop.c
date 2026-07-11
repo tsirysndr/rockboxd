@@ -12,20 +12,22 @@
 #include "config.h"
 
 /* audiohw_set_volume is always required (called from sound.c:set_prescaled_volume).
- * On headless non-ARM builds, delegates to the cpal Rust sink so the OS audio
- * level tracks Rockbox's volume slider.
- * On ARMHFHOST the direct ALSA sink owns the hardware level via the ALSA mixer;
- * software volume is applied by Rockbox's DSP layer (HAVE_SW_TONE_CONTROLS),
- * so no extra per-sink call is needed here.
+ * Only the cpal sink exposes an OS-mixer volume hook (pcm_cpal_set_volume), so
+ * the firmware level tracks Rockbox's volume slider there. The direct ALSA sink
+ * (ARMHFHOST + FreeBSD/NetBSD) and the sndio sink (OpenBSD) have no per-sink
+ * volume hook; on those targets Rockbox's software volume (DSP) already scales
+ * the PCM before it reaches the sink, so this is a no-op.
  * Values are in tenth-decibel units (0 = 0 dB, -740 = -74 dB, INT_MIN = mute). */
-#ifndef ARMHFHOST
+#if !defined(ARMHFHOST) && !defined(__FreeBSD__) && \
+    !defined(__NetBSD__) && !defined(__OpenBSD__)
+#define HEADLESS_CPAL_VOLUME 1
 extern void pcm_cpal_set_volume(int vol_l, int vol_r);
 #endif
 
 #if defined(AUDIOHW_HAVE_MONO_VOLUME)
 void audiohw_set_volume(int volume)
 {
-#ifndef ARMHFHOST
+#ifdef HEADLESS_CPAL_VOLUME
     pcm_cpal_set_volume(volume, volume);
 #else
     (void)volume;
@@ -34,7 +36,7 @@ void audiohw_set_volume(int volume)
 #else
 void audiohw_set_volume(int vol_l, int vol_r)
 {
-#ifndef ARMHFHOST
+#ifdef HEADLESS_CPAL_VOLUME
     pcm_cpal_set_volume(vol_l, vol_r);
 #else
     (void)vol_l; (void)vol_r;
