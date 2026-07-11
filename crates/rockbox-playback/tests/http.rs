@@ -344,6 +344,149 @@ fn big_finite_file_starts_without_full_download() {
     }));
 }
 
+// ---- ICY (SHOUTcast/Icecast) live metadata --------------------------------
+
+/// Build one ICY metadata block: a length byte (in 16-byte units) followed by
+/// `StreamTitle='…';` NUL-padded to that length.
+fn icy_block(title: &str) -> Vec<u8> {
+    let s = format!("StreamTitle='{title}';");
+    let units = s.len().div_ceil(16);
+    let mut block = Vec::with_capacity(1 + units * 16);
+    block.push(units as u8);
+    block.extend_from_slice(s.as_bytes());
+    block.resize(1 + units * 16, 0);
+    block
+}
+
+/// Interleave `audio` with an ICY metadata `block` every `metaint` audio bytes
+/// (the wire format the client de-interleaves).
+fn interleave_icy(audio: &[u8], metaint: usize, block: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < audio.len() {
+        let end = (i + metaint).min(audio.len());
+        out.extend_from_slice(&audio[i..end]);
+        if end - i == metaint {
+            out.extend_from_slice(block); // full interval → metadata block
+        }
+        i = end;
+    }
+    out
+}
+
+/// A live radio server with `icy-*` headers and in-band `StreamTitle`.
+fn spawn_icy_server(
+    audio: Vec<u8>,
+    repeats: usize,
+    metaint: usize,
+    name: &str,
+    bitrate: u32,
+    title: &str,
+) -> TestServer {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}/icy", addr);
+    let requests = Arc::new(AtomicUsize::new(0));
+
+    let full: Vec<u8> = std::iter::repeat(audio).take(repeats).flatten().collect();
+    let body = Arc::new(interleave_icy(&full, metaint, &icy_block(title)));
+    let name = name.to_string();
+    let counter = Arc::clone(&requests);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let body = Arc::clone(&body);
+            let name = name.clone();
+            let counter = Arc::clone(&counter);
+            std::thread::spawn(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    if line == "\r\n" || line == "\n" {
+                        break;
+                    }
+                }
+                // No Content-Length (→ live stream); icy-metaint drives the
+                // de-interleaver; icy-name / icy-br are station info.
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nicy-metaint: {metaint}\r\nicy-name: {name}\r\nicy-br: {bitrate}\r\nConnection: close\r\n\r\n"
+                );
+                if stream.write_all(head.as_bytes()).is_err() {
+                    return;
+                }
+                for piece in body.chunks(4096) {
+                    if stream.write_all(piece).is_err() {
+                        return;
+                    }
+                    let _ = stream.flush();
+                    std::thread::sleep(Duration::from_millis(3));
+                }
+            });
+        }
+    });
+
+    TestServer { url, requests }
+}
+
+#[test]
+fn live_stream_reports_icy_metadata() {
+    let Some(mp3) = encode_mp3(0.5, 440.0) else {
+        eprintln!("ffmpeg not installed — skipping");
+        return;
+    };
+    let server = spawn_icy_server(
+        mp3,
+        80,
+        8192,
+        "Test Radio",
+        128,
+        "Daft Punk - Around the World",
+    );
+
+    let Ok(player) = Player::new() else {
+        eprintln!("no output device — skipping");
+        return;
+    };
+    player.set_volume(0.05);
+    player.set_queue(vec![server.url.clone()]);
+    player.play();
+
+    // The station name / bitrate come from the icy-* headers immediately once
+    // playback starts; the StreamTitle appears after the first in-band block.
+    assert!(
+        wait_until(&player, Duration::from_secs(8), |p| {
+            p.status()
+                .metadata
+                .as_ref()
+                .map(|m| m.title.contains("Around the World"))
+                .unwrap_or(false)
+        }),
+        "should surface the ICY StreamTitle in status().metadata"
+    );
+
+    let m = player.status().metadata.unwrap();
+    assert_eq!(m.artist, "Daft Punk", "StreamTitle artist split");
+    assert_eq!(m.title, "Around the World", "StreamTitle title split");
+    assert_eq!(m.album, "Test Radio", "icy-name → album");
+    assert_eq!(m.bitrate, 128, "icy-br → bitrate");
+    // The decoded sample rate is filled in once decoding starts.
+    assert!(
+        m.sample_rate >= 8000,
+        "live stream should report a decoded sample rate, got {}",
+        m.sample_rate
+    );
+
+    player.stop();
+    assert!(wait_until(&player, Duration::from_secs(3), |p| {
+        p.status().state == PlaybackState::Stopped
+    }));
+}
+
 // ---- infinite / live stream (no Content-Length) ---------------------------
 
 /// Serve `body`, repeated `repeats` times, as a chunked HTTP response with NO

@@ -125,18 +125,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        let (title, codec) = st
-            .metadata
-            .as_ref()
+        let m = st.metadata.as_ref();
+        // Now-playing: prefer "Artist — Title", else title, else codec label.
+        let title = m
             .map(|m| {
-                let t = if m.title.is_empty() {
-                    m.codec.clone()
-                } else {
+                if !m.title.is_empty() && !m.artist.is_empty() {
                     format!("{} — {}", m.artist, m.title)
-                };
-                (t, m.codec.clone())
+                } else if !m.title.is_empty() {
+                    m.title.clone()
+                } else {
+                    m.codec.clone()
+                }
             })
             .unwrap_or_default();
+        let codec = m.map(|m| m.codec.clone()).unwrap_or_default();
+        // Station name (ICY `icy-name`) lands in `album` for live streams.
+        let station = m
+            .map(|m| m.album.clone())
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("  @{s}"))
+            .unwrap_or_default();
+        // Bitrate (ICY `icy-br` for live, else the file's) + sample rate.
+        let bitrate = m
+            .map(|m| m.bitrate)
+            .filter(|b| *b > 0)
+            .map(|b| format!(" {b}kbps"))
+            .unwrap_or_default();
+        let samplerate = m
+            .map(|m| m.sample_rate)
+            .filter(|r| *r > 0)
+            .map(|r| format!(" {:.1}kHz", r as f32 / 1000.0))
+            .unwrap_or_default();
+
         let pos = st.position.as_secs();
         let dur = st.duration.as_secs();
         // A live stream reports duration 0 — show elapsed against "LIVE".
@@ -152,11 +172,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         };
         let line = format!(
-            "[{}/{}] {} ({})  {}   ",
+            "[{}/{}] {} ({}{}{}){}  {}   ",
             st.index.map(|i| i + 1).unwrap_or(0),
             st.queue_len,
             title,
             codec,
+            bitrate,
+            samplerate,
+            station,
             clock,
         );
         if line != last_line {

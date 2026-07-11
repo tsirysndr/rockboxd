@@ -64,13 +64,14 @@ impl MediaSource for FileSource {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "http")]
-pub use http::{open_remote, HttpSource, HttpStream, Remote};
+pub use http::{open_remote, HttpSource, HttpStream, IcyInfo, Remote};
 
 #[cfg(feature = "http")]
 mod http {
     use super::*;
     use std::fs::File;
     use std::io::Write;
+    use std::sync::{Arc, Mutex};
 
     /// Fetch at least this many extra bytes beyond a satisfied read, to
     /// amortize request overhead on sequential playback.
@@ -104,6 +105,23 @@ mod http {
         mime_ext: Option<String>,
         /// The probe response — its body is the stream when unbounded.
         resp: reqwest::blocking::Response,
+        /// SHOUTcast/Icecast metadata interval (`icy-metaint`), if the server
+        /// interleaves in-band metadata in the audio.
+        icy_metaint: Option<usize>,
+        /// Station info from `icy-name` / `icy-genre` / `icy-br` headers.
+        icy: IcyInfo,
+    }
+
+    /// Station-level info from an Icecast/SHOUTcast live stream's `icy-*`
+    /// response headers (as opposed to the per-song `StreamTitle`).
+    #[derive(Debug, Clone, Default)]
+    pub struct IcyInfo {
+        /// Station name (`icy-name`).
+        pub name: Option<String>,
+        /// Station genre (`icy-genre`).
+        pub genre: Option<String>,
+        /// Advertised bitrate in kbps (`icy-br`).
+        pub bitrate: Option<u32>,
     }
 
     /// Build the HTTP client. A connect timeout keeps an unreachable or
@@ -121,21 +139,37 @@ mod http {
         let resp = client
             .get(url)
             .header(reqwest::header::RANGE, "bytes=0-0")
+            // Ask for in-band metadata; radio servers reply with `icy-metaint`
+            // and interleave `StreamTitle` blocks. Plain files ignore this.
+            .header("Icy-MetaData", "1")
             .send()
             .map_err(to_io)?
             .error_for_status()
             .map_err(to_io)?;
         let status = resp.status();
+        let headers = resp.headers();
 
-        let mime_ext = resp
-            .headers()
+        let mime_ext = headers
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .and_then(mime_to_ext);
 
+        let hdr = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        let icy_metaint = hdr("icy-metaint").and_then(|s| s.parse::<usize>().ok());
+        let icy = IcyInfo {
+            name: hdr("icy-name"),
+            genre: hdr("icy-genre"),
+            bitrate: hdr("icy-br").and_then(|s| s.parse::<u32>().ok()),
+        };
+
         let (length, ranges) = if status == reqwest::StatusCode::PARTIAL_CONTENT {
-            let total = resp
-                .headers()
+            let total = headers
                 .get(reqwest::header::CONTENT_RANGE)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.rsplit('/').next())
@@ -150,6 +184,8 @@ mod http {
             ranges,
             mime_ext,
             resp,
+            icy_metaint,
+            icy,
         })
     }
 
@@ -379,12 +415,22 @@ mod http {
     }
 
     /// An unbounded, forward-only HTTP stream (e.g. internet radio) — no known
-    /// length, no seeking. Implements [`Read`] by pulling from a live
-    /// response body; the audio format is carried out-of-band (from the
-    /// `Content-Type` header) since there is nothing to seek and sniff.
+    /// length, no seeking. Implements [`Read`] by pulling from a live response
+    /// body; the audio format is carried out-of-band (from the `Content-Type`
+    /// header). When the server interleaves SHOUTcast/Icecast metadata
+    /// (`icy-metaint`), those blocks are stripped out of the audio and the
+    /// current `StreamTitle` is published to [`HttpStream::title`].
     pub struct HttpStream {
         resp: reqwest::blocking::Response,
         ext: String,
+        station: IcyInfo,
+        /// `icy-metaint`: audio bytes between metadata blocks (0 = none).
+        metaint: usize,
+        /// Audio bytes left before the next metadata block.
+        until_meta: usize,
+        /// Current `StreamTitle`, updated in place as songs change. Shared so
+        /// the player can read it while the decode thread pulls audio.
+        title: Arc<Mutex<Option<String>>>,
     }
 
     impl HttpStream {
@@ -393,20 +439,103 @@ mod http {
         pub fn new(url: &str) -> io::Result<Self> {
             let client = build_client()?;
             let p = probe(&client, url)?;
+            Ok(HttpStream::from_probe(p, url))
+        }
+
+        fn from_probe(p: Probe, url: &str) -> Self {
             let ext = stream_ext(&p.mime_ext, url);
-            Ok(HttpStream { resp: p.resp, ext })
+            let metaint = p.icy_metaint.unwrap_or(0);
+            HttpStream {
+                resp: p.resp,
+                ext,
+                station: p.icy,
+                metaint,
+                until_meta: metaint,
+                title: Arc::new(Mutex::new(None)),
+            }
         }
 
         /// Format hint (extension without dot, e.g. `"mp3"`) for the decoder.
         pub fn format_ext(&self) -> &str {
             &self.ext
         }
+
+        /// Station-level info (`icy-name` / `icy-genre` / `icy-br`).
+        pub fn station(&self) -> &IcyInfo {
+            &self.station
+        }
+
+        /// Handle to the live `StreamTitle`, updated as the stream plays.
+        /// Clone it and read `*handle.lock()` to see the current song.
+        pub fn title(&self) -> Arc<Mutex<Option<String>>> {
+            Arc::clone(&self.title)
+        }
+
+        /// Read exactly `buf.len()` bytes of the raw body, or fail on EOF —
+        /// used to pull a whole metadata block.
+        fn read_body_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+            let mut got = 0;
+            while got < buf.len() {
+                let n = self.resp.read(&mut buf[got..])?;
+                if n == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "stream ended inside an ICY metadata block",
+                    ));
+                }
+                got += n;
+            }
+            Ok(())
+        }
+
+        /// Consume one interleaved metadata block: a length byte (× 16) then
+        /// that many bytes, from which `StreamTitle='…'` is parsed.
+        fn consume_metadata(&mut self) -> io::Result<()> {
+            let mut len_byte = [0u8; 1];
+            self.read_body_exact(&mut len_byte)?;
+            let len = len_byte[0] as usize * 16;
+            if len == 0 {
+                return Ok(()); // no change since the last block
+            }
+            let mut meta = vec![0u8; len];
+            self.read_body_exact(&mut meta)?;
+            if let Some(title) = parse_stream_title(&meta) {
+                *self.title.lock().unwrap() = Some(title);
+            }
+            Ok(())
+        }
     }
 
     impl Read for HttpStream {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            self.resp.read(buf)
+            if self.metaint == 0 {
+                return self.resp.read(buf); // no in-band metadata
+            }
+            // At a metadata boundary, strip the block before more audio.
+            if self.until_meta == 0 {
+                self.consume_metadata()?;
+                self.until_meta = self.metaint;
+            }
+            let cap = buf.len().min(self.until_meta);
+            let n = self.resp.read(&mut buf[..cap])?;
+            self.until_meta -= n;
+            Ok(n)
         }
+    }
+
+    /// Parse `StreamTitle='…';` out of an ICY metadata block (NUL-padded,
+    /// `key='value';` pairs). Returns the title, empty ones filtered out.
+    fn parse_stream_title(meta: &[u8]) -> Option<String> {
+        let text = String::from_utf8_lossy(meta);
+        let rest = text.split("StreamTitle=").nth(1)?;
+        let rest = rest.strip_prefix('\'').unwrap_or(rest);
+        // Value ends at the first "';" (or a lone "'" / end).
+        let end = rest
+            .find("';")
+            .or_else(|| rest.find('\''))
+            .unwrap_or(rest.len());
+        let title = rest[..end].trim().to_string();
+        (!title.is_empty()).then_some(title)
     }
 
     /// A remote URL resolved to either a seekable finite file or an unbounded
@@ -432,10 +561,7 @@ mod http {
                     client, url, size, p.ranges, &suffix,
                 )?))
             }
-            None => {
-                let ext = stream_ext(&p.mime_ext, url);
-                Ok(Remote::Stream(HttpStream { resp: p.resp, ext }))
-            }
+            None => Ok(Remote::Stream(HttpStream::from_probe(p, url))),
         }
     }
 
@@ -516,6 +642,25 @@ mod http {
             assert_eq!(url_suffix("http://h/a/b.mp3?x=1#y"), ".mp3");
             assert_eq!(url_suffix("http://h/stream"), "");
             assert_eq!(url_suffix("http://h/"), "");
+        }
+
+        #[test]
+        fn icy_stream_title_parsing() {
+            // Typical block: NUL-padded, single-quoted, multiple keys.
+            let block = b"StreamTitle='Daft Punk - Around the World';StreamUrl='';\0\0\0";
+            assert_eq!(
+                parse_stream_title(block).as_deref(),
+                Some("Daft Punk - Around the World")
+            );
+            // Title only.
+            assert_eq!(
+                parse_stream_title(b"StreamTitle='Just A Song';").as_deref(),
+                Some("Just A Song")
+            );
+            // Empty title → None.
+            assert_eq!(parse_stream_title(b"StreamTitle='';"), None);
+            // No StreamTitle key → None.
+            assert_eq!(parse_stream_title(b"StreamUrl='http://x';"), None);
         }
     }
 }

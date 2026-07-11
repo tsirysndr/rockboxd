@@ -41,7 +41,7 @@ pub use rockbox_codecs::Decoder;
 pub use rockbox_metadata::Metadata;
 pub use source::{is_url, FileSource, MediaSource};
 #[cfg(feature = "http")]
-pub use source::{HttpSource, HttpStream};
+pub use source::{HttpSource, HttpStream, IcyInfo};
 
 /// Read a resume snapshot written by a previous session without constructing
 /// a [`Player`] — e.g. to decide whether to offer "resume playback" in a UI.
@@ -711,6 +711,22 @@ struct Engine {
     /// its decoder is open. Dropped — and the temp file deleted — when the
     /// track is reset. Boxed as `Any` so the field needn't be `cfg`-gated.
     current_source: Option<Box<dyn std::any::Any + Send>>,
+    /// Live-radio (ICY) metadata for the current stream, if any: the station
+    /// base metadata plus a handle to the changing `StreamTitle`.
+    #[cfg(feature = "http")]
+    current_icy: Option<IcyLive>,
+}
+
+/// Tracks a live stream's ICY metadata so the engine can refresh
+/// [`Shared::meta`] as the `StreamTitle` changes.
+#[cfg(feature = "http")]
+struct IcyLive {
+    /// Shared, live-updated current `StreamTitle`.
+    title: std::sync::Arc<Mutex<Option<String>>>,
+    /// Station-derived base metadata (codec, station name, genre, bitrate).
+    base: Metadata,
+    /// Last title reflected into `Shared::meta`, to detect changes.
+    last_title: Option<String>,
 }
 
 impl Engine {
@@ -736,6 +752,8 @@ impl Engine {
             pending_seek: None,
             last_save: Instant::now(),
             current_source: None,
+            #[cfg(feature = "http")]
+            current_icy: None,
         }
     }
 
@@ -815,6 +833,10 @@ impl Engine {
 
             self.set_state(ST_PLAYING);
             self.decode_step();
+
+            // Publish live-radio (ICY) StreamTitle changes to status().
+            #[cfg(feature = "http")]
+            self.refresh_icy();
 
             // Refresh the resume file periodically so a crash loses at most
             // `resume_save_interval` of position.
@@ -1186,6 +1208,11 @@ impl Engine {
             return false;
         };
         let s = path.to_string_lossy().into_owned();
+        // Any previous stream's live metadata no longer applies.
+        #[cfg(feature = "http")]
+        {
+            self.current_icy = None;
+        }
 
         // A remote URL is either a seekable finite file (fetched into a cache
         // and decoded like a local file) or an unbounded live stream (decoded
@@ -1241,9 +1268,20 @@ impl Engine {
                     // decode the response body forward-only.
                     self.current_source = None;
                     let ext = stream.format_ext().to_string();
-                    let mut meta = Metadata::default();
-                    meta.codec = ext.to_uppercase();
-                    match Decoder::open_stream(Box::new(stream), &ext, meta) {
+                    // Seed metadata from the ICY station headers; the changing
+                    // per-song StreamTitle is refreshed from `current_icy`.
+                    let station = stream.station().clone();
+                    let mut base = Metadata::default();
+                    base.codec = ext.to_uppercase();
+                    base.album = station.name.clone().unwrap_or_default();
+                    base.genre = station.genre.clone().unwrap_or_default();
+                    base.bitrate = station.bitrate.unwrap_or(0);
+                    self.current_icy = Some(IcyLive {
+                        title: stream.title(),
+                        base: base.clone(),
+                        last_title: None,
+                    });
+                    match Decoder::open_stream(Box::new(stream), &ext, base) {
                         Ok(dec) => Some(self.install_decoder(dec, false)),
                         Err(_) => Some(false),
                     }
@@ -1288,8 +1326,42 @@ impl Engine {
     fn reset_current(&mut self) {
         self.decoder = None;
         self.current_source = None; // drop any HTTP temp cache
+        #[cfg(feature = "http")]
+        {
+            self.current_icy = None;
+        }
         self.dsp.flush();
         self.shared.ring.lock().unwrap().clear();
+    }
+
+    /// Reflect a live stream's changing ICY `StreamTitle` (and the decoded
+    /// sample rate, which is only known once decoding starts) into the shared
+    /// metadata so `status()` shows the current song. Cheap no-op when nothing
+    /// changed or there's no live stream.
+    #[cfg(feature = "http")]
+    fn refresh_icy(&mut self) {
+        let rate = self.input_rate;
+        let Some(icy) = self.current_icy.as_mut() else {
+            return;
+        };
+        let current = icy.title.lock().unwrap().clone();
+        if current == icy.last_title && icy.base.sample_rate == rate {
+            return;
+        }
+        icy.last_title = current.clone();
+        icy.base.sample_rate = rate; // 0 until the first chunk decodes
+        let mut meta = icy.base.clone();
+        if let Some(t) = current {
+            // "Artist - Title" is the common StreamTitle form.
+            match t.split_once(" - ") {
+                Some((artist, title)) => {
+                    meta.artist = artist.trim().to_string();
+                    meta.title = title.trim().to_string();
+                }
+                None => meta.title = t,
+            }
+        }
+        *self.shared.meta.lock().unwrap() = Some(meta);
     }
 
     // ---- insertion (Rockbox playlist_insert_track semantics) ------------

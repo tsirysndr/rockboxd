@@ -240,6 +240,26 @@ sources: [`FileSource`] for local files, [`HttpSource`] for remote ones;
 live streams use [`HttpStream`] (`Read`-only). Disable the `http` feature
 for a local-file-only build with no `reqwest` dependency.
 
+### Live radio metadata (ICY)
+
+For SHOUTcast/Icecast streams the player requests in-band metadata
+(`Icy-MetaData: 1`) and de-interleaves the `StreamTitle` blocks out of the
+audio, so `status().metadata` reflects the **current song as it changes** —
+plus the station info from the `icy-name` / `icy-genre` / `icy-br` headers:
+
+```rust
+let st = player.status();
+if let Some(m) = st.metadata {
+    // "Artist - Title" from StreamTitle is split into artist/title.
+    println!("{} — {}", m.artist, m.title);
+    println!("station: {}  {} kbps  {} Hz", m.album, m.bitrate, m.sample_rate);
+}
+```
+
+The mapping into [`Metadata`]: `StreamTitle` → `artist` / `title`
+(split on `" - "`), `icy-name` → `album`, `icy-br` → `bitrate`, and the
+decoded rate → `sample_rate`. The `play` example renders these live.
+
 ## Crossfade fidelity
 
 `crossfade.rs` reproduces Rockbox's mixer exactly:
