@@ -38,6 +38,10 @@ player.play();
 - **`.m3u` / `.m3u8` playlists**: first-class import, export, insert and
   update in the same UTF-8 extended-M3U format Rockbox uses (see
   [M3U playlists](#m3u--m3u8-playlists)).
+- **HTTP(S) remote media** (feature `http`, on by default): queue
+  `http(s)://` URLs alongside local files. Seekable files are fetched with
+  HTTP **range requests** into a local cache; the format is detected from
+  the `Content-Type` header (see [Remote media](#remote-media-http)).
 - **Gapless by default** — the buffered tail of each track plays out before
   the next begins, so there's no click or silence at a boundary.
 - **Crossfade**: a port of `apps/pcmbuf.c` (see below). Fade-in/out delays
@@ -183,6 +187,44 @@ let entries = m3u::read("/music/Favourites.m3u8")?;   // Vec<M3uEntry> w/ EXTINF
 m3u::write_paths("/tmp/out.m3u8", &paths)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+## Remote media (HTTP)
+
+With the default `http` feature, a queue entry can be an `http(s)://` URL —
+everything else (transport, insertion, resume, m3u) treats it like any
+other track:
+
+```rust
+use rockbox_playback::{Player, HttpSource, MediaSource};
+
+let player = Player::new()?;
+player.set_queue(vec![
+    "/music/local.flac".to_string(),
+    "https://example.com/song".to_string(), // format from Content-Type
+]);
+player.play();
+
+// The source abstraction is also usable directly (range requests, seek):
+use std::io::{Read, Seek, SeekFrom};
+let mut src = HttpSource::new("https://example.com/song.flac")?;
+let total = src.size();
+src.seek(SeekFrom::Start(total / 2))?;
+let mut buf = [0u8; 4096];
+src.read_exact(&mut buf)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+How it works: a seekable remote file is fetched on demand with HTTP
+**range requests** into a temp-file cache, which the codec/metadata layer
+(which needs arbitrary seeks — `get_metadata` is vendored firmware and
+can't be intercepted) then reads. The audio **format is detected from the
+`Content-Type` response header** (e.g. `audio/flac` → FLAC), falling back
+to the URL's extension — so an extension-less `/stream?id=42` still works.
+
+The [`MediaSource`] trait (`Read + Seek + size`) is the seam:
+[`FileSource`] for local files, [`HttpSource`] for remote ones. Disable
+the `http` feature for a local-file-only build with no `reqwest`
+dependency.
 
 ## Crossfade fidelity
 

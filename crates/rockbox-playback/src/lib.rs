@@ -32,12 +32,16 @@
 mod crossfade;
 pub mod m3u;
 mod resume;
+pub mod source;
 
 pub use crossfade::{CrossfadeMode, CrossfadeSettings, MixMode};
 pub use m3u::M3uEntry;
 pub use resume::ResumeState;
 pub use rockbox_codecs::Decoder;
 pub use rockbox_metadata::Metadata;
+#[cfg(feature = "http")]
+pub use source::HttpSource;
+pub use source::{is_url, FileSource, MediaSource};
 
 /// Read a resume snapshot written by a previous session without constructing
 /// a [`Player`] — e.g. to decide whether to offer "resume playback" in a UI.
@@ -47,7 +51,7 @@ pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
 }
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -703,6 +707,10 @@ struct Engine {
     pending_seek: Option<(usize, Duration)>,
     /// Last time the resume file was written (for interval throttling).
     last_save: Instant,
+    /// Keeps the current track's HTTP cache (a temp file) alive for as long as
+    /// its decoder is open. Dropped — and the temp file deleted — when the
+    /// track is reset. Boxed as `Any` so the field needn't be `cfg`-gated.
+    current_source: Option<Box<dyn std::any::Any + Send>>,
 }
 
 impl Engine {
@@ -727,6 +735,7 @@ impl Engine {
             shutdown: false,
             pending_seek: None,
             last_save: Instant::now(),
+            current_source: None,
         }
     }
 
@@ -1176,7 +1185,12 @@ impl Engine {
         let Some(path) = self.queue.get(self.index).cloned() else {
             return false;
         };
-        match Decoder::open(&path) {
+        // Remote URLs are resolved to a seekable local cache first.
+        let local = match self.resolve_source(&path) {
+            Some(p) => p,
+            None => return false,
+        };
+        match Decoder::open(&local) {
             Ok(mut dec) => {
                 self.input_rate = 0; // force resampler reconfigure on first chunk
                 let meta = dec.metadata().clone();
@@ -1207,8 +1221,40 @@ impl Engine {
 
     fn reset_current(&mut self) {
         self.decoder = None;
+        self.current_source = None; // drop any HTTP temp cache
         self.dsp.flush();
         self.shared.ring.lock().unwrap().clear();
+    }
+
+    /// Resolve a queue entry to a local path the codec can open. Local paths
+    /// pass through; `http(s)://` URLs are fetched into a seekable temp cache
+    /// (kept alive in `current_source`). Returns `None` if the URL can't be
+    /// fetched or the `http` feature is disabled.
+    fn resolve_source(&mut self, path: &Path) -> Option<PathBuf> {
+        let s = path.to_string_lossy();
+        if !source::is_url(&s) {
+            self.current_source = None;
+            return Some(path.to_path_buf());
+        }
+        #[cfg(feature = "http")]
+        {
+            match source::HttpSource::new(&s).and_then(|mut src| {
+                src.ensure_complete()?;
+                Ok(src)
+            }) {
+                Ok(src) => {
+                    let local = src.cache_path().to_path_buf();
+                    // Keep the temp file alive while its decoder is open.
+                    self.current_source = Some(Box::new(src));
+                    Some(local)
+                }
+                Err(_) => None,
+            }
+        }
+        #[cfg(not(feature = "http"))]
+        {
+            None
+        }
     }
 
     // ---- insertion (Rockbox playlist_insert_track semantics) ------------

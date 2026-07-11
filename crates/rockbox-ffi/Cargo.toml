@@ -17,6 +17,6 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 rockbox-dsp = { version = "0.2.0", path = "../rockbox-dsp" }
 rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
-rockbox-playback = { version = "0.1.0", path = "../rockbox-playback" }
+rockbox-playback = { version = "0.2.0", path = "../rockbox-playback" }
 serde = { workspace = true }
 serde_json = { workspace = true }
