@@ -18,9 +18,19 @@
  *
  ****************************************************************************/
 #define RB_FILESYSTEM_OS
+/* The *BSDs have no <sys/statfs.h>: FreeBSD keeps statfs() in <sys/mount.h>
+ * but NetBSD/OpenBSD dropped it for POSIX statvfs(). statvfs() exists on all
+ * of them and its f_frsize/f_blocks/f_bfree match the generic branch below,
+ * so use it for the whole BSD family. */
+#if defined(__FreeBSD__) || defined(__NetBSD__) || \
+    defined(__OpenBSD__) || defined(__DragonFly__)
+#define RB_STATVFS 1
+#endif
 #ifdef __APPLE__
 #include <sys/param.h>
 #include <sys/mount.h>
+#elif defined(RB_STATVFS)
+#include <sys/statvfs.h>
 #else
 #include <sys/statfs.h> /* lowest common denominator */
 #endif
@@ -217,10 +227,18 @@ void volume_size(IF_MV(int volume,) sector_t *sizep, sector_t *freep)
 {
     sector_t size = 0, free = 0;
     char volpath[MAX_PATH];
+#ifdef RB_STATVFS
+    struct statvfs fs;
+#else
     struct statfs fs;
+#endif
 
     if (os_volume_path(IF_MV(volume,) volpath, sizeof (volpath)) >= 0
+#ifdef RB_STATVFS
+        && !statvfs(volpath, &fs))
+#else
         && !statfs(volpath, &fs))
+#endif
     {
 #ifdef __APPLE__
         DEBUGF("statvfs: frsize=%d blocks=%ld bfree=%ld\n",
