@@ -93,6 +93,18 @@ jobs:
             export PATH="$HOME/bin:$PATH"
             make --version | head -n1
 
+            # --- gcc/g++ shims (FreeBSD) -------------------------------------
+            # The lang/gcc package installs versioned binaries (gccNN/g++NN)
+            # and not always a plain `gcc`. headlesshostcc() uses CC=gcc, so
+            # symlink the newest versioned binary to gcc/g++ on PATH.
+            if [ "$OS" = "FreeBSD" ] && ! command -v gcc >/dev/null 2>&1; then
+              _gcc="$(ls /usr/local/bin/gcc[0-9]* 2>/dev/null | sort -V | tail -n1)"
+              _gxx="$(ls /usr/local/bin/g++[0-9]* 2>/dev/null | sort -V | tail -n1)"
+              [ -n "$_gcc" ] && ln -sf "$_gcc" "$HOME/bin/gcc"
+              [ -n "$_gxx" ] && ln -sf "$_gxx" "$HOME/bin/g++"
+            fi
+            gcc --version | head -n1
+
             # --- Zig 0.16.0 ---------------------------------------------------
             # build.zig relies on the 0.16.0 API, so pin the official prebuilt
             # tarball. ziglang.org hosts both freebsd and netbsd x86_64 builds.
