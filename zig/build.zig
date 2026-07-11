@@ -167,6 +167,11 @@ pub fn build(b: *std.Build) void {
     }
 
     if (target.result.os.tag == .freebsd or target.result.os.tag == .netbsd) {
+        // Rust std references the C++ unwinder (_Unwind_Resume/_Unwind_Backtrace
+        // /_Unwind_GetIP …) for backtraces, thread-local destructors and the
+        // gcc personality routine. On the BSDs those symbols live in libgcc_s
+        // (base system) — the equivalent of -lunwind on Linux.
+        exe.root_module.linkSystemLibrary("gcc_s", .{});
         if (headless) {
             // The BSDs use the direct libasound sink (pcm-alsa.c +
             // rockbox-alsa-sink), not cpal — cpal's ALSA backend is
@@ -176,6 +181,8 @@ pub fn build(b: *std.Build) void {
     }
 
     if (target.result.os.tag == .openbsd) {
+        // _Unwind_* come from libgcc_s in the OpenBSD base system too.
+        exe.root_module.linkSystemLibrary("gcc_s", .{});
         if (headless) {
             // OpenBSD uses the direct libsndio sink (pcm-sndio.c +
             // rockbox-sndio-sink); libsndio ships in the base system.
