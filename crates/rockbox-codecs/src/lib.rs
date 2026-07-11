@@ -40,6 +40,25 @@ extern "C" {
         user: *mut c_void,
     );
     fn rbcodec_open(path: *const c_char) -> i32;
+    fn rbcodec_open_stream(
+        read_cb: Option<
+            unsafe extern "C" fn(*mut c_void, *mut c_void, std::ffi::c_ulong) -> std::ffi::c_long,
+        >,
+        user: *mut c_void,
+        ext: *const c_char,
+    ) -> i32;
+    fn rbcodec_open_seekable(
+        read_cb: Option<
+            unsafe extern "C" fn(*mut c_void, *mut c_void, std::ffi::c_ulong) -> std::ffi::c_long,
+        >,
+        seek_cb: Option<
+            unsafe extern "C" fn(*mut c_void, i64) -> std::ffi::c_int,
+        >,
+        user: *mut c_void,
+        size: i64,
+        frequency: std::ffi::c_ulong,
+        ext: *const c_char,
+    ) -> i32;
     fn rbcodec_run() -> i32;
     fn rbcodec_close();
     fn rbcodec_request_seek(time_ms: std::ffi::c_long);
@@ -127,6 +146,60 @@ struct SinkCtx {
     tx: SyncSender<Msg>,
 }
 
+/// Holds the byte reader for a streaming decode session; its address is the
+/// C `user` pointer passed to `rbcodec_open_stream`.
+struct ReaderCtx {
+    reader: Box<dyn std::io::Read + Send>,
+}
+
+/// Stream-read trampoline: pulls bytes from the Rust reader on the decode
+/// thread (blocking). Returns bytes read, 0 at end of stream, or -1 on error.
+unsafe extern "C" fn stream_read_trampoline(
+    user: *mut c_void,
+    buf: *mut c_void,
+    len: std::ffi::c_ulong,
+) -> std::ffi::c_long {
+    let ctx = &mut *(user as *mut ReaderCtx);
+    let slice = std::slice::from_raw_parts_mut(buf as *mut u8, len as usize);
+    match ctx.reader.read(slice) {
+        Ok(n) => n as std::ffi::c_long,
+        Err(_) => -1,
+    }
+}
+
+/// A seekable byte source for a streaming decode session (e.g. an HTTP file
+/// buffered on demand via range requests).
+pub trait SeekableSource: std::io::Read + std::io::Seek + Send {}
+impl<T: std::io::Read + std::io::Seek + Send> SeekableSource for T {}
+
+/// Holds a seekable source; its address is the C `user` pointer passed to
+/// `rbcodec_open_seekable`.
+struct SeekCtx {
+    source: Box<dyn SeekableSource>,
+}
+
+unsafe extern "C" fn seek_read_trampoline(
+    user: *mut c_void,
+    buf: *mut c_void,
+    len: std::ffi::c_ulong,
+) -> std::ffi::c_long {
+    let ctx = &mut *(user as *mut SeekCtx);
+    let slice = std::slice::from_raw_parts_mut(buf as *mut u8, len as usize);
+    match ctx.source.read(slice) {
+        Ok(n) => n as std::ffi::c_long,
+        Err(_) => -1,
+    }
+}
+
+/// Seek trampoline: absolute byte seek. Returns 0 on success, -1 on error.
+unsafe extern "C" fn seek_seek_trampoline(user: *mut c_void, pos: i64) -> std::ffi::c_int {
+    let ctx = &mut *(user as *mut SeekCtx);
+    match ctx.source.seek(std::io::SeekFrom::Start(pos.max(0) as u64)) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
 /// Sink trampoline, called on the decode thread for every burst of PCM
 /// the codec produces. A blocking send provides backpressure; when the
 /// receiver is gone (Decoder dropped mid-track) we request a halt and
@@ -154,6 +227,10 @@ pub struct Decoder {
     thread: Option<std::thread::JoinHandle<()>>,
     /// Kept alive for the C sink's `user` pointer.
     _sink: Box<SinkCtx>,
+    /// Kept alive for the C stream-read `user` pointer (streaming only).
+    _reader: Option<Box<ReaderCtx>>,
+    /// Kept alive for the C seekable-source `user` pointer (HTTP files).
+    _seek: Option<Box<SeekCtx>>,
     meta: Metadata,
     status: Option<i32>,
 }
@@ -208,6 +285,131 @@ impl Decoder {
             rx,
             thread: Some(thread),
             _sink: sink,
+            _reader: None,
+            _seek: None,
+            meta,
+            status: None,
+        })
+    }
+
+    /// Open an unbounded, forward-only byte stream (e.g. internet radio) and
+    /// start decoding. Unlike [`Decoder::open`], there is no seekable file:
+    /// `reader` is pulled forward on the decode thread (blocking), and the
+    /// codec is chosen from `format_ext` (`"mp3"`, `"ogg"`, `"aac"`, …) since
+    /// there is no file to sniff. Only self-describing streamable formats
+    /// work; `meta` supplies whatever is known up front (e.g. codec label),
+    /// with duration left `0` (unknown).
+    ///
+    /// Blocks while another `Decoder` exists (the codec state is global).
+    pub fn open_stream(
+        reader: Box<dyn std::io::Read + Send>,
+        format_ext: &str,
+        meta: Metadata,
+    ) -> Result<Self, Error> {
+        let c_ext = CString::new(format_ext).map_err(|_| Error::InvalidPath)?;
+
+        GATE.acquire();
+
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Msg>(8);
+        let sink = Box::new(SinkCtx { tx: tx.clone() });
+        let reader = Box::new(ReaderCtx { reader });
+
+        let rc = unsafe {
+            rbcodec_set_sink(Some(sink_trampoline), &*sink as *const SinkCtx as *mut c_void);
+            rbcodec_open_stream(
+                Some(stream_read_trampoline),
+                &*reader as *const ReaderCtx as *mut c_void,
+                c_ext.as_ptr(),
+            )
+        };
+        if rc != 0 {
+            GATE.release();
+            return Err(match rc {
+                -3 => Error::CodecNotAvailable(meta.codec.clone()),
+                _ => Error::CodecInit(std::path::PathBuf::from(format_ext)),
+            });
+        }
+
+        let thread = std::thread::Builder::new()
+            .name("rbcodec".into())
+            .spawn(move || {
+                let status = unsafe { rbcodec_run() };
+                let _ = tx.send(Msg::Done(status));
+            })
+            .expect("spawn codec thread");
+
+        Ok(Decoder {
+            rx,
+            thread: Some(thread),
+            _sink: sink,
+            _reader: Some(reader),
+            _seek: None,
+            meta,
+            status: None,
+        })
+    }
+
+    /// Open a *seekable* byte source (`Read + Seek`, e.g. an HTTP file
+    /// buffered on demand via range requests) and start decoding. Unlike
+    /// [`Decoder::open`] there is no local file: the codec reads and seeks
+    /// through `source` lazily, so decoding starts as soon as the header is
+    /// available — the whole file need never be downloaded.
+    ///
+    /// `size` is the total byte length (`0` if unknown); `frequency` seeds the
+    /// codec's sample rate for formats that need it up front (e.g. WAV), since
+    /// `get_metadata` is skipped. `meta` supplies the tags/duration (parse
+    /// them separately, e.g. from a prefetched header). The codec is chosen
+    /// from `format_ext` (`"mp3"`, `"flac"`, …).
+    ///
+    /// Blocks while another `Decoder` exists (the codec state is global).
+    pub fn open_seekable(
+        source: Box<dyn SeekableSource>,
+        size: u64,
+        frequency: u32,
+        format_ext: &str,
+        meta: Metadata,
+    ) -> Result<Self, Error> {
+        let c_ext = CString::new(format_ext).map_err(|_| Error::InvalidPath)?;
+
+        GATE.acquire();
+
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Msg>(8);
+        let sink = Box::new(SinkCtx { tx: tx.clone() });
+        let seek = Box::new(SeekCtx { source });
+
+        let rc = unsafe {
+            rbcodec_set_sink(Some(sink_trampoline), &*sink as *const SinkCtx as *mut c_void);
+            rbcodec_open_seekable(
+                Some(seek_read_trampoline),
+                Some(seek_seek_trampoline),
+                &*seek as *const SeekCtx as *mut c_void,
+                size as i64,
+                frequency as std::ffi::c_ulong,
+                c_ext.as_ptr(),
+            )
+        };
+        if rc != 0 {
+            GATE.release();
+            return Err(match rc {
+                -3 => Error::CodecNotAvailable(meta.codec.clone()),
+                _ => Error::CodecInit(std::path::PathBuf::from(format_ext)),
+            });
+        }
+
+        let thread = std::thread::Builder::new()
+            .name("rbcodec".into())
+            .spawn(move || {
+                let status = unsafe { rbcodec_run() };
+                let _ = tx.send(Msg::Done(status));
+            })
+            .expect("spawn codec thread");
+
+        Ok(Decoder {
+            rx,
+            thread: Some(thread),
+            _sink: sink,
+            _reader: None,
+            _seek: Some(seek),
             meta,
             status: None,
         })

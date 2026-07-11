@@ -64,7 +64,7 @@ impl MediaSource for FileSource {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "http")]
-pub use http::HttpSource;
+pub use http::{open_remote, HttpSource, HttpStream, Remote};
 
 #[cfg(feature = "http")]
 mod http {
@@ -94,65 +94,103 @@ mod http {
         pos: u64,
     }
 
+    /// Result of a one-byte probe GET.
+    struct Probe {
+        /// Total length if the server reported one (`None` = unbounded stream).
+        length: Option<u64>,
+        /// Whether the server honoured `Range` (206).
+        ranges: bool,
+        /// Format extension from the `Content-Type` header, if recognised.
+        mime_ext: Option<String>,
+        /// The probe response — its body is the stream when unbounded.
+        resp: reqwest::blocking::Response,
+    }
+
+    /// Build the HTTP client. A connect timeout keeps an unreachable or
+    /// hanging host from blocking the decode/engine thread forever; no total
+    /// timeout is set, so long-lived live streams and slow large fetches are
+    /// not aborted mid-transfer.
+    fn build_client() -> io::Result<reqwest::blocking::Client> {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(to_io)
+    }
+
+    fn probe(client: &reqwest::blocking::Client, url: &str) -> io::Result<Probe> {
+        let resp = client
+            .get(url)
+            .header(reqwest::header::RANGE, "bytes=0-0")
+            .send()
+            .map_err(to_io)?
+            .error_for_status()
+            .map_err(to_io)?;
+        let status = resp.status();
+
+        let mime_ext = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(mime_to_ext);
+
+        let (length, ranges) = if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            let total = resp
+                .headers()
+                .get(reqwest::header::CONTENT_RANGE)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.rsplit('/').next())
+                .and_then(|s| s.trim().parse::<u64>().ok());
+            (total, true)
+        } else {
+            (resp.content_length(), false)
+        };
+
+        Ok(Probe {
+            length,
+            ranges,
+            mime_ext,
+            resp,
+        })
+    }
+
+    /// A recognised format extension (no dot) from a `Content-Type`, else the
+    /// URL's extension.
+    fn stream_ext(mime_ext: &Option<String>, url: &str) -> String {
+        let with_dot = mime_ext.clone().unwrap_or_else(|| url_suffix(url));
+        with_dot.trim_start_matches('.').to_string()
+    }
+
     impl HttpSource {
         /// Probe `url` (size + range support) and create the cache. Does not
-        /// download any media body yet.
+        /// download any media body yet. Errors if the server reports no length
+        /// (an unbounded stream — use [`HttpStream`] / [`open_remote`]).
         pub fn new(url: &str) -> io::Result<Self> {
-            let client = reqwest::blocking::Client::builder()
-                .build()
-                .map_err(to_io)?;
-
-            // A 1-byte ranged GET tells us the total size (`Content-Range`)
-            // and whether ranges are honoured (206 vs 200), cheaply.
-            let resp = client
-                .get(url)
-                .header(reqwest::header::RANGE, "bytes=0-0")
-                .send()
-                .map_err(to_io)?;
-            let status = resp.status();
-
-            let (size, ranges) = if status == reqwest::StatusCode::PARTIAL_CONTENT {
-                let total = resp
-                    .headers()
-                    .get(reqwest::header::CONTENT_RANGE)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.rsplit('/').next())
-                    .and_then(|s| s.trim().parse::<u64>().ok());
-                (total, true)
-            } else if status.is_success() {
-                let len = resp.content_length();
-                (len, false)
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("HTTP {status} for {url}"),
-                ));
-            };
-
-            let size = size.ok_or_else(|| {
+            let client = build_client()?;
+            let p = probe(&client, url)?;
+            let size = p.length.ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::Other,
                     "server did not report a content length",
                 )
             })?;
+            let suffix = p.mime_ext.unwrap_or_else(|| url_suffix(url));
+            HttpSource::build(client, url, size, p.ranges, &suffix)
+        }
 
-            // Prefer the server's declared MIME type for format detection; the
-            // codec/metadata layer is probed partly by file extension, and a
-            // URL may carry a misleading or absent one (e.g. `/stream?id=42`).
-            let mime_ext = resp
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .and_then(mime_to_ext);
-            let suffix = mime_ext.unwrap_or_else(|| url_suffix(url));
+        fn build(
+            client: reqwest::blocking::Client,
+            url: &str,
+            size: u64,
+            ranges: bool,
+            suffix: &str,
+        ) -> io::Result<Self> {
             let named = tempfile::Builder::new()
                 .prefix("rbstream_")
-                .suffix(&suffix)
+                .suffix(suffix)
                 .tempfile()
                 .map_err(to_io)?;
             named.as_file().set_len(size)?;
             let (file, path) = named.into_parts();
-
             Ok(HttpSource {
                 client,
                 url: url.to_string(),
@@ -176,6 +214,20 @@ mod http {
         /// copy the codec/metadata layer can open directly.
         pub fn ensure_complete(&mut self) -> io::Result<()> {
             self.ensure(0, self.size)
+        }
+
+        /// Prefetch exactly `[0, len)` (clamped to the size) into the cache —
+        /// used to make just the header available so metadata can be parsed
+        /// and decoding can begin without downloading the whole file. Unlike a
+        /// normal read this adds no read-ahead, so the header fetch stays
+        /// bounded. Leaves the read cursor at 0.
+        pub fn prefetch(&mut self, len: u64) -> io::Result<()> {
+            let end = len.min(self.size);
+            if !self.contains(0, end) {
+                self.fetch(0, end)?;
+            }
+            self.pos = 0;
+            Ok(())
         }
 
         /// Make sure `[start, end)` is present in the cache, fetching the
@@ -323,6 +375,67 @@ mod http {
     impl MediaSource for HttpSource {
         fn size(&self) -> u64 {
             self.size
+        }
+    }
+
+    /// An unbounded, forward-only HTTP stream (e.g. internet radio) — no known
+    /// length, no seeking. Implements [`Read`] by pulling from a live
+    /// response body; the audio format is carried out-of-band (from the
+    /// `Content-Type` header) since there is nothing to seek and sniff.
+    pub struct HttpStream {
+        resp: reqwest::blocking::Response,
+        ext: String,
+    }
+
+    impl HttpStream {
+        /// Open `url` as a live stream (a plain GET whose body is consumed
+        /// forward-only).
+        pub fn new(url: &str) -> io::Result<Self> {
+            let client = build_client()?;
+            let p = probe(&client, url)?;
+            let ext = stream_ext(&p.mime_ext, url);
+            Ok(HttpStream { resp: p.resp, ext })
+        }
+
+        /// Format hint (extension without dot, e.g. `"mp3"`) for the decoder.
+        pub fn format_ext(&self) -> &str {
+            &self.ext
+        }
+    }
+
+    impl Read for HttpStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.resp.read(buf)
+        }
+    }
+
+    /// A remote URL resolved to either a seekable finite file or an unbounded
+    /// live stream. See [`open_remote`].
+    pub enum Remote {
+        /// A finite, seekable file (fetch into its cache, then decode it).
+        File(HttpSource),
+        /// An unbounded live stream (decode forward-only).
+        Stream(HttpStream),
+    }
+
+    /// Probe `url` once and classify it: a server that reports a length is a
+    /// seekable [`Remote::File`]; one that does not (chunked / ICY radio) is a
+    /// [`Remote::Stream`] whose probe response body *is* the stream, so no
+    /// second request is made.
+    pub fn open_remote(url: &str) -> io::Result<Remote> {
+        let client = build_client()?;
+        let p = probe(&client, url)?;
+        match p.length {
+            Some(size) => {
+                let suffix = p.mime_ext.clone().unwrap_or_else(|| url_suffix(url));
+                Ok(Remote::File(HttpSource::build(
+                    client, url, size, p.ranges, &suffix,
+                )?))
+            }
+            None => {
+                let ext = stream_ext(&p.mime_ext, url);
+                Ok(Remote::Stream(HttpStream { resp: p.resp, ext }))
+            }
         }
     }
 

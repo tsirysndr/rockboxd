@@ -229,3 +229,252 @@ fn plays_a_remote_http_wav() {
         "remote WAV should play to the end and stop"
     );
 }
+
+/// Track bytes served, so a test can prove playback started without a full
+/// download.
+fn spawn_counting_server(body: Vec<u8>, content_type: &str) -> (TestServer, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}/big", addr);
+    let requests = Arc::new(AtomicUsize::new(0));
+    let served = Arc::new(AtomicUsize::new(0));
+
+    let body = Arc::new(body);
+    let ct = content_type.to_string();
+    let req_c = Arc::clone(&requests);
+    let served_c = Arc::clone(&served);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let body = Arc::clone(&body);
+            let ct = ct.clone();
+            let rc = Arc::clone(&req_c);
+            let sc = Arc::clone(&served_c);
+            std::thread::spawn(move || {
+                rc.fetch_add(1, Ordering::SeqCst);
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut range: Option<(u64, u64)> = None;
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    if line == "\r\n" || line == "\n" {
+                        break;
+                    }
+                    if let Some(v) = line
+                        .to_ascii_lowercase()
+                        .strip_prefix("range:")
+                        .map(str::trim)
+                        .and_then(|v| v.strip_prefix("bytes="))
+                        .map(str::to_string)
+                    {
+                        let (s, e) = v.split_once('-').unwrap_or((v.as_str(), ""));
+                        let start: u64 = s.trim().parse().unwrap_or(0);
+                        let end: u64 = e
+                            .trim()
+                            .parse()
+                            .unwrap_or(body.len() as u64 - 1)
+                            .min(body.len() as u64 - 1);
+                        range = Some((start, end));
+                    }
+                }
+                let total = body.len() as u64;
+                let (s, e) = range.unwrap_or((0, total - 1));
+                let slice = &body[s as usize..=e as usize];
+                sc.fetch_add(slice.len(), Ordering::SeqCst);
+                let mut head = format!(
+                    "HTTP/1.1 206 Partial Content\r\nContent-Type: {ct}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {s}-{e}/{total}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    slice.len()
+                )
+                .into_bytes();
+                head.extend_from_slice(slice);
+                let _ = stream.write_all(&head);
+                let _ = stream.flush();
+            });
+        }
+    });
+
+    (TestServer { url, requests }, served)
+}
+
+#[test]
+fn big_finite_file_starts_without_full_download() {
+    // A large finite MP3 (~2 min ≈ 2 MB at 128 kbps): playback must start
+    // after buffering only the header (via range requests), not after
+    // downloading the whole file.
+    let Some(mp3) = encode_mp3(120.0, 440.0) else {
+        eprintln!("ffmpeg not installed — skipping");
+        return;
+    };
+    let total = mp3.len();
+    assert!(
+        total > 1_500_000,
+        "need a sizeable file for this test (got {total})"
+    );
+    let (server, served) = spawn_counting_server(mp3, "audio/mpeg");
+
+    let Ok(player) = Player::new() else {
+        eprintln!("no output device — skipping");
+        return;
+    };
+    player.set_volume(0.05);
+    player.set_queue(vec![server.url.clone()]);
+    player.play();
+
+    assert!(
+        wait_until(&player, Duration::from_secs(5), |p| {
+            p.status().state == PlaybackState::Playing && p.status().position > Duration::ZERO
+        }),
+        "big remote file should start playing quickly"
+    );
+
+    // At the moment playback starts, only the header region (plus read-ahead)
+    // should have been fetched — nowhere near the whole file.
+    let bytes = served.load(Ordering::SeqCst);
+    assert!(
+        bytes < total / 2,
+        "should not have downloaded the whole file to start: served {bytes} of {total}"
+    );
+
+    player.stop();
+    assert!(wait_until(&player, Duration::from_secs(3), |p| {
+        p.status().state == PlaybackState::Stopped
+    }));
+}
+
+// ---- infinite / live stream (no Content-Length) ---------------------------
+
+/// Serve `body`, repeated `repeats` times, as a chunked HTTP response with NO
+/// Content-Length and NO Range support — i.e. an unbounded live stream like
+/// internet radio. A short delay between chunks mimics real-time delivery.
+fn spawn_stream_server(body: Vec<u8>, repeats: usize, content_type: &str) -> TestServer {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}/radio", addr);
+    let requests = Arc::new(AtomicUsize::new(0));
+
+    let body = Arc::new(body);
+    let ct = content_type.to_string();
+    let counter = Arc::clone(&requests);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let body = Arc::clone(&body);
+            let ct = ct.clone();
+            let counter = Arc::clone(&counter);
+            std::thread::spawn(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                // Drain request headers.
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    if line == "\r\n" || line == "\n" {
+                        break;
+                    }
+                }
+                // Chunked response, no Content-Length → unbounded stream.
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+                );
+                if stream.write_all(head.as_bytes()).is_err() {
+                    return;
+                }
+                for _ in 0..repeats {
+                    for piece in body.chunks(8192) {
+                        let hdr = format!("{:x}\r\n", piece.len());
+                        if stream.write_all(hdr.as_bytes()).is_err()
+                            || stream.write_all(piece).is_err()
+                            || stream.write_all(b"\r\n").is_err()
+                        {
+                            return;
+                        }
+                        let _ = stream.flush();
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
+                let _ = stream.write_all(b"0\r\n\r\n");
+                let _ = stream.flush();
+            });
+        }
+    });
+
+    TestServer { url, requests }
+}
+
+/// Encode `secs` of a `freq` Hz sine as MP3 via ffmpeg. Returns `None` if
+/// ffmpeg isn't installed (the test then skips).
+fn encode_mp3(secs: f32, freq: f32) -> Option<Vec<u8>> {
+    use std::process::Command;
+    let wav = wav_bytes(secs, freq);
+    let dir = std::env::temp_dir();
+    let wav_path = dir.join(format!("rbstream_src_{}.wav", std::process::id()));
+    let mp3_path = dir.join(format!("rbstream_src_{}.mp3", std::process::id()));
+    std::fs::write(&wav_path, &wav).ok()?;
+    let status = Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "quiet", "-i"])
+        .arg(&wav_path)
+        .args(["-codec:a", "libmp3lame", "-b:a", "128k"])
+        .arg(&mp3_path)
+        .status();
+    let out = match status {
+        Ok(s) if s.success() => std::fs::read(&mp3_path).ok(),
+        _ => None,
+    };
+    let _ = std::fs::remove_file(&wav_path);
+    let _ = std::fs::remove_file(&mp3_path);
+    out
+}
+
+#[test]
+fn plays_an_infinite_http_stream() {
+    // A live MP3 stream with no Content-Length; format from audio/mpeg.
+    let Some(mp3) = encode_mp3(0.5, 440.0) else {
+        eprintln!("ffmpeg not installed — skipping infinite-stream test");
+        return;
+    };
+    // Repeat the clip enough times that the stream outlives the assertions.
+    let server = spawn_stream_server(mp3, 40, "audio/mpeg");
+
+    let Ok(player) = Player::new() else {
+        eprintln!("no output device — skipping");
+        return;
+    };
+    player.set_volume(0.05);
+    player.set_queue(vec![server.url.clone()]);
+    player.play();
+
+    // It must start playing and keep playing (unbounded — no auto-stop).
+    assert!(
+        wait_until(&player, Duration::from_secs(6), |p| {
+            p.status().state == PlaybackState::Playing
+        }),
+        "live stream should start playing"
+    );
+    // Confirm position advances (audio really flows), and it does NOT stop.
+    assert!(
+        wait_until(&player, Duration::from_secs(4), |p| {
+            p.status().position >= Duration::from_millis(300)
+        }),
+        "live stream position should advance"
+    );
+    assert_eq!(
+        player.status().state,
+        PlaybackState::Playing,
+        "an unbounded stream must not auto-stop"
+    );
+
+    // A manual stop must interrupt the never-ending stream promptly.
+    player.stop();
+    assert!(
+        wait_until(&player, Duration::from_secs(3), |p| {
+            p.status().state == PlaybackState::Stopped
+        }),
+        "stop() should interrupt a live stream"
+    );
+}

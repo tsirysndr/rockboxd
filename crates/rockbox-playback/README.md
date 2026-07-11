@@ -40,8 +40,10 @@ player.play();
   [M3U playlists](#m3u--m3u8-playlists)).
 - **HTTP(S) remote media** (feature `http`, on by default): queue
   `http(s)://` URLs alongside local files. Seekable files are fetched with
-  HTTP **range requests** into a local cache; the format is detected from
-  the `Content-Type` header (see [Remote media](#remote-media-http)).
+  HTTP **range requests** into a local cache; **unbounded live streams**
+  (internet radio) are decoded on the fly, never downloaded in full. The
+  format is detected from the `Content-Type` header (see
+  [Remote media](#remote-media-http)).
 - **Gapless by default** — the buffered tail of each track plays out before
   the next begins, so there's no click or silence at a boundary.
 - **Crossfade**: a port of `apps/pcmbuf.c` (see below). Fade-in/out delays
@@ -214,17 +216,29 @@ src.read_exact(&mut buf)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-How it works: a seekable remote file is fetched on demand with HTTP
-**range requests** into a temp-file cache, which the codec/metadata layer
-(which needs arbitrary seeks — `get_metadata` is vendored firmware and
-can't be intercepted) then reads. The audio **format is detected from the
-`Content-Type` response header** (e.g. `audio/flac` → FLAC), falling back
-to the URL's extension — so an extension-less `/stream?id=42` still works.
+A single probe classifies each URL:
 
-The [`MediaSource`] trait (`Read + Seek + size`) is the seam:
-[`FileSource`] for local files, [`HttpSource`] for remote ones. Disable
-the `http` feature for a local-file-only build with no `reqwest`
-dependency.
+- **Seekable finite file** (the server reports a length): playback starts
+  as soon as the **header** is buffered — only ~512 KiB is fetched up front
+  (via a range request) to read the format/rate/duration, then the codec
+  reads and seeks through the file **on demand**, fetching only the ranges
+  it needs. A big file is never downloaded in full just to start, and
+  already-fetched ranges (plus read-ahead) are served from a local cache,
+  so backward seeks and mid-file scrubbing are cheap.
+- **Unbounded live stream** (no length — chunked / ICY internet radio): the
+  response body is decoded **forward-only, on the fly**, never downloaded
+  in full. A self-describing codec (MP3/Ogg/AAC/…) derives its format from
+  the bitstream; there is no seeking, and playback continues until you skip
+  or stop it.
+
+In both cases the audio **format is detected from the `Content-Type`
+response header** (e.g. `audio/flac` → FLAC), falling back to the URL's
+extension — so an extension-less `/stream?id=42` still resolves a codec.
+
+The [`MediaSource`] trait (`Read + Seek + size`) is the seam for finite
+sources: [`FileSource`] for local files, [`HttpSource`] for remote ones;
+live streams use [`HttpStream`] (`Read`-only). Disable the `http` feature
+for a local-file-only build with no `reqwest` dependency.
 
 ## Crossfade fidelity
 

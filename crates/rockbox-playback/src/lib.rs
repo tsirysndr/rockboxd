@@ -39,9 +39,9 @@ pub use m3u::M3uEntry;
 pub use resume::ResumeState;
 pub use rockbox_codecs::Decoder;
 pub use rockbox_metadata::Metadata;
-#[cfg(feature = "http")]
-pub use source::HttpSource;
 pub use source::{is_url, FileSource, MediaSource};
+#[cfg(feature = "http")]
+pub use source::{HttpSource, HttpStream};
 
 /// Read a resume snapshot written by a previous session without constructing
 /// a [`Player`] — e.g. to decide whether to offer "resume playback" in a UI.
@@ -51,7 +51,7 @@ pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
 }
 
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -1185,38 +1185,104 @@ impl Engine {
         let Some(path) = self.queue.get(self.index).cloned() else {
             return false;
         };
-        // Remote URLs are resolved to a seekable local cache first.
-        let local = match self.resolve_source(&path) {
-            Some(p) => p,
-            None => return false,
+        let s = path.to_string_lossy().into_owned();
+
+        // A remote URL is either a seekable finite file (fetched into a cache
+        // and decoded like a local file) or an unbounded live stream (decoded
+        // forward-only). Local paths open directly.
+        if source::is_url(&s) {
+            match self.open_remote(&s) {
+                Some(ok) => return ok,
+                None => return false,
+            }
+        }
+        self.current_source = None;
+        let dec = match Decoder::open(&path) {
+            Ok(d) => d,
+            Err(_) => return false,
         };
-        match Decoder::open(&local) {
-            Ok(mut dec) => {
-                self.input_rate = 0; // force resampler reconfigure on first chunk
-                let meta = dec.metadata().clone();
-                self.shared
-                    .duration_ms
-                    .store(meta.duration.as_millis() as u64, Ordering::Relaxed);
-                // A resume restore seeks this track to its exact saved
-                // position; any other track (or a stale target) starts at 0.
-                let mut start_ms = 0u64;
-                if let Some((idx, pos)) = self.pending_seek.take() {
-                    if idx == self.index && !pos.is_zero() {
-                        dec.seek(pos);
-                        start_ms = pos.as_millis() as u64;
+        self.install_decoder(dec, /* seekable = */ true)
+    }
+
+    /// Open an `http(s)://` URL. Returns `Some(true/false)` once handled (the
+    /// bool is decoder-open success), or `None` when the `http` feature is off.
+    fn open_remote(&mut self, url: &str) -> Option<bool> {
+        #[cfg(feature = "http")]
+        {
+            match source::open_remote(url) {
+                Ok(source::Remote::File(mut src)) => {
+                    self.current_source = None;
+                    // Buffer only the header via range requests, then decode
+                    // the rest on demand — no full download, playback starts
+                    // as soon as the header is present. ~512 KiB covers the
+                    // format/rate/duration for the common codecs.
+                    const HEADER_BYTES: u64 = 512 * 1024;
+                    if src.prefetch(HEADER_BYTES).is_err() {
+                        return Some(false);
+                    }
+                    let size = src.size();
+                    // Parse tags/duration from the prefetched header (the cache
+                    // file is full-size and sparse, so this reads what's there).
+                    let meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                    let ext = src
+                        .cache_path()
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let freq = meta.sample_rate;
+                    match Decoder::open_seekable(Box::new(src), size, freq, &ext, meta) {
+                        Ok(dec) => Some(self.install_decoder(dec, true)),
+                        Err(_) => Some(false),
                     }
                 }
-                self.shared.decode_pos_ms.store(start_ms, Ordering::Relaxed);
-                self.shared.index.store(self.index, Ordering::Relaxed);
-                apply_replaygain_track(&mut self.dsp, &meta);
-                *self.shared.meta.lock().unwrap() = Some(meta);
-                self.decoder = Some(dec);
-                // Track change (or resume) — refresh the resume index.
-                self.save_resume();
-                true
+                Ok(source::Remote::Stream(stream)) => {
+                    // Unbounded: no random access, so skip get_metadata and
+                    // decode the response body forward-only.
+                    self.current_source = None;
+                    let ext = stream.format_ext().to_string();
+                    let mut meta = Metadata::default();
+                    meta.codec = ext.to_uppercase();
+                    match Decoder::open_stream(Box::new(stream), &ext, meta) {
+                        Ok(dec) => Some(self.install_decoder(dec, false)),
+                        Err(_) => Some(false),
+                    }
+                }
+                Err(_) => Some(false),
             }
-            Err(_) => false,
         }
+        #[cfg(not(feature = "http"))]
+        {
+            let _ = url;
+            None
+        }
+    }
+
+    /// Wire an opened decoder into engine state. `seekable` gates the
+    /// resume-position seek (a live stream can't seek). Returns `true`.
+    fn install_decoder(&mut self, mut dec: Decoder, seekable: bool) -> bool {
+        self.input_rate = 0; // force resampler reconfigure on first chunk
+        let meta = dec.metadata().clone();
+        self.shared
+            .duration_ms
+            .store(meta.duration.as_millis() as u64, Ordering::Relaxed);
+        // A resume restore seeks this track to its exact saved position; any
+        // other track (or a stale target) starts at 0. Streams can't seek.
+        let mut start_ms = 0u64;
+        if let Some((idx, pos)) = self.pending_seek.take() {
+            if seekable && idx == self.index && !pos.is_zero() {
+                dec.seek(pos);
+                start_ms = pos.as_millis() as u64;
+            }
+        }
+        self.shared.decode_pos_ms.store(start_ms, Ordering::Relaxed);
+        self.shared.index.store(self.index, Ordering::Relaxed);
+        apply_replaygain_track(&mut self.dsp, &meta);
+        *self.shared.meta.lock().unwrap() = Some(meta);
+        self.decoder = Some(dec);
+        // Track change (or resume) — refresh the resume index.
+        self.save_resume();
+        true
     }
 
     fn reset_current(&mut self) {
@@ -1224,37 +1290,6 @@ impl Engine {
         self.current_source = None; // drop any HTTP temp cache
         self.dsp.flush();
         self.shared.ring.lock().unwrap().clear();
-    }
-
-    /// Resolve a queue entry to a local path the codec can open. Local paths
-    /// pass through; `http(s)://` URLs are fetched into a seekable temp cache
-    /// (kept alive in `current_source`). Returns `None` if the URL can't be
-    /// fetched or the `http` feature is disabled.
-    fn resolve_source(&mut self, path: &Path) -> Option<PathBuf> {
-        let s = path.to_string_lossy();
-        if !source::is_url(&s) {
-            self.current_source = None;
-            return Some(path.to_path_buf());
-        }
-        #[cfg(feature = "http")]
-        {
-            match source::HttpSource::new(&s).and_then(|mut src| {
-                src.ensure_complete()?;
-                Ok(src)
-            }) {
-                Ok(src) => {
-                    let local = src.cache_path().to_path_buf();
-                    // Keep the temp file alive while its decoder is open.
-                    self.current_source = Some(Box::new(src));
-                    Some(local)
-                }
-                Err(_) => None,
-            }
-        }
-        #[cfg(not(feature = "http"))]
-        {
-            None
-        }
     }
 
     // ---- insertion (Rockbox playlist_insert_track semantics) ------------
