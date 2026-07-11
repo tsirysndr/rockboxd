@@ -51,4 +51,77 @@ defmodule RockboxTest do
     assert status.state == "stopped"
     assert status.queue_len == 1
   end
+
+  test "queue insert and read back" do
+    p = Rockbox.Player.new(volume: 0.0)
+    :ok = Rockbox.Player.set_queue(p, [@fixture])
+    :ok = Rockbox.Player.insert(p, [@fixture], :insert_last)
+    Process.sleep(100)
+
+    q = Rockbox.Player.queue(p)
+    assert is_list(q)
+    assert length(q) == 2
+    assert Enum.all?(q, &is_binary/1)
+  end
+
+  test "insert position atom maps to code" do
+    assert Rockbox.InsertPosition.to_int(:prepend) == 0
+    assert Rockbox.InsertPosition.to_int(:index) == 7
+    assert Rockbox.InsertPosition.to_int(3) == 3
+  end
+
+  test "is_url? classifies strings" do
+    assert Rockbox.is_url?("http://example.com/stream.mp3")
+    assert Rockbox.is_url?("https://example.com/stream.mp3")
+    refute Rockbox.is_url?("/local/path/song.flac")
+  end
+
+  test "m3u write then read round-trips" do
+    path = Path.join(System.tmp_dir!(), "rockbox_test_#{System.unique_integer([:positive])}.m3u8")
+    on_exit(fn -> File.rm(path) end)
+
+    :ok = Rockbox.m3u_write(path, [@fixture])
+    {:ok, entries} = Rockbox.m3u_read(path)
+    assert is_list(entries)
+    assert length(entries) == 1
+    assert hd(entries).path =~ "Internet Money"
+  end
+
+  test "player export_m3u and load_m3u" do
+    p = Rockbox.Player.new(volume: 0.0)
+    :ok = Rockbox.Player.set_queue(p, [@fixture])
+    Process.sleep(100)
+
+    path = Path.join(System.tmp_dir!(), "rockbox_export_#{System.unique_integer([:positive])}.m3u8")
+    on_exit(fn -> File.rm(path) end)
+
+    :ok = Rockbox.Player.export_m3u(p, path)
+    assert File.exists?(path)
+
+    {:ok, loaded} = Rockbox.Player.load_m3u(p, path)
+    assert is_list(loaded)
+    assert length(loaded) == 1
+  end
+
+  test "resume config: save, load_resume, clear" do
+    path = Path.join(System.tmp_dir!(), "rockbox_resume_#{System.unique_integer([:positive])}.m3u8")
+    on_exit(fn -> File.rm(path) end)
+
+    p = Rockbox.Player.new(volume: 0.0, resume_file: path)
+    :ok = Rockbox.Player.set_queue(p, [@fixture])
+    Process.sleep(100)
+
+    :ok = Rockbox.Player.save_resume(p)
+    # save_resume is processed asynchronously by the engine thread.
+    Process.sleep(100)
+    assert File.exists?(path)
+
+    {:ok, state} = Rockbox.load_resume(path)
+    assert is_list(state.tracks)
+    assert is_integer(state.index)
+    assert is_integer(state.elapsed_ms)
+
+    :ok = Rockbox.Player.clear_resume(p)
+    refute File.exists?(path)
+  end
 end

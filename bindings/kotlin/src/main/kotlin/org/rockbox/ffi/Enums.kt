@@ -31,6 +31,18 @@ enum class MixMode(val value: Int) {
     MIX(1),
 }
 
+/** Where to place tracks when inserting into the queue (`rb_player_insert_json`). */
+enum class InsertPosition(val value: Int) {
+    PREPEND(0),
+    INSERT(1),
+    INSERT_NEXT(2),
+    INSERT_LAST(3),
+    INSERT_SHUFFLED(4),
+    INSERT_LAST_SHUFFLED(5),
+    REPLACE(6),
+    INDEX(7),
+}
+
 enum class ChannelConfig(val value: Int) {
     STEREO(0),
     MONO(1),

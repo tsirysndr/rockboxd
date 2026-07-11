@@ -64,9 +64,18 @@ export const SPEC: Record<string, SymSpec> = {
     ],
     ret: "ptr",
   },
+  rb_player_new_with_config_ex: {
+    args: [
+      "u32", "f32", "f32", "i32", "f32", "bool", "i32", "u32", "u32", "u32",
+      "u32", "i32", "strbuf", "u32",
+    ],
+    ret: "ptr",
+  },
   rb_player_free: { args: ["ptr"], ret: "void" },
   rb_player_set_queue_json: { args: ["ptr", "strbuf"], ret: "void" },
   rb_player_enqueue: { args: ["ptr", "strbuf"], ret: "void" },
+  rb_player_insert_json: { args: ["ptr", "strbuf", "i32", "usize"], ret: "void" },
+  rb_player_queue_json: { args: ["ptr"], ret: "ptr" },
   rb_player_play: { args: ["ptr"], ret: "void" },
   rb_player_pause: { args: ["ptr"], ret: "void" },
   rb_player_toggle: { args: ["ptr"], ret: "void" },
@@ -84,6 +93,18 @@ export const SPEC: Record<string, SymSpec> = {
   rb_player_volume: { args: ["ptr"], ret: "f32" },
   rb_player_sample_rate: { args: ["ptr"], ret: "u32" },
   rb_player_status_json: { args: ["ptr"], ret: "ptr" },
+
+  rb_player_resume: { args: ["ptr"], ret: "ptr" },
+  rb_player_save_resume: { args: ["ptr"], ret: "void" },
+  rb_player_clear_resume: { args: ["ptr"], ret: "void" },
+  rb_load_resume_json: { args: ["strbuf"], ret: "ptr" },
+
+  rb_player_import_m3u: { args: ["ptr", "strbuf", "i32", "usize"], ret: "ptr" },
+  rb_player_load_m3u: { args: ["ptr", "strbuf"], ret: "ptr" },
+  rb_player_export_m3u: { args: ["ptr", "strbuf"], ret: "i32" },
+  rb_m3u_read_json: { args: ["strbuf"], ret: "ptr" },
+  rb_m3u_write_json: { args: ["strbuf", "strbuf"], ret: "i32" },
+  rb_is_url: { args: ["strbuf"], ret: "bool" },
 };
 
 /**

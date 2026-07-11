@@ -47,7 +47,7 @@ defmodule RockboxFfi.MixProject do
         Core: [Rockbox],
         Metadata: [Rockbox.Metadata],
         DSP: [Rockbox.Dsp],
-        Playback: [Rockbox.Player]
+        Playback: [Rockbox.Player, Rockbox.InsertPosition]
       ]
     ]
   end

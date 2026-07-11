@@ -92,6 +92,20 @@ typealias FnPlayerVolume = @convention(c) (OpaquePointer?) -> Float
 typealias FnPlayerRate = @convention(c) (OpaquePointer?) -> UInt32
 typealias FnPlayerStatus = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
+typealias FnPlayerNewCfgEx = @convention(c) (UInt32, Float, Float, Int32, Float, Bool, Int32, UInt32, UInt32, UInt32, UInt32, Int32, UnsafePointer<CChar>?, UInt32) -> OpaquePointer?
+typealias FnPlayerInsertJson = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?, Int32, Int) -> Void
+typealias FnPlayerQueueJson = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+typealias FnPlayerResume = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+typealias FnPlayerSaveResume = @convention(c) (OpaquePointer?) -> Void
+typealias FnPlayerClearResume = @convention(c) (OpaquePointer?) -> Void
+typealias FnLoadResumeJson = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
+typealias FnPlayerImportM3u = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?, Int32, Int) -> UnsafeMutablePointer<CChar>?
+typealias FnPlayerLoadM3u = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
+typealias FnPlayerExportM3u = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?) -> Int32
+typealias FnM3uReadJson = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
+typealias FnM3uWriteJson = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+typealias FnIsUrl = @convention(c) (UnsafePointer<CChar>?) -> Bool
+
 /// Loaded once, shared process-wide. A missing native library is a fatal
 /// setup error (matching how the other bindings abort on load failure).
 final class Lib {
@@ -152,6 +166,19 @@ final class Lib {
     let playerVolume: FnPlayerVolume
     let playerSampleRate: FnPlayerRate
     let playerStatusJson: FnPlayerStatus
+    let playerNewWithConfigEx: FnPlayerNewCfgEx
+    let playerInsertJson: FnPlayerInsertJson
+    let playerQueueJson: FnPlayerQueueJson
+    let playerResume: FnPlayerResume
+    let playerSaveResume: FnPlayerSaveResume
+    let playerClearResume: FnPlayerClearResume
+    let loadResumeJson: FnLoadResumeJson
+    let playerImportM3u: FnPlayerImportM3u
+    let playerLoadM3u: FnPlayerLoadM3u
+    let playerExportM3u: FnPlayerExportM3u
+    let m3uReadJson: FnM3uReadJson
+    let m3uWriteJson: FnM3uWriteJson
+    let isUrl: FnIsUrl
 
     private init() throws {
         let (h, _) = try Lib.open()
@@ -211,6 +238,19 @@ final class Lib {
         playerVolume = try sym("rb_player_volume", FnPlayerVolume.self)
         playerSampleRate = try sym("rb_player_sample_rate", FnPlayerRate.self)
         playerStatusJson = try sym("rb_player_status_json", FnPlayerStatus.self)
+        playerNewWithConfigEx = try sym("rb_player_new_with_config_ex", FnPlayerNewCfgEx.self)
+        playerInsertJson = try sym("rb_player_insert_json", FnPlayerInsertJson.self)
+        playerQueueJson = try sym("rb_player_queue_json", FnPlayerQueueJson.self)
+        playerResume = try sym("rb_player_resume", FnPlayerResume.self)
+        playerSaveResume = try sym("rb_player_save_resume", FnPlayerSaveResume.self)
+        playerClearResume = try sym("rb_player_clear_resume", FnPlayerClearResume.self)
+        loadResumeJson = try sym("rb_load_resume_json", FnLoadResumeJson.self)
+        playerImportM3u = try sym("rb_player_import_m3u", FnPlayerImportM3u.self)
+        playerLoadM3u = try sym("rb_player_load_m3u", FnPlayerLoadM3u.self)
+        playerExportM3u = try sym("rb_player_export_m3u", FnPlayerExportM3u.self)
+        m3uReadJson = try sym("rb_m3u_read_json", FnM3uReadJson.self)
+        m3uWriteJson = try sym("rb_m3u_write_json", FnM3uWriteJson.self)
+        isUrl = try sym("rb_is_url", FnIsUrl.self)
     }
 
     /// Copy a heap C string returned by the ABI into a String, then free it.

@@ -10,7 +10,7 @@ import json
 from typing import List, Optional
 
 from ._ffi import ffi, lib, take_string
-from .enums import CrossfadeMode, MixMode, ReplayGainMode
+from .enums import CrossfadeMode, InsertPosition, MixMode, ReplayGainMode
 
 
 class Player:
@@ -29,12 +29,28 @@ class Player:
         fade_in_delay_ms: int = 0,
         fade_in_duration_ms: int = 2000,
         mix_mode: int = MixMode.CROSSFADE,
+        resume_file: str | None = None,
+        resume_save_interval_ms: int = 0,
         _default: bool = False,
     ):
         """Create a player. With no args, uses the device default sample rate
-        and Rockbox default settings. ``sample_rate=0`` means device default."""
+        and Rockbox default settings. ``sample_rate=0`` means device default.
+
+        When ``resume_file`` is set (an ``.m3u8`` path), the queue and exact
+        position are auto-persisted to it; ``resume_save_interval_ms=0`` uses
+        the 5 s default.
+        """
         if _default:
             self._p = lib.rb_player_new()
+        elif resume_file is not None:
+            self._p = lib.rb_player_new_with_config_ex(
+                int(sample_rate), float(buffer_seconds), float(volume),
+                int(replaygain_mode), float(replaygain_preamp_db),
+                bool(replaygain_prevent_clipping), int(crossfade_mode),
+                int(fade_out_delay_ms), int(fade_out_duration_ms),
+                int(fade_in_delay_ms), int(fade_in_duration_ms), int(mix_mode),
+                resume_file.encode("utf-8"), int(resume_save_interval_ms),
+            )
         else:
             self._p = lib.rb_player_new_with_config(
                 int(sample_rate), float(buffer_seconds), float(volume),
@@ -72,6 +88,24 @@ class Player:
 
     def enqueue(self, path: str) -> None:
         lib.rb_player_enqueue(self._p, path.encode("utf-8"))
+
+    def insert(self, paths: List[str], position: int, index: int = 0) -> None:
+        """Insert paths/URLs into the queue at ``position``.
+
+        ``position``: :class:`rockbox_ffi.enums.InsertPosition`. ``index`` is
+        only used when ``position`` is ``InsertPosition.INDEX`` (7).
+        """
+        lib.rb_player_insert_json(
+            self._p, json.dumps(list(paths)).encode("utf-8"),
+            int(position), int(index),
+        )
+
+    def queue(self) -> List[str]:
+        """Current queue as a list of paths/URLs."""
+        s = take_string(lib.rb_player_queue_json(self._p))
+        if s is None:
+            return []
+        return json.loads(s)
 
     # -- transport --------------------------------------------------------
     def play(self) -> None:
@@ -132,3 +166,49 @@ class Player:
         if s is None:
             raise RuntimeError("rb_player_status_json returned NULL")
         return json.loads(s)
+
+    # -- resume -----------------------------------------------------------
+    def resume(self) -> Optional[dict]:
+        """Restore the queue + exact position (does NOT auto-play).
+
+        Returns a dict ``{tracks, index, elapsed_ms}`` or ``None`` if there is
+        nothing to resume.
+        """
+        s = take_string(lib.rb_player_resume(self._p))
+        if s is None:
+            return None
+        return json.loads(s)
+
+    def save_resume(self) -> None:
+        lib.rb_player_save_resume(self._p)
+
+    def clear_resume(self) -> None:
+        lib.rb_player_clear_resume(self._p)
+
+    # -- m3u / m3u8 playlists ---------------------------------------------
+    def import_m3u(
+        self, path: str, position: int, index: int = 0
+    ) -> Optional[List[str]]:
+        """Import a playlist file into the queue at ``position``.
+
+        Returns the imported paths, or ``None`` on error.
+        """
+        s = take_string(
+            lib.rb_player_import_m3u(
+                self._p, path.encode("utf-8"), int(position), int(index)
+            )
+        )
+        if s is None:
+            return None
+        return json.loads(s)
+
+    def load_m3u(self, path: str) -> Optional[List[str]]:
+        """Replace the queue with a playlist file; returns loaded paths."""
+        s = take_string(lib.rb_player_load_m3u(self._p, path.encode("utf-8")))
+        if s is None:
+            return None
+        return json.loads(s)
+
+    def export_m3u(self, path: str) -> bool:
+        """Export the current queue to an ``.m3u8``; ``True`` on success."""
+        return int(lib.rb_player_export_m3u(self._p, path.encode("utf-8"))) == 0

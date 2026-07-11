@@ -33,6 +33,18 @@ export const MixMode = {
   MIX: 1,
 } as const;
 
+/** For `Player.insert` / `Player.importM3u` (queue insert position). */
+export const InsertPosition = {
+  PREPEND: 0,
+  INSERT: 1,
+  INSERT_NEXT: 2,
+  INSERT_LAST: 3,
+  INSERT_SHUFFLED: 4,
+  INSERT_LAST_SHUFFLED: 5,
+  REPLACE: 6,
+  INDEX: 7,
+} as const;
+
 export const ChannelConfig = {
   STEREO: 0,
   MONO: 1,

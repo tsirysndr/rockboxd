@@ -21,6 +21,15 @@ type Config struct {
 	FadeInDelayMs             uint32
 	FadeInDurationMs          uint32
 	MixMode                   MixMode
+
+	// ResumeFile, when non-empty, is an .m3u8 path the player auto-persists
+	// the queue and exact playback position to, so a later Player can
+	// [Player.Resume]. Empty disables resume persistence.
+	ResumeFile string
+	// ResumeSaveIntervalMs is how often the resume file is rewritten while
+	// playing. 0 uses the Rockbox default (5 s). Ignored when ResumeFile is
+	// empty.
+	ResumeSaveIntervalMs uint32
 }
 
 // DefaultConfig returns the Rockbox default player configuration.
@@ -57,11 +66,11 @@ type Player struct {
 // NewPlayer creates a player on the default device with the given
 // configuration (start from [DefaultConfig]).
 func NewPlayer(c Config) (*Player, error) {
-	ptr := rbPlayerNewWithConfig(
+	ptr := rbPlayerNewWithConfigEx(
 		c.SampleRate, c.BufferSeconds, c.Volume, int32(c.ReplayGainMode),
 		c.ReplayGainPreampDb, c.ReplayGainPreventClipping, int32(c.CrossfadeMode),
 		c.FadeOutDelayMs, c.FadeOutDurationMs, c.FadeInDelayMs, c.FadeInDurationMs,
-		int32(c.MixMode),
+		int32(c.MixMode), c.ResumeFile, c.ResumeSaveIntervalMs,
 	)
 	if ptr == 0 {
 		return nil, errors.New("rockbox: failed to create Player (no output device?)")
@@ -101,6 +110,30 @@ func (p *Player) SetQueue(paths []string) error {
 
 // Enqueue appends a single file path to the queue.
 func (p *Player) Enqueue(path string) { rbPlayerEnqueue(p.ptr, path) }
+
+// Insert adds paths (local files or URLs) to the queue at position. index is
+// only used when position is [InsertAtIndex].
+func (p *Player) Insert(paths []string, position InsertPosition, index int) error {
+	b, err := json.Marshal(paths)
+	if err != nil {
+		return fmt.Errorf("rockbox: marshaling insert paths: %w", err)
+	}
+	rbPlayerInsertJSON(p.ptr, string(b), int32(position), uint64(index))
+	return nil
+}
+
+// Queue returns the current queue as a slice of paths/URLs.
+func (p *Player) Queue() ([]string, error) {
+	s, ok := takeString(rbPlayerQueueJSON(p.ptr))
+	if !ok {
+		return nil, errors.New("rockbox: rb_player_queue_json returned NULL")
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(s), &paths); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding queue json: %w", err)
+	}
+	return paths, nil
+}
 
 // Play starts (or resumes) playback.
 func (p *Player) Play() { rbPlayerPlay(p.ptr) }
@@ -145,6 +178,119 @@ func (p *Player) SetCrossfade(mode CrossfadeMode, fadeOutDelayMs, fadeOutDuratio
 func (p *Player) SetReplaygain(mode ReplayGainMode, preampDb float32, preventClipping bool) {
 	rbPlayerSetReplaygain(p.ptr, int32(mode), preampDb, preventClipping)
 }
+
+// ResumeState is a saved queue plus the exact playback position, as persisted
+// to a resume file (see [Config.ResumeFile]).
+type ResumeState struct {
+	Tracks    []string `json:"tracks"`
+	Index     int      `json:"index"`
+	ElapsedMs uint64   `json:"elapsed_ms"`
+}
+
+// M3uEntry is one line of a parsed m3u/m3u8 playlist.
+type M3uEntry struct {
+	Path       string `json:"path"`
+	DurationMs uint64 `json:"duration_ms"`
+	Title      string `json:"title"`
+}
+
+// Resume restores the queue and exact position from the player's resume file
+// (see [Config.ResumeFile]). It does NOT start playback. It returns nil, nil
+// when there is no resume state to restore.
+func (p *Player) Resume() (*ResumeState, error) {
+	s, ok := takeString(rbPlayerResume(p.ptr))
+	if !ok {
+		return nil, nil
+	}
+	var rs ResumeState
+	if err := json.Unmarshal([]byte(s), &rs); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding resume json: %w", err)
+	}
+	return &rs, nil
+}
+
+// SaveResume forces an immediate write of the resume file.
+func (p *Player) SaveResume() { rbPlayerSaveResume(p.ptr) }
+
+// ClearResume deletes the resume file.
+func (p *Player) ClearResume() { rbPlayerClearResume(p.ptr) }
+
+// ImportM3u imports a playlist file into the queue at position (index is only
+// used when position is [InsertAtIndex]) and returns the imported paths.
+func (p *Player) ImportM3u(path string, position InsertPosition, index int) ([]string, error) {
+	s, ok := takeString(rbPlayerImportM3u(p.ptr, path, int32(position), uint64(index)))
+	if !ok {
+		return nil, fmt.Errorf("rockbox: could not import m3u %q", path)
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(s), &paths); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding imported paths json: %w", err)
+	}
+	return paths, nil
+}
+
+// LoadM3u replaces the queue with a playlist file and returns the loaded paths.
+func (p *Player) LoadM3u(path string) ([]string, error) {
+	s, ok := takeString(rbPlayerLoadM3u(p.ptr, path))
+	if !ok {
+		return nil, fmt.Errorf("rockbox: could not load m3u %q", path)
+	}
+	var paths []string
+	if err := json.Unmarshal([]byte(s), &paths); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding loaded paths json: %w", err)
+	}
+	return paths, nil
+}
+
+// ExportM3u writes the current queue to an .m3u8 file (atomically).
+func (p *Player) ExportM3u(path string) error {
+	if rbPlayerExportM3u(p.ptr, path) != 0 {
+		return fmt.Errorf("rockbox: could not export m3u to %q", path)
+	}
+	return nil
+}
+
+// LoadResume peeks at a resume file without needing a Player. It returns
+// nil, nil when the file has no resume state.
+func LoadResume(path string) (*ResumeState, error) {
+	s, ok := takeString(rbLoadResumeJSON(path))
+	if !ok {
+		return nil, nil
+	}
+	var rs ResumeState
+	if err := json.Unmarshal([]byte(s), &rs); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding resume json: %w", err)
+	}
+	return &rs, nil
+}
+
+// M3uRead parses a playlist file into its entries.
+func M3uRead(path string) ([]M3uEntry, error) {
+	s, ok := takeString(rbM3uReadJSON(path))
+	if !ok {
+		return nil, fmt.Errorf("rockbox: could not read m3u %q", path)
+	}
+	var entries []M3uEntry
+	if err := json.Unmarshal([]byte(s), &entries); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding m3u json: %w", err)
+	}
+	return entries, nil
+}
+
+// M3uWrite writes paths as an .m3u8 file.
+func M3uWrite(path string, paths []string) error {
+	b, err := json.Marshal(paths)
+	if err != nil {
+		return fmt.Errorf("rockbox: marshaling m3u paths: %w", err)
+	}
+	if rbM3uWriteJSON(path, string(b)) != 0 {
+		return fmt.Errorf("rockbox: could not write m3u to %q", path)
+	}
+	return nil
+}
+
+// IsUrl reports whether s looks like an http(s):// URL.
+func IsUrl(s string) bool { return rbIsURL(s) }
 
 // Status is a snapshot of the player's playback state.
 type Status struct {

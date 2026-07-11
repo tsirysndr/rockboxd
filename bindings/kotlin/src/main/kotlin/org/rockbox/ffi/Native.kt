@@ -82,9 +82,17 @@ internal object Native {
         "rb_player_new_with_config",
         FunctionDescriptor.of(PTR, I32, F32, F32, I32, F32, BOOL, I32, I32, I32, I32, I32, I32),
     )
+    val playerNewWithConfigEx = h(
+        "rb_player_new_with_config_ex",
+        FunctionDescriptor.of(
+            PTR, I32, F32, F32, I32, F32, BOOL, I32, I32, I32, I32, I32, I32, PTR, I32,
+        ),
+    )
     val playerFree = h("rb_player_free", FunctionDescriptor.ofVoid(PTR))
     val playerSetQueueJson = h("rb_player_set_queue_json", FunctionDescriptor.ofVoid(PTR, PTR))
     val playerEnqueue = h("rb_player_enqueue", FunctionDescriptor.ofVoid(PTR, PTR))
+    val playerInsertJson = h("rb_player_insert_json", FunctionDescriptor.ofVoid(PTR, PTR, I32, I64))
+    val playerQueueJson = h("rb_player_queue_json", FunctionDescriptor.of(PTR, PTR))
     val playerPlay = h("rb_player_play", FunctionDescriptor.ofVoid(PTR))
     val playerPause = h("rb_player_pause", FunctionDescriptor.ofVoid(PTR))
     val playerToggle = h("rb_player_toggle", FunctionDescriptor.ofVoid(PTR))
@@ -101,6 +109,20 @@ internal object Native {
     val playerVolume = h("rb_player_volume", FunctionDescriptor.of(F32, PTR))
     val playerSampleRate = h("rb_player_sample_rate", FunctionDescriptor.of(I32, PTR))
     val playerStatusJson = h("rb_player_status_json", FunctionDescriptor.of(PTR, PTR))
+
+    // ---- resume -------------------------------------------------------
+    val playerResume = h("rb_player_resume", FunctionDescriptor.of(PTR, PTR))
+    val playerSaveResume = h("rb_player_save_resume", FunctionDescriptor.ofVoid(PTR))
+    val playerClearResume = h("rb_player_clear_resume", FunctionDescriptor.ofVoid(PTR))
+    val loadResumeJson = h("rb_load_resume_json", FunctionDescriptor.of(PTR, PTR))
+
+    // ---- m3u / m3u8 ---------------------------------------------------
+    val playerImportM3u = h("rb_player_import_m3u", FunctionDescriptor.of(PTR, PTR, PTR, I32, I64))
+    val playerLoadM3u = h("rb_player_load_m3u", FunctionDescriptor.of(PTR, PTR, PTR))
+    val playerExportM3u = h("rb_player_export_m3u", FunctionDescriptor.of(I32, PTR, PTR))
+    val m3uReadJson = h("rb_m3u_read_json", FunctionDescriptor.of(PTR, PTR))
+    val m3uWriteJson = h("rb_m3u_write_json", FunctionDescriptor.of(I32, PTR, PTR))
+    val isUrl = h("rb_is_url", FunctionDescriptor.of(BOOL, PTR))
 
     /**
      * Copy a heap C string returned by the ABI into a String, then free it.

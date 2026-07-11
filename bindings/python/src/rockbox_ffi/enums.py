@@ -43,6 +43,23 @@ class MixMode(IntEnum):
     MIX = 1
 
 
+class InsertPosition(IntEnum):
+    """Values for :meth:`rockbox_ffi.player.Player.insert` and
+    :meth:`~rockbox_ffi.player.Player.import_m3u`.
+
+    ``INDEX`` uses the explicit ``index`` argument; all others ignore it.
+    """
+
+    PREPEND = 0
+    INSERT = 1
+    INSERT_NEXT = 2
+    INSERT_LAST = 3
+    INSERT_SHUFFLED = 4
+    INSERT_LAST_SHUFFLED = 5
+    REPLACE = 6
+    INDEX = 7
+
+
 class ChannelConfig(IntEnum):
     STEREO = 0
     MONO = 1

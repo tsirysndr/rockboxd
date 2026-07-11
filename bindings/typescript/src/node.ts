@@ -99,7 +99,7 @@ function makeRaw(): Raw {
 }
 
 const api = makeApi(makeRaw());
-export const { abiVersion, metadata, Dsp, Player } = api;
+export const { abiVersion, metadata, Dsp, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
 export { sineStereo };
 export * from "./enums.ts";
-export type { Metadata, PlayerConfig, PlayerStatus } from "./types.ts";
+export type { M3uEntry, Metadata, PlayerConfig, PlayerStatus, ResumeState } from "./types.ts";

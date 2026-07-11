@@ -15,6 +15,12 @@
 
 (def mix-mode {:crossfade 0 :mix 1})
 
+;; Values for rockbox.ffi.player/insert (and import-m3u): where to splice new
+;; entries into the queue. :index uses the explicit `index` argument.
+(def insert-position
+  {:prepend 0 :insert 1 :insert-next 2 :insert-last 3
+   :insert-shuffled 4 :insert-last-shuffled 5 :replace 6 :index 7})
+
 (def channel-config
   {:stereo 0 :mono 1 :custom 2 :mono-left 3 :mono-right 4 :karaoke 5 :swap 6})
 

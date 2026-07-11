@@ -131,9 +131,13 @@
    :player-new                 (dc "rb_player_new" (fd-of PTR []))
    :player-new-with-config     (dc "rb_player_new_with_config"
                                    (fd-of PTR [I32 F32 F32 I32 F32 BOOL I32 I32 I32 I32 I32 I32]))
+   :player-new-with-config-ex  (dc "rb_player_new_with_config_ex"
+                                   (fd-of PTR [I32 F32 F32 I32 F32 BOOL I32 I32 I32 I32 I32 I32 PTR I32]))
    :player-free                (dc "rb_player_free" (fd-void [PTR]))
    :player-set-queue-json      (dc "rb_player_set_queue_json" (fd-void [PTR PTR]))
    :player-enqueue             (dc "rb_player_enqueue" (fd-void [PTR PTR]))
+   :player-insert-json         (dc "rb_player_insert_json" (fd-void [PTR PTR I32 I64]))
+   :player-queue-json          (dc "rb_player_queue_json" (fd-of PTR [PTR]))
    :player-play                (dc "rb_player_play" (fd-void [PTR]))
    :player-pause               (dc "rb_player_pause" (fd-void [PTR]))
    :player-toggle              (dc "rb_player_toggle" (fd-void [PTR]))
@@ -147,7 +151,19 @@
    :player-set-replaygain      (dc "rb_player_set_replaygain" (fd-void [PTR I32 F32 BOOL]))
    :player-volume              (dc "rb_player_volume" (fd-of F32 [PTR]))
    :player-sample-rate         (dc "rb_player_sample_rate" (fd-of I32 [PTR]))
-   :player-status-json         (dc "rb_player_status_json" (fd-of PTR [PTR]))}))
+   :player-status-json         (dc "rb_player_status_json" (fd-of PTR [PTR]))
+   ;; ---- resume ----
+   :player-resume              (dc "rb_player_resume" (fd-of PTR [PTR]))
+   :player-save-resume         (dc "rb_player_save_resume" (fd-void [PTR]))
+   :player-clear-resume        (dc "rb_player_clear_resume" (fd-void [PTR]))
+   :load-resume-json           (dc "rb_load_resume_json" (fd-of PTR [PTR]))
+   ;; ---- m3u / m3u8 ----
+   :player-import-m3u          (dc "rb_player_import_m3u" (fd-of PTR [PTR PTR I32 I64]))
+   :player-load-m3u            (dc "rb_player_load_m3u" (fd-of PTR [PTR PTR]))
+   :player-export-m3u          (dc "rb_player_export_m3u" (fd-of I32 [PTR PTR]))
+   :m3u-read-json              (dc "rb_m3u_read_json" (fd-of PTR [PTR]))
+   :m3u-write-json             (dc "rb_m3u_write_json" (fd-of I32 [PTR PTR]))
+   :is-url                     (dc "rb_is_url" (fd-of BOOL [PTR]))}))
 
 (defn call
   "Invoke the C function bound to `k`. Args must already be the right JVM type

@@ -58,25 +58,42 @@ var (
 	rbMetaProbe    func(string) uintptr
 
 	// ---- player -------------------------------------------------------
-	rbPlayerNew           func() uintptr
-	rbPlayerNewWithConfig func(uint32, float32, float32, int32, float32, bool, int32, uint32, uint32, uint32, uint32, int32) uintptr
-	rbPlayerFree          func(uintptr)
-	rbPlayerSetQueueJSON  func(uintptr, string)
-	rbPlayerEnqueue       func(uintptr, string)
-	rbPlayerPlay          func(uintptr)
-	rbPlayerPause         func(uintptr)
-	rbPlayerToggle        func(uintptr)
-	rbPlayerStop          func(uintptr)
-	rbPlayerNext          func(uintptr)
-	rbPlayerPrevious      func(uintptr)
-	rbPlayerSkipTo        func(uintptr, uint64)
-	rbPlayerSeekMs        func(uintptr, uint64)
-	rbPlayerSetVolume     func(uintptr, float32)
-	rbPlayerSetCrossfade  func(uintptr, int32, uint32, uint32, uint32, uint32, int32)
-	rbPlayerSetReplaygain func(uintptr, int32, float32, bool)
-	rbPlayerVolume        func(uintptr) float32
-	rbPlayerSampleRate    func(uintptr) uint32
-	rbPlayerStatusJSON    func(uintptr) uintptr
+	rbPlayerNew             func() uintptr
+	rbPlayerNewWithConfig   func(uint32, float32, float32, int32, float32, bool, int32, uint32, uint32, uint32, uint32, int32) uintptr
+	rbPlayerNewWithConfigEx func(uint32, float32, float32, int32, float32, bool, int32, uint32, uint32, uint32, uint32, int32, string, uint32) uintptr
+	rbPlayerFree            func(uintptr)
+	rbPlayerSetQueueJSON    func(uintptr, string)
+	rbPlayerEnqueue         func(uintptr, string)
+	rbPlayerInsertJSON      func(uintptr, string, int32, uint64)
+	rbPlayerQueueJSON       func(uintptr) uintptr
+	rbPlayerPlay            func(uintptr)
+	rbPlayerPause           func(uintptr)
+	rbPlayerToggle          func(uintptr)
+	rbPlayerStop            func(uintptr)
+	rbPlayerNext            func(uintptr)
+	rbPlayerPrevious        func(uintptr)
+	rbPlayerSkipTo          func(uintptr, uint64)
+	rbPlayerSeekMs          func(uintptr, uint64)
+	rbPlayerSetVolume       func(uintptr, float32)
+	rbPlayerSetCrossfade    func(uintptr, int32, uint32, uint32, uint32, uint32, int32)
+	rbPlayerSetReplaygain   func(uintptr, int32, float32, bool)
+	rbPlayerVolume          func(uintptr) float32
+	rbPlayerSampleRate      func(uintptr) uint32
+	rbPlayerStatusJSON      func(uintptr) uintptr
+
+	// ---- resume -------------------------------------------------------
+	rbPlayerResume      func(uintptr) uintptr
+	rbPlayerSaveResume  func(uintptr)
+	rbPlayerClearResume func(uintptr)
+	rbLoadResumeJSON    func(string) uintptr
+
+	// ---- m3u / m3u8 ---------------------------------------------------
+	rbPlayerImportM3u func(uintptr, string, int32, uint64) uintptr
+	rbPlayerLoadM3u   func(uintptr, string) uintptr
+	rbPlayerExportM3u func(uintptr, string) int32
+	rbM3uReadJSON     func(string) uintptr
+	rbM3uWriteJSON    func(string, string) int32
+	rbIsURL           func(string) bool
 )
 
 func init() {
@@ -112,9 +129,12 @@ func init() {
 
 	purego.RegisterLibFunc(&rbPlayerNew, handle, "rb_player_new")
 	purego.RegisterLibFunc(&rbPlayerNewWithConfig, handle, "rb_player_new_with_config")
+	purego.RegisterLibFunc(&rbPlayerNewWithConfigEx, handle, "rb_player_new_with_config_ex")
 	purego.RegisterLibFunc(&rbPlayerFree, handle, "rb_player_free")
 	purego.RegisterLibFunc(&rbPlayerSetQueueJSON, handle, "rb_player_set_queue_json")
 	purego.RegisterLibFunc(&rbPlayerEnqueue, handle, "rb_player_enqueue")
+	purego.RegisterLibFunc(&rbPlayerInsertJSON, handle, "rb_player_insert_json")
+	purego.RegisterLibFunc(&rbPlayerQueueJSON, handle, "rb_player_queue_json")
 	purego.RegisterLibFunc(&rbPlayerPlay, handle, "rb_player_play")
 	purego.RegisterLibFunc(&rbPlayerPause, handle, "rb_player_pause")
 	purego.RegisterLibFunc(&rbPlayerToggle, handle, "rb_player_toggle")
@@ -129,6 +149,18 @@ func init() {
 	purego.RegisterLibFunc(&rbPlayerVolume, handle, "rb_player_volume")
 	purego.RegisterLibFunc(&rbPlayerSampleRate, handle, "rb_player_sample_rate")
 	purego.RegisterLibFunc(&rbPlayerStatusJSON, handle, "rb_player_status_json")
+
+	purego.RegisterLibFunc(&rbPlayerResume, handle, "rb_player_resume")
+	purego.RegisterLibFunc(&rbPlayerSaveResume, handle, "rb_player_save_resume")
+	purego.RegisterLibFunc(&rbPlayerClearResume, handle, "rb_player_clear_resume")
+	purego.RegisterLibFunc(&rbLoadResumeJSON, handle, "rb_load_resume_json")
+
+	purego.RegisterLibFunc(&rbPlayerImportM3u, handle, "rb_player_import_m3u")
+	purego.RegisterLibFunc(&rbPlayerLoadM3u, handle, "rb_player_load_m3u")
+	purego.RegisterLibFunc(&rbPlayerExportM3u, handle, "rb_player_export_m3u")
+	purego.RegisterLibFunc(&rbM3uReadJSON, handle, "rb_m3u_read_json")
+	purego.RegisterLibFunc(&rbM3uWriteJSON, handle, "rb_m3u_write_json")
+	purego.RegisterLibFunc(&rbIsURL, handle, "rb_is_url")
 }
 
 // libNames returns the platform's shared-library filenames, most-specific

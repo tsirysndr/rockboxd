@@ -77,4 +77,20 @@ export interface PlayerConfig {
   fadeInDelayMs?: number;
   fadeInDurationMs?: number;
   mixMode?: number; // MixMode
+  resumeFile?: string; // .m3u8 path to auto-persist queue+position; unset disables
+  resumeSaveIntervalMs?: number; // 0 => 5 s default
+}
+
+/** Restored playback session (from `Player.resume` / `loadResume`). */
+export interface ResumeState {
+  tracks: string[];
+  index: number;
+  elapsedMs: number;
+}
+
+/** One entry parsed from an .m3u/.m3u8 playlist (from `m3uRead`). */
+export interface M3uEntry {
+  path: string;
+  durationMs: number | null;
+  title: string | null;
 }

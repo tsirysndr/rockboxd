@@ -24,7 +24,9 @@ module RockboxFFI
       fade_out_duration_ms: 2000,
       fade_in_delay_ms: 0,
       fade_in_duration_ms: 2000,
-      mix_mode: MixMode::CROSSFADE
+      mix_mode: MixMode::CROSSFADE,
+      resume_file: nil, # an .m3u8 to auto-persist queue + position to
+      resume_save_interval_ms: 0 # 0 => 5 s default
     }.freeze
 
     # Open a Player; if a block is given, close it automatically afterwards.
@@ -47,16 +49,19 @@ module RockboxFFI
     end
 
     # Create a player with configuration overrides (see DEFAULT_CONFIG keys).
-    # sample_rate: 0 means the device default.
+    # sample_rate: 0 means the device default. Passing +resume_file:+ enables
+    # auto-persisting the queue + exact position to that .m3u8 file.
     def initialize(**opts)
       c = DEFAULT_CONFIG.merge(opts)
-      ptr = Lib.rb_player_new_with_config(
+      resume_file = c[:resume_file].nil? ? nil : c[:resume_file].to_s
+      ptr = Lib.rb_player_new_with_config_ex(
         Integer(c[:sample_rate]), Float(c[:buffer_seconds]), Float(c[:volume]),
         Integer(c[:replaygain_mode]), Float(c[:replaygain_preamp_db]),
         RockboxFFI.b(c[:replaygain_prevent_clipping]), Integer(c[:crossfade_mode]),
         Integer(c[:fade_out_delay_ms]), Integer(c[:fade_out_duration_ms]),
         Integer(c[:fade_in_delay_ms]), Integer(c[:fade_in_duration_ms]),
-        Integer(c[:mix_mode])
+        Integer(c[:mix_mode]), resume_file,
+        Integer(c[:resume_save_interval_ms])
       )
       init_ptr(ptr)
     end
@@ -86,6 +91,23 @@ module RockboxFFI
 
     def enqueue(path)
       Lib.rb_player_enqueue(@ptr, path.to_s)
+    end
+
+    # Insert +paths+ (a path/URL or Array of them) into the queue at
+    # +position+ (see InsertPosition). +index+ is only used when position is
+    # InsertPosition::INDEX (7).
+    def insert(paths, position, index = 0)
+      Lib.rb_player_insert_json(
+        @ptr, JSON.generate(Array(paths).map(&:to_s)), Integer(position), Integer(index)
+      )
+    end
+
+    # The current queue as an Array of String paths/URLs.
+    def queue
+      s = RockboxFFI.take_string(Lib.rb_player_queue_json(@ptr))
+      return [] if s.nil?
+
+      JSON.parse(s)
     end
 
     # -- transport --------------------------------------------------------
@@ -155,6 +177,51 @@ module RockboxFFI
       raise "rb_player_status_json returned NULL" if s.nil?
 
       JSON.parse(s, symbolize_names: true)
+    end
+
+    # -- resume -----------------------------------------------------------
+    # Restore the queue + exact position from the resume file (does NOT
+    # auto-play). Returns a Hash {tracks:, index:, elapsed_ms:} or nil.
+    def resume
+      s = RockboxFFI.take_string(Lib.rb_player_resume(@ptr))
+      return nil if s.nil?
+
+      JSON.parse(s, symbolize_names: true)
+    end
+
+    # Force-persist the current queue + position to the resume file now.
+    def save_resume
+      Lib.rb_player_save_resume(@ptr)
+    end
+
+    # Delete the resume file.
+    def clear_resume
+      Lib.rb_player_clear_resume(@ptr)
+    end
+
+    # -- m3u / m3u8 playlists ---------------------------------------------
+    # Import a playlist file into the queue at +position+ (see InsertPosition;
+    # +index+ only used for INDEX). Returns the imported paths as an Array.
+    def import_m3u(path, position, index = 0)
+      s = RockboxFFI.take_string(
+        Lib.rb_player_import_m3u(@ptr, path.to_s, Integer(position), Integer(index))
+      )
+      return [] if s.nil?
+
+      JSON.parse(s)
+    end
+
+    # Replace the queue with a playlist file. Returns the loaded paths as an Array.
+    def load_m3u(path)
+      s = RockboxFFI.take_string(Lib.rb_player_load_m3u(@ptr, path.to_s))
+      return [] if s.nil?
+
+      JSON.parse(s)
+    end
+
+    # Export the current queue to an .m3u8 (atomic). Returns true on success.
+    def export_m3u(path)
+      Lib.rb_player_export_m3u(@ptr, path.to_s).zero?
     end
 
     private

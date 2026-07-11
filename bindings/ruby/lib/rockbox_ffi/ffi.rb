@@ -101,9 +101,12 @@ module RockboxFFI
     # ---- player -------------------------------------------------------
     extern "void* rb_player_new()"
     extern "void* rb_player_new_with_config(uint32_t, float, float, int32_t, float, bool, int32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t)"
+    extern "void* rb_player_new_with_config_ex(uint32_t, float, float, int32_t, float, bool, int32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t, void*, uint32_t)"
     extern "void rb_player_free(void*)"
     extern "void rb_player_set_queue_json(void*, void*)"
     extern "void rb_player_enqueue(void*, void*)"
+    extern "void rb_player_insert_json(void*, void*, int32_t, size_t)"
+    extern "void* rb_player_queue_json(void*)"
     extern "void rb_player_play(void*)"
     extern "void rb_player_pause(void*)"
     extern "void rb_player_toggle(void*)"
@@ -118,6 +121,20 @@ module RockboxFFI
     extern "float rb_player_volume(void*)"
     extern "uint32_t rb_player_sample_rate(void*)"
     extern "void* rb_player_status_json(void*)"
+
+    # ---- resume -------------------------------------------------------
+    extern "void* rb_player_resume(void*)"
+    extern "void rb_player_save_resume(void*)"
+    extern "void rb_player_clear_resume(void*)"
+    extern "void* rb_load_resume_json(void*)"
+
+    # ---- m3u / m3u8 playlists -----------------------------------------
+    extern "void* rb_player_import_m3u(void*, void*, int32_t, size_t)"
+    extern "void* rb_player_load_m3u(void*, void*)"
+    extern "int32_t rb_player_export_m3u(void*, void*)"
+    extern "void* rb_m3u_read_json(void*)"
+    extern "int32_t rb_m3u_write_json(void*, void*)"
+    extern "bool rb_is_url(void*)"
   end
 
   # true/false → 1/0 for the ABI's `bool` (declared as int above).

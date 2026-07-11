@@ -1,6 +1,8 @@
 import gleam/float
 import gleam/int
+import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import gleeunit
 import gleeunit/should
 import rockbox/dsp
@@ -50,6 +52,49 @@ pub fn player_construct_test() {
   let status = player.status(p)
   status.state |> should.equal("stopped")
   status.queue_len |> should.equal(1)
+}
+
+pub fn player_queue_and_insert_test() {
+  let p = player.with_config(player.Config(..player.default_config(), volume: 0.0))
+  player.set_queue(p, [fixture])
+  sleep(100)
+  player.queue(p) |> list.length |> should.equal(1)
+
+  // Prepend a second entry; the queue now holds two tracks.
+  player.insert(p, [fixture], player.Prepend)
+  sleep(100)
+  player.status(p).queue_len |> should.equal(2)
+}
+
+pub fn is_url_test() {
+  player.is_url("http://example.com/a.mp3") |> should.be_true
+  player.is_url("https://example.com/a.mp3") |> should.be_true
+  player.is_url("/local/path.mp3") |> should.be_false
+}
+
+pub fn m3u_round_trip_test() {
+  let path = "/tmp/rockbox_gleam_test.m3u8"
+  let assert Ok(Nil) = player.m3u_write(path, [fixture])
+  let assert Ok(entries) = player.m3u_read(path)
+  // The writer resolves paths relative to the .m3u8's directory, so compare
+  // the basename rather than the exact (now absolutised) path.
+  case entries {
+    [entry, ..] -> should.be_true(string.ends_with(entry.path, ".m4a"))
+    [] -> should.fail()
+  }
+}
+
+pub fn player_load_m3u_test() {
+  let path = "/tmp/rockbox_gleam_load.m3u8"
+  let assert Ok(Nil) = player.m3u_write(path, [fixture])
+
+  let p = player.with_config(player.Config(..player.default_config(), volume: 0.0))
+  player.load_m3u(p, path) |> list.length |> should.equal(1)
+  sleep(100)
+  player.status(p).queue_len |> should.equal(1)
+
+  let assert Ok(Nil) = player.export_m3u(p, "/tmp/rockbox_gleam_export.m3u8")
+  Nil
 }
 
 // -- helpers ------------------------------------------------------------

@@ -29,6 +29,19 @@ public enum MixMode: Int32 {
     case mix = 1
 }
 
+/// Where to place inserted / imported tracks in the queue.
+public enum InsertPosition: Int32 {
+    case prepend = 0
+    case insert = 1
+    case insertNext = 2
+    case insertLast = 3
+    case insertShuffled = 4
+    case insertLastShuffled = 5
+    case replace = 6
+    /// Explicit index — uses the `index` argument.
+    case index = 7
+}
+
 public enum ChannelConfig: Int32 {
     case stereo = 0
     case mono = 1

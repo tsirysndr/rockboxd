@@ -1,8 +1,38 @@
 // Runtime-agnostic high-level API, written once against the Raw backend.
 
 import type { Raw } from "./ffi.ts";
-import { CrossfadeMode, MixMode, ReplayGainMode } from "./enums.ts";
-import type { Metadata, PlayerConfig, PlayerStatus } from "./types.ts";
+import { CrossfadeMode, InsertPosition, MixMode, ReplayGainMode } from "./enums.ts";
+import type {
+  M3uEntry,
+  Metadata,
+  PlayerConfig,
+  PlayerStatus,
+  ResumeState,
+} from "./types.ts";
+
+/** Map the snake_case resume JSON to the camelCase ResumeState shape. */
+function toResumeState(json: string): ResumeState {
+  const r = JSON.parse(json) as {
+    tracks: string[];
+    index: number;
+    elapsed_ms: number;
+  };
+  return { tracks: r.tracks, index: r.index, elapsedMs: r.elapsed_ms };
+}
+
+/** Map the snake_case m3u-entry JSON array to the camelCase M3uEntry shape. */
+function toM3uEntries(json: string): M3uEntry[] {
+  const arr = JSON.parse(json) as {
+    path: string;
+    duration_ms: number | null;
+    title: string | null;
+  }[];
+  return arr.map((e) => ({
+    path: e.path,
+    durationMs: e.duration_ms,
+    title: e.title,
+  }));
+}
 
 const opt = (v: number | null | undefined): number =>
   v === null || v === undefined ? Number.NaN : v;
@@ -116,6 +146,26 @@ export function makeApi(raw: Raw) {
     constructor(config?: PlayerConfig) {
       if (config === undefined) {
         this.#h = s.rb_player_new();
+      } else if (
+        config.resumeFile !== undefined ||
+        config.resumeSaveIntervalMs !== undefined
+      ) {
+        this.#h = s.rb_player_new_with_config_ex(
+          config.sampleRate ?? 0,
+          config.bufferSeconds ?? 4.0,
+          config.volume ?? 1.0,
+          config.replaygainMode ?? ReplayGainMode.OFF,
+          config.replaygainPreampDb ?? 0.0,
+          config.replaygainPreventClipping ?? true,
+          config.crossfadeMode ?? CrossfadeMode.OFF,
+          config.fadeOutDelayMs ?? 0,
+          config.fadeOutDurationMs ?? 2000,
+          config.fadeInDelayMs ?? 0,
+          config.fadeInDurationMs ?? 2000,
+          config.mixMode ?? MixMode.CROSSFADE,
+          raw.cstr(config.resumeFile ?? ""),
+          config.resumeSaveIntervalMs ?? 0,
+        );
       } else {
         this.#h = s.rb_player_new_with_config(
           config.sampleRate ?? 0,
@@ -151,6 +201,16 @@ export function makeApi(raw: Raw) {
     }
     enqueue(path: string): void {
       s.rb_player_enqueue(this.#h, raw.cstr(path));
+    }
+    /** Insert paths/URLs at `position` (InsertPosition); `index` used for INDEX. */
+    insert(paths: string[], position: number = InsertPosition.INSERT_LAST, index = 0): void {
+      s.rb_player_insert_json(this.#h, raw.cstr(JSON.stringify(paths)), position, index);
+    }
+    /** The current queue as an array of paths/URLs. */
+    queue(): string[] {
+      const json = raw.takeString(s.rb_player_queue_json(this.#h));
+      if (json === null) throw new Error("rb_player_queue_json returned NULL");
+      return JSON.parse(json) as string[];
     }
     play(): void {
       s.rb_player_play(this.#h);
@@ -200,9 +260,57 @@ export function makeApi(raw: Raw) {
       if (json === null) throw new Error("rb_player_status_json returned NULL");
       return JSON.parse(json) as PlayerStatus;
     }
+    /** Restore the persisted queue + position (does NOT auto-play); null if none. */
+    resume(): ResumeState | null {
+      const json = raw.takeString(s.rb_player_resume(this.#h));
+      return json === null ? null : toResumeState(json);
+    }
+    /** Persist the current queue + exact position to the configured resume file. */
+    saveResume(): void {
+      s.rb_player_save_resume(this.#h);
+    }
+    /** Delete the persisted resume state. */
+    clearResume(): void {
+      s.rb_player_clear_resume(this.#h);
+    }
+    /** Import a playlist file into the queue at `position`; null on error. */
+    importM3u(path: string, position: number = InsertPosition.INSERT_LAST, index = 0): string[] | null {
+      const json = raw.takeString(
+        s.rb_player_import_m3u(this.#h, raw.cstr(path), position, index),
+      );
+      return json === null ? null : (JSON.parse(json) as string[]);
+    }
+    /** Replace the queue with a playlist file; returns loaded paths (null on error). */
+    loadM3u(path: string): string[] | null {
+      const json = raw.takeString(s.rb_player_load_m3u(this.#h, raw.cstr(path)));
+      return json === null ? null : (JSON.parse(json) as string[]);
+    }
+    /** Export the current queue to an .m3u8 (atomic); true on success. */
+    exportM3u(path: string): boolean {
+      return Number(s.rb_player_export_m3u(this.#h, raw.cstr(path))) === 0;
+    }
   }
 
-  return { abiVersion, metadata, Dsp, Player };
+  /** Peek at a resume file without a player; null if absent/invalid. */
+  const loadResume = (path: string): ResumeState | null => {
+    const json = raw.takeString(s.rb_load_resume_json(raw.cstr(path)));
+    return json === null ? null : toResumeState(json);
+  };
+
+  /** Parse a playlist file into its entries; null on error. */
+  const m3uRead = (path: string): M3uEntry[] | null => {
+    const json = raw.takeString(s.rb_m3u_read_json(raw.cstr(path)));
+    return json === null ? null : toM3uEntries(json);
+  };
+
+  /** Write an array of paths as an .m3u8; true on success. */
+  const m3uWrite = (path: string, paths: string[]): boolean =>
+    Number(s.rb_m3u_write_json(raw.cstr(path), raw.cstr(JSON.stringify(paths)))) === 0;
+
+  /** Whether a string looks like an http(s):// URL. */
+  const isUrl = (str: string): boolean => Boolean(s.rb_is_url(raw.cstr(str)));
+
+  return { abiVersion, metadata, Dsp, Player, loadResume, m3uRead, m3uWrite, isUrl };
 }
 
 /** Generate `seconds` of a sine as interleaved stereo Int16. */

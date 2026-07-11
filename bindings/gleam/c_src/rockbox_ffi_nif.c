@@ -505,6 +505,158 @@ static ERL_NIF_TERM nif_player_status_json(ErlNifEnv *env, int argc,
   return take_cstr(env, rb_player_status_json(p));
 }
 
+static ERL_NIF_TERM nif_player_new_with_config_ex(ErlNifEnv *env, int argc,
+                                                  const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  unsigned int rate, fo_del, fo_dur, fi_del, fi_dur, resume_int;
+  int rg_mode, xfade, mix;
+  double buf_sec, vol, rg_preamp;
+  bool rg_clip;
+  if (!enif_get_uint(env, argv[0], &rate) ||
+      !get_double_any(env, argv[1], &buf_sec) ||
+      !get_double_any(env, argv[2], &vol) ||
+      !enif_get_int(env, argv[3], &rg_mode) ||
+      !get_double_any(env, argv[4], &rg_preamp) ||
+      !get_bool(env, argv[5], &rg_clip) ||
+      !enif_get_int(env, argv[6], &xfade) ||
+      !enif_get_uint(env, argv[7], &fo_del) ||
+      !enif_get_uint(env, argv[8], &fo_dur) ||
+      !enif_get_uint(env, argv[9], &fi_del) ||
+      !enif_get_uint(env, argv[10], &fi_dur) ||
+      !enif_get_int(env, argv[11], &mix) ||
+      !enif_get_uint(env, argv[13], &resume_int))
+    return enif_make_badarg(env);
+  /* argv[12] is the resume file: a binary path, or any atom (nil) for none. */
+  char *resume_file = NULL;
+  if (!enif_is_atom(env, argv[12])) {
+    resume_file = binary_to_cstr(env, argv[12]);
+    if (!resume_file) return enif_make_badarg(env);
+  }
+  RbPlayer *p = rb_player_new_with_config_ex(
+      rate, (float)buf_sec, (float)vol, rg_mode, (float)rg_preamp, rg_clip,
+      xfade, fo_del, fo_dur, fi_del, fi_dur, mix, resume_file, resume_int);
+  if (resume_file) enif_free(resume_file);
+  return make_player(env, p);
+}
+
+static ERL_NIF_TERM nif_player_insert_json(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int position;
+  ErlNifUInt64 index;
+  if (!p || !enif_get_int(env, argv[2], &position) ||
+      !enif_get_uint64(env, argv[3], &index))
+    return enif_make_badarg(env);
+  char *json = binary_to_cstr(env, argv[1]);
+  if (!json) return enif_make_badarg(env);
+  rb_player_insert_json(p, json, position, (size_t)index);
+  enif_free(json);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_queue_json(ErlNifEnv *env, int argc,
+                                          const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return take_cstr(env, rb_player_queue_json(p));
+}
+
+static ERL_NIF_TERM nif_player_resume(ErlNifEnv *env, int argc,
+                                      const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return take_cstr(env, rb_player_resume(p));
+}
+
+PLAYER0(nif_player_save_resume, rb_player_save_resume(p))
+PLAYER0(nif_player_clear_resume, rb_player_clear_resume(p))
+
+static ERL_NIF_TERM nif_load_resume_json(ErlNifEnv *env, int argc,
+                                         const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  char *path = binary_to_cstr(env, argv[0]);
+  if (!path) return enif_make_badarg(env);
+  char *json = rb_load_resume_json(path);
+  enif_free(path);
+  return take_cstr(env, json);
+}
+
+static ERL_NIF_TERM nif_player_import_m3u(ErlNifEnv *env, int argc,
+                                          const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int position;
+  ErlNifUInt64 index;
+  if (!p || !enif_get_int(env, argv[2], &position) ||
+      !enif_get_uint64(env, argv[3], &index))
+    return enif_make_badarg(env);
+  char *path = binary_to_cstr(env, argv[1]);
+  if (!path) return enif_make_badarg(env);
+  char *json = rb_player_import_m3u(p, path, position, (size_t)index);
+  enif_free(path);
+  return take_cstr(env, json);
+}
+
+static ERL_NIF_TERM nif_player_load_m3u(ErlNifEnv *env, int argc,
+                                        const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  char *path = binary_to_cstr(env, argv[1]);
+  if (!path) return enif_make_badarg(env);
+  char *json = rb_player_load_m3u(p, path);
+  enif_free(path);
+  return take_cstr(env, json);
+}
+
+static ERL_NIF_TERM nif_player_export_m3u(ErlNifEnv *env, int argc,
+                                          const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  char *path = binary_to_cstr(env, argv[1]);
+  if (!path) return enif_make_badarg(env);
+  int32_t rc = rb_player_export_m3u(p, path);
+  enif_free(path);
+  return enif_make_int(env, rc);
+}
+
+static ERL_NIF_TERM nif_m3u_read_json(ErlNifEnv *env, int argc,
+                                      const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  char *path = binary_to_cstr(env, argv[0]);
+  if (!path) return enif_make_badarg(env);
+  char *json = rb_m3u_read_json(path);
+  enif_free(path);
+  return take_cstr(env, json);
+}
+
+static ERL_NIF_TERM nif_m3u_write_json(ErlNifEnv *env, int argc,
+                                       const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  char *path = binary_to_cstr(env, argv[0]);
+  if (!path) return enif_make_badarg(env);
+  char *json = binary_to_cstr(env, argv[1]);
+  if (!json) { enif_free(path); return enif_make_badarg(env); }
+  int32_t rc = rb_m3u_write_json(path, json);
+  enif_free(path);
+  enif_free(json);
+  return enif_make_int(env, rc);
+}
+
+static ERL_NIF_TERM nif_is_url(ErlNifEnv *env, int argc,
+                               const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  char *s = binary_to_cstr(env, argv[0]);
+  if (!s) return enif_make_badarg(env);
+  bool r = rb_is_url(s);
+  enif_free(s);
+  return r ? am_true : am_false;
+}
+
 /* ===================================================================== */
 /* registration                                                          */
 /* ===================================================================== */
@@ -562,6 +714,21 @@ static ErlNifFunc funcs[] = {
     {"player_set_crossfade", 7, nif_player_set_crossfade, 0},
     {"player_set_replaygain", 4, nif_player_set_replaygain, 0},
     {"player_status_json", 1, nif_player_status_json, 0},
+    {"player_new_with_config_ex", 14, nif_player_new_with_config_ex,
+     ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"player_insert_json", 4, nif_player_insert_json, 0},
+    {"player_queue_json", 1, nif_player_queue_json, 0},
+    {"player_resume", 1, nif_player_resume, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"player_save_resume", 1, nif_player_save_resume, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"player_clear_resume", 1, nif_player_clear_resume,
+     ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"load_resume_json", 1, nif_load_resume_json, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"player_import_m3u", 4, nif_player_import_m3u, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"player_load_m3u", 2, nif_player_load_m3u, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"player_export_m3u", 2, nif_player_export_m3u, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"m3u_read_json", 1, nif_m3u_read_json, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"m3u_write_json", 2, nif_m3u_write_json, ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"is_url", 1, nif_is_url, 0},
 };
 
 ERL_NIF_INIT(rockbox_ffi_nif, funcs, load, NULL, NULL, NULL)

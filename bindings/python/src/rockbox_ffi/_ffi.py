@@ -64,9 +64,20 @@ ffi.cdef(
                                         int32_t xfade_mode, uint32_t fo_delay_ms,
                                         uint32_t fo_dur_ms, uint32_t fi_delay_ms,
                                         uint32_t fi_dur_ms, int32_t mix_mode);
+    RbPlayer *rb_player_new_with_config_ex(uint32_t sample_rate, float buffer_seconds,
+                                           float volume, int32_t rg_mode,
+                                           float rg_preamp_db, bool rg_prevent_clipping,
+                                           int32_t xfade_mode, uint32_t fo_delay_ms,
+                                           uint32_t fo_dur_ms, uint32_t fi_delay_ms,
+                                           uint32_t fi_dur_ms, int32_t mix_mode,
+                                           const char *resume_file,
+                                           uint32_t resume_save_interval_ms);
     void  rb_player_free(RbPlayer *p);
     void  rb_player_set_queue_json(RbPlayer *p, const char *json);
     void  rb_player_enqueue(RbPlayer *p, const char *path);
+    void  rb_player_insert_json(RbPlayer *p, const char *json, int32_t position,
+                                size_t index);
+    char *rb_player_queue_json(RbPlayer *p);
     void  rb_player_play(RbPlayer *p);
     void  rb_player_pause(RbPlayer *p);
     void  rb_player_toggle(RbPlayer *p);
@@ -84,6 +95,19 @@ ffi.cdef(
     float    rb_player_volume(RbPlayer *p);
     uint32_t rb_player_sample_rate(RbPlayer *p);
     char    *rb_player_status_json(RbPlayer *p);
+
+    char *rb_player_resume(RbPlayer *p);
+    void  rb_player_save_resume(RbPlayer *p);
+    void  rb_player_clear_resume(RbPlayer *p);
+    char *rb_load_resume_json(const char *path);
+
+    char *rb_player_import_m3u(RbPlayer *p, const char *path, int32_t position,
+                               size_t index);
+    char *rb_player_load_m3u(RbPlayer *p, const char *path);
+    int32_t rb_player_export_m3u(RbPlayer *p, const char *path);
+    char *rb_m3u_read_json(const char *path);
+    int32_t rb_m3u_write_json(const char *path, const char *json);
+    bool rb_is_url(const char *s);
     """
 )
 

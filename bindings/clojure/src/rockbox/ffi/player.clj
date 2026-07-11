@@ -26,26 +26,37 @@
    :fade-out-duration-ms 2000
    :fade-in-delay-ms 0
    :fade-in-duration-ms 2000
-   :mix-mode :crossfade})
+   :mix-mode :crossfade
+   :resume-file nil          ; path to an .m3u8 to auto-persist queue+position; nil disables
+   :resume-save-interval-ms 0}) ; 0 => 5 s default
 
 (defn new-player
   "Create a player. `config` overrides `default-config` (see the C ABI's
-  rb_player_new_with_config). Throws if no output device is available."
+  rb_player_new_with_config / _ex). Throws if no output device is available.
+
+  If `:resume-file` is set, the queue and exact position are auto-persisted to
+  that .m3u8 every `:resume-save-interval-ms` ms (0 => 5 s), enabling
+  `resume`/`save-resume`/`clear-resume`."
   (^MemorySegment [] (new-player {}))
   (^MemorySegment [config]
-   (let [c (merge default-config config)
-         p ^MemorySegment
-         (ffi/call :player-new-with-config
-                   (int (:sample-rate c)) (float (:buffer-seconds c)) (float (:volume c))
-                   (int (enums/code enums/replaygain-mode (:replaygain-mode c)))
-                   (float (:replaygain-preamp-db c)) (boolean (:replaygain-prevent-clipping c))
-                   (int (enums/code enums/crossfade-mode (:crossfade-mode c)))
-                   (int (:fade-out-delay-ms c)) (int (:fade-out-duration-ms c))
-                   (int (:fade-in-delay-ms c)) (int (:fade-in-duration-ms c))
-                   (int (enums/code enums/mix-mode (:mix-mode c))))]
-     (when (zero? (.address p))
-       (throw (ex-info "rb_player_new_with_config returned NULL (no output device?)" {})))
-     p)))
+   (let [c (merge default-config config)]
+     (with-open [a (Arena/ofConfined)]
+       (let [resume-seg (if-let [rf (:resume-file c)]
+                          (.allocateFrom a ^String rf)
+                          MemorySegment/NULL)
+             p ^MemorySegment
+             (ffi/call :player-new-with-config-ex
+                       (int (:sample-rate c)) (float (:buffer-seconds c)) (float (:volume c))
+                       (int (enums/code enums/replaygain-mode (:replaygain-mode c)))
+                       (float (:replaygain-preamp-db c)) (boolean (:replaygain-prevent-clipping c))
+                       (int (enums/code enums/crossfade-mode (:crossfade-mode c)))
+                       (int (:fade-out-delay-ms c)) (int (:fade-out-duration-ms c))
+                       (int (:fade-in-delay-ms c)) (int (:fade-in-duration-ms c))
+                       (int (enums/code enums/mix-mode (:mix-mode c)))
+                       resume-seg (int (:resume-save-interval-ms c)))]
+         (when (zero? (.address p))
+           (throw (ex-info "rb_player_new_with_config_ex returned NULL (no output device?)" {})))
+         p)))))
 
 (defn free
   "Free the native handle. Safe to call with nil."
@@ -67,6 +78,26 @@
 (defn enqueue [^MemorySegment p path]
   (with-open [a (Arena/ofConfined)]
     (ffi/call :player-enqueue p (.allocateFrom a ^String path))))
+
+(defn insert
+  "Splice `paths` (local paths or http(s):// URLs) into the queue at `position`
+  (rockbox.ffi.enums/insert-position; default :insert-last). `index` is only
+  used when `position` is :index."
+  ([^MemorySegment p paths] (insert p paths :insert-last 0))
+  ([^MemorySegment p paths position] (insert p paths position 0))
+  ([^MemorySegment p paths position index]
+   (with-open [a (Arena/ofConfined)]
+     (ffi/call :player-insert-json p
+               (.allocateFrom a ^String (json/write-str (vec paths)))
+               (int (enums/code enums/insert-position position))
+               (long index)))))
+
+(defn queue
+  "The current queue as a vector of path/URL strings."
+  [^MemorySegment p]
+  (let [s (ffi/take-string (ffi/call :player-queue-json p))]
+    (when-not s (throw (ex-info "rb_player_queue_json returned NULL" {})))
+    (vec (json/read-str s))))
 
 ;; ---- transport --------------------------------------------------------
 
@@ -110,3 +141,86 @@
   (let [s (ffi/take-string (ffi/call :player-status-json p))]
     (when-not s (throw (ex-info "rb_player_status_json returned NULL" {})))
     (json/read-str s :key-fn keyword)))
+
+;; ---- resume -----------------------------------------------------------
+
+(defn resume
+  "Restore the queue + exact position from the player's resume file (does NOT
+  auto-play). Returns a map {:tracks [...] :index n :elapsed_ms n}, or nil if
+  there was nothing to resume."
+  [^MemorySegment p]
+  (when-let [s (ffi/take-string (ffi/call :player-resume p))]
+    (json/read-str s :key-fn keyword)))
+
+(defn save-resume
+  "Persist the queue + current position to the player's resume file now."
+  [^MemorySegment p]
+  (ffi/call :player-save-resume p))
+
+(defn clear-resume
+  "Delete the player's resume file."
+  [^MemorySegment p]
+  (ffi/call :player-clear-resume p))
+
+(defn load-resume
+  "Peek at a resume/.m3u8 file at `path` without a player. Returns a map
+  {:tracks [...] :index n :elapsed_ms n}, or nil if absent/invalid."
+  [path]
+  (with-open [a (Arena/ofConfined)]
+    (when-let [s (ffi/take-string (ffi/call :load-resume-json (.allocateFrom a ^String path)))]
+      (json/read-str s :key-fn keyword))))
+
+;; ---- m3u / m3u8 playlists ---------------------------------------------
+
+(defn import-m3u
+  "Import the playlist file at `path` into the queue at `position`
+  (rockbox.ffi.enums/insert-position; default :insert-last). `index` is only
+  used when `position` is :index. Returns the imported paths as a vector, or
+  nil on error."
+  ([^MemorySegment p path] (import-m3u p path :insert-last 0))
+  ([^MemorySegment p path position] (import-m3u p path position 0))
+  ([^MemorySegment p path position index]
+   (with-open [a (Arena/ofConfined)]
+     (when-let [s (ffi/take-string
+                   (ffi/call :player-import-m3u p (.allocateFrom a ^String path)
+                             (int (enums/code enums/insert-position position))
+                             (long index)))]
+       (vec (json/read-str s))))))
+
+(defn load-m3u
+  "Replace the queue with the playlist file at `path`. Returns the loaded paths
+  as a vector, or nil on error."
+  [^MemorySegment p path]
+  (with-open [a (Arena/ofConfined)]
+    (when-let [s (ffi/take-string
+                  (ffi/call :player-load-m3u p (.allocateFrom a ^String path)))]
+      (vec (json/read-str s)))))
+
+(defn export-m3u
+  "Export the current queue to an .m3u8 at `path` (atomic). Returns true on
+  success, false on error."
+  [^MemorySegment p path]
+  (with-open [a (Arena/ofConfined)]
+    (zero? (long (ffi/call :player-export-m3u p (.allocateFrom a ^String path))))))
+
+(defn m3u-read
+  "Parse a playlist file at `path` into a vector of maps
+  {:path s :duration_ms n :title s}, or nil on error. No player needed."
+  [path]
+  (with-open [a (Arena/ofConfined)]
+    (when-let [s (ffi/take-string (ffi/call :m3u-read-json (.allocateFrom a ^String path)))]
+      (vec (json/read-str s :key-fn keyword)))))
+
+(defn m3u-write
+  "Write `paths` (a seq of path/URL strings) as an .m3u8 at `path`. Returns true
+  on success, false on error. No player needed."
+  [path paths]
+  (with-open [a (Arena/ofConfined)]
+    (zero? (long (ffi/call :m3u-write-json (.allocateFrom a ^String path)
+                           (.allocateFrom a ^String (json/write-str (vec paths))))))))
+
+(defn is-url?
+  "Whether `s` looks like an http(s):// URL."
+  [s]
+  (with-open [a (Arena/ofConfined)]
+    (boolean (ffi/call :is-url (.allocateFrom a ^String s)))))

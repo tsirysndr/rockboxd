@@ -19,7 +19,11 @@
          player_stop/1, player_next/1, player_previous/1, player_skip_to/2,
          player_seek_ms/2, player_set_volume/2, player_volume/1,
          player_sample_rate/1, player_set_crossfade/7, player_set_replaygain/4,
-         player_status_json/1]).
+         player_status_json/1,
+         player_new_with_config_ex/14, player_insert_json/4, player_queue_json/1,
+         player_resume/1, player_save_resume/1, player_clear_resume/1,
+         load_resume_json/1, player_import_m3u/4, player_load_m3u/2,
+         player_export_m3u/2, m3u_read_json/1, m3u_write_json/2, is_url/1]).
 
 -on_load(init/0).
 
@@ -84,3 +88,18 @@ player_sample_rate(_P) -> ?NOT_LOADED.
 player_set_crossfade(_P, _Mode, _FoDel, _FoDur, _FiDel, _FiDur, _Mix) -> ?NOT_LOADED.
 player_set_replaygain(_P, _Mode, _Preamp, _Clip) -> ?NOT_LOADED.
 player_status_json(_P) -> ?NOT_LOADED.
+player_new_with_config_ex(_Rate, _Buf, _Vol, _RgMode, _RgPre, _RgClip, _Xf,
+                          _FoDel, _FoDur, _FiDel, _FiDur, _Mix, _ResumeFile,
+                          _ResumeInt) -> ?NOT_LOADED.
+player_insert_json(_P, _Json, _Position, _Index) -> ?NOT_LOADED.
+player_queue_json(_P) -> ?NOT_LOADED.
+player_resume(_P) -> ?NOT_LOADED.
+player_save_resume(_P) -> ?NOT_LOADED.
+player_clear_resume(_P) -> ?NOT_LOADED.
+load_resume_json(_Path) -> ?NOT_LOADED.
+player_import_m3u(_P, _Path, _Position, _Index) -> ?NOT_LOADED.
+player_load_m3u(_P, _Path) -> ?NOT_LOADED.
+player_export_m3u(_P, _Path) -> ?NOT_LOADED.
+m3u_read_json(_Path) -> ?NOT_LOADED.
+m3u_write_json(_Path, _Json) -> ?NOT_LOADED.
+is_url(_S) -> ?NOT_LOADED.

@@ -44,6 +44,21 @@ const (
 	MixMix       MixMode = 1
 )
 
+// InsertPosition selects where [Player.Insert] / [Player.ImportM3u] place the
+// new tracks in the queue.
+type InsertPosition int32
+
+const (
+	InsertPrepend      InsertPosition = 0 // before the current track
+	InsertAppend       InsertPosition = 1 // at the very end
+	InsertNext         InsertPosition = 2 // right after the current track
+	InsertLast         InsertPosition = 3 // at the end (last)
+	InsertShuffled     InsertPosition = 4 // random slot
+	InsertLastShuffled InsertPosition = 5 // shuffled but after current
+	InsertReplace      InsertPosition = 6 // clear then insert
+	InsertAtIndex      InsertPosition = 7 // at the explicit index argument
+)
+
 // ChannelConfig selects the DSP channel routing for [Dsp.SetChannelConfig].
 type ChannelConfig int32
 
