@@ -1,0 +1,116 @@
+{:paths ["src"]
+ :deps  {}
+
+ :tasks
+ {:requires ([console.core :as c])
+
+  ;; ── meta ─────────────────────────────────────────────────────
+  help    {:doc "Show all available console commands"
+           :override-builtin true
+           :task (c/help)}
+  ls      {:doc "List every registered command grouped by namespace"
+           :task (c/ls)}
+
+  ;; ── build (firmware -> crates -> zig) ────────────────────────
+  build:all      {:doc  "Full rebuild: firmware -> crates -> zig -> rockboxd"
+                  :task (do (require 'console.build) ((resolve 'console.build/all)))}
+  build:firmware {:doc  "make lib in build-lib (SDL firmware)"
+                  :task (do (require 'console.build) ((resolve 'console.build/firmware)))}
+  build:cli      {:task (do (require 'console.build) ((resolve 'console.build/cli)))}
+  build:server   {:task (do (require 'console.build) ((resolve 'console.build/server)))}
+  build:crates   {:doc  "Build rockbox-cli + rockbox-server staticlibs"
+                  :task (do (require 'console.build) ((resolve 'console.build/crates)))}
+  build:zig      {:doc  "cd zig && zig build -> rockboxd"
+                  :task (do (require 'console.build) ((resolve 'console.build/zig)))}
+  build:lib      {:doc  "Embeddable librockboxd.a (headless -> embed -> zig lib)"
+                  :task (do (require 'console.build) ((resolve 'console.build/lib)))}
+  build:headless {:task (do (require 'console.build) ((resolve 'console.build/headless)))}
+  build:gpui     {:doc  "GPUI desktop client"
+                  :task (do (require 'console.build) ((resolve 'console.build/gpui)))}
+  build:armhf    {:task (do (require 'console.build) ((resolve 'console.build/armhf)))}
+
+  ;; ── make / configure ─────────────────────────────────────────
+  make       {:doc  "make <targets> in a build dir. Usage: bb make <build-dir> [targets...]"
+              :task (do (require 'console.make)
+                        (apply (resolve 'console.make/make) *command-line-args*))}
+  make:lib   {:doc  "make lib in a build dir. Usage: bb make:lib [build-dir]"
+              :task (do (require 'console.make)
+                        (apply (resolve 'console.make/lib) *command-line-args*))}
+  make:clean {:doc  "make clean in a build dir. Usage: bb make:clean [build-dir]"
+              :task (do (require 'console.make)
+                        (apply (resolve 'console.make/clean) *command-line-args*))}
+  configure  {:doc  "tools/configure in a build dir (regenerates Makefile!). Usage: bb configure <build-dir> [args...]"
+              :task (do (require 'console.make)
+                        (apply (resolve 'console.make/configure) *command-line-args*))}
+
+  ;; ── run ──────────────────────────────────────────────────────
+  run        {:doc  "Run rockboxd. Extra args pass through."
+              :override-builtin true
+              :task (do (require 'console.run)
+                        (apply (resolve 'console.run/daemon) *command-line-args*))}
+  run:debug  {:doc  "Run rockboxd with RUST_LOG. Usage: bb run:debug [rust-log] [args...]"
+              :task (do (require 'console.run)
+                        (apply (resolve 'console.run/debug) *command-line-args*))}
+  run:pipe   {:doc  "FIFO stdout -> ffplay"
+              :task (do (require 'console.run) ((resolve 'console.run/pipe)))}
+
+  ;; ── dev (rust code quality) ──────────────────────────────────
+  fmt        {:task (do (require 'console.dev) ((resolve 'console.dev/fmt)))}
+  fmt:check  {:task (do (require 'console.dev) ((resolve 'console.dev/fmt-check)))}
+  clippy     {:task (do (require 'console.dev)
+                        (apply (resolve 'console.dev/clippy) *command-line-args*))}
+  test       {:task (do (require 'console.dev)
+                        (apply (resolve 'console.dev/test) *command-line-args*))}
+  check      {:task (do (require 'console.dev) ((resolve 'console.dev/check)))}
+
+  ;; ── wasm ─────────────────────────────────────────────────────
+  wasm:build {:task (do (require 'console.wasm) ((resolve 'console.wasm/build)))}
+  wasm:serve {:task (do (require 'console.wasm) ((resolve 'console.wasm/serve)))}
+
+  ;; ── expo (mobile) ────────────────────────────────────────────
+  expo:install    {:task (do (require 'console.expo) ((resolve 'console.expo/install)))}
+  expo:start      {:task (do (require 'console.expo) ((resolve 'console.expo/start)))}
+  expo:typecheck  {:task (do (require 'console.expo) ((resolve 'console.expo/typecheck)))}
+  expo:lint       {:task (do (require 'console.expo) ((resolve 'console.expo/lint)))}
+  expo:export-web {:task (do (require 'console.expo) ((resolve 'console.expo/export-web)))}
+  expo:ios        {:task (do (require 'console.expo) ((resolve 'console.expo/ios)))}
+  expo:android    {:task (do (require 'console.expo) ((resolve 'console.expo/android)))}
+  expo:prebuild   {:task (do (require 'console.expo) ((resolve 'console.expo/prebuild)))}
+  expo:run-ios    {:task (do (require 'console.expo) ((resolve 'console.expo/run-ios)))}
+  expo:run-android {:task (do (require 'console.expo) ((resolve 'console.expo/run-android)))}
+
+  ;; ── bindings (multi-language) ────────────────────────────────
+  bindings:ffi        {:task (do (require 'console.bindings) ((resolve 'console.bindings/ffi)))}
+  bindings:fetch-libs {:doc  "Stage prebuilt libs. Usage: bb bindings:fetch-libs [args...]"
+                       :task (do (require 'console.bindings)
+                                 (apply (resolve 'console.bindings/fetch-libs) *command-line-args*))}
+  bindings:publish    {:doc  "Publish packages. Usage: bb bindings:publish <npm|python|ruby> [flags]"
+                       :task (do (require 'console.bindings)
+                                 (apply (resolve 'console.bindings/publish) *command-line-args*))}
+
+  ;; ── verify (symbol / timestamp sanity) ───────────────────────
+  verify:stale     {:task (do (require 'console.verify) ((resolve 'console.verify/stale)))}
+  verify:symbols   {:task (do (require 'console.verify) ((resolve 'console.verify/symbols)))}
+  verify:staticlib {:task (do (require 'console.verify) ((resolve 'console.verify/staticlib)))}
+  nm               {:doc  "grep rockboxd symbols. Usage: bb nm <pattern>"
+                    :task (do (require 'console.verify)
+                              ((resolve 'console.verify/nm) (first *command-line-args*)))}
+  ar               {:doc  "grep librockbox_cli.a members. Usage: bb ar <pattern>"
+                    :task (do (require 'console.verify)
+                              ((resolve 'console.verify/ar) (first *command-line-args*)))}
+
+  ;; ── scripts (auto-discovered scripts/*.sh) ───────────────────
+  scripts     {:doc  "List every scripts/*.sh"
+               :task (do (require 'console.scripts) ((resolve 'console.scripts/ls)))}
+  script      {:doc  "Run a script. Usage: bb script <name> [args...]"
+               :task (do (require 'console.scripts)
+                         (apply (resolve 'console.scripts/run) *command-line-args*))}
+
+  ;; ── env ──────────────────────────────────────────────────────
+  env:show    {:doc  "Show every loaded key (masked)."
+               :task (do (require 'console.env)
+                         ((resolve 'console.env/load!))
+                         ((resolve 'console.env/show)))}
+  env:set     {:doc  "Set one key. Usage: bb env:set <KEY> <VALUE>"
+               :task (do (require 'console.env)
+                         (apply (resolve 'console.env/set!) *command-line-args*))}}}
