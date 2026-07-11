@@ -72,7 +72,17 @@ char *rb_meta_probe(const char *filename);
 
 /* ---- playback -------------------------------------------------------- */
 /* Crossfade mode: 0 off, 1 auto-skip, 2 manual-skip, 3 shuffle,
- *                 4 shuffle-or-manual, 5 always.  Mix mode: 0 crossfade, 1 mix. */
+ *                 4 shuffle-or-manual, 5 always.  Mix mode: 0 crossfade, 1 mix.
+ *
+ * Queue entries may be local paths OR http(s):// URLs — finite remote files
+ * stream on demand via range requests, and unbounded live streams (internet
+ * radio) decode on the fly. For live radio, rb_player_status_json's metadata
+ * carries the ICY now-playing info (title/artist, album=station, bitrate,
+ * sample_rate), updated as songs change.
+ *
+ * Insert position: 0 prepend, 1 insert (block after current), 2 insert-next,
+ *                  3 insert-last, 4 insert-shuffled, 5 insert-last-shuffled,
+ *                  6 replace, 7 explicit index (uses the `index` argument). */
 RbPlayer *rb_player_new(void);
 RbPlayer *rb_player_new_with_config(uint32_t sample_rate, float buffer_seconds,
                                     float volume, int32_t rg_mode,
@@ -80,9 +90,24 @@ RbPlayer *rb_player_new_with_config(uint32_t sample_rate, float buffer_seconds,
                                     int32_t xfade_mode, uint32_t fo_delay_ms,
                                     uint32_t fo_dur_ms, uint32_t fi_delay_ms,
                                     uint32_t fi_dur_ms, int32_t mix_mode);
+/* As above, plus resume: auto-persist the queue + exact position to
+ * resume_file (an .m3u8); null/empty disables it, interval 0 uses 5 s. */
+RbPlayer *rb_player_new_with_config_ex(uint32_t sample_rate, float buffer_seconds,
+                                       float volume, int32_t rg_mode,
+                                       float rg_preamp_db, bool rg_prevent_clipping,
+                                       int32_t xfade_mode, uint32_t fo_delay_ms,
+                                       uint32_t fo_dur_ms, uint32_t fi_delay_ms,
+                                       uint32_t fi_dur_ms, int32_t mix_mode,
+                                       const char *resume_file,
+                                       uint32_t resume_save_interval_ms);
 void  rb_player_free(RbPlayer *p);
 void  rb_player_set_queue_json(RbPlayer *p, const char *json);
 void  rb_player_enqueue(RbPlayer *p, const char *path);
+/* Insert a JSON array of paths/URLs at `position` (`index` used for pos 7). */
+void  rb_player_insert_json(RbPlayer *p, const char *json, int32_t position,
+                            size_t index);
+/* Current queue as a JSON array of strings; free with rb_string_free. */
+char *rb_player_queue_json(RbPlayer *p);
 void  rb_player_play(RbPlayer *p);
 void  rb_player_pause(RbPlayer *p);
 void  rb_player_toggle(RbPlayer *p);
@@ -100,6 +125,30 @@ void  rb_player_set_replaygain(RbPlayer *p, int32_t mode, float preamp_db,
 float    rb_player_volume(RbPlayer *p);
 uint32_t rb_player_sample_rate(RbPlayer *p);
 char    *rb_player_status_json(RbPlayer *p);
+
+/* ---- resume ---------------------------------------------------------- */
+/* Restore queue + exact position (does NOT auto-play); returns JSON
+ * {tracks,index,elapsed_ms} to free with rb_string_free, or NULL. */
+char *rb_player_resume(RbPlayer *p);
+void  rb_player_save_resume(RbPlayer *p);
+void  rb_player_clear_resume(RbPlayer *p);
+/* Peek at a resume file without a player; JSON or NULL. */
+char *rb_load_resume_json(const char *path);
+
+/* ---- m3u / m3u8 playlists -------------------------------------------- */
+/* Import into the queue at `position`; returns imported paths as JSON. */
+char *rb_player_import_m3u(RbPlayer *p, const char *path, int32_t position,
+                           size_t index);
+/* Replace the queue with a playlist file; returns loaded paths as JSON. */
+char *rb_player_load_m3u(RbPlayer *p, const char *path);
+/* Export the current queue to an .m3u8 (atomic); 0 ok, -1 error. */
+int32_t rb_player_export_m3u(RbPlayer *p, const char *path);
+/* Parse a playlist file → JSON array of {path,duration_ms,title}. */
+char *rb_m3u_read_json(const char *path);
+/* Write a JSON array of paths as an .m3u8; 0 ok, -1 error. */
+int32_t rb_m3u_write_json(const char *path, const char *json);
+/* Whether a string looks like an http(s):// URL. */
+bool rb_is_url(const char *s);
 
 #ifdef __cplusplus
 }

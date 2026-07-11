@@ -30,17 +30,32 @@
 //! the two — never by opening two decoders at once.
 
 mod crossfade;
+pub mod m3u;
+mod resume;
+pub mod source;
 
 pub use crossfade::{CrossfadeMode, CrossfadeSettings, MixMode};
+pub use m3u::M3uEntry;
+pub use resume::ResumeState;
 pub use rockbox_codecs::Decoder;
 pub use rockbox_metadata::Metadata;
+pub use source::{is_url, FileSource, MediaSource};
+#[cfg(feature = "http")]
+pub use source::{HttpSource, HttpStream, IcyInfo};
+
+/// Read a resume snapshot written by a previous session without constructing
+/// a [`Player`] — e.g. to decide whether to offer "resume playback" in a UI.
+/// See [`Player::resume`] to actually restore it.
+pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
+    resume::load(path.as_ref())
+}
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -81,6 +96,43 @@ pub enum PlaybackState {
     Paused,
 }
 
+/// Where to insert tracks into the queue, mirroring Rockbox's
+/// `playlist_insert_track` position constants (`apps/playlist.h`).
+///
+/// Positions are resolved relative to the currently-playing track: the
+/// engine shifts its play index as needed so the current track keeps
+/// playing when tracks are inserted before or at it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertPosition {
+    /// Add at the very beginning of the queue (`PLAYLIST_PREPEND`).
+    Prepend,
+    /// Add after the last inserted track, or immediately after the current
+    /// track if none were inserted since (`PLAYLIST_INSERT`). Successive
+    /// `Insert`s therefore keep their relative order, growing a block right
+    /// after the current track.
+    Insert,
+    /// Add immediately after the current track — "play next"
+    /// (`PLAYLIST_INSERT_FIRST`).
+    InsertNext,
+    /// Add to the end of the queue — "play last" (`PLAYLIST_INSERT_LAST`).
+    InsertLast,
+    /// Add at a random point between the current track and the end of the
+    /// queue (`PLAYLIST_INSERT_SHUFFLED`). When stopped (not started), the
+    /// random point spans the whole queue.
+    InsertShuffled,
+    /// Add at a random point within the region appended by this call,
+    /// leaving all earlier tracks in place (`PLAYLIST_INSERT_LAST_SHUFFLED`).
+    /// With a multi-track insert this shuffles the new tracks among
+    /// themselves at the tail of the queue.
+    InsertLastShuffled,
+    /// Erase the queue and cue the new tracks from the start
+    /// (`PLAYLIST_REPLACE`). If playing, playback continues into the first
+    /// new track.
+    Replace,
+    /// Insert at an explicit index (clamped to the queue length).
+    Index(usize),
+}
+
 const ST_STOPPED: u8 = 0;
 const ST_PLAYING: u8 = 1;
 const ST_PAUSED: u8 = 2;
@@ -116,6 +168,14 @@ pub struct PlayerConfig {
     pub replaygain_prevent_clipping: bool,
     /// Initial volume, 0.0..=1.0.
     pub volume: f32,
+    /// When set, the queue and the exact playback position are auto-saved to
+    /// this file (an extended `.m3u8`) as playback proceeds, and
+    /// [`Player::resume`] restores them. `None` disables persistence.
+    pub resume_file: Option<PathBuf>,
+    /// How often the resume file is refreshed while playing (in addition to
+    /// immediate saves on pause / stop / track change / shutdown). Only used
+    /// when `resume_file` is set.
+    pub resume_save_interval: Duration,
 }
 
 impl Default for PlayerConfig {
@@ -128,6 +188,8 @@ impl Default for PlayerConfig {
             replaygain_preamp_db: 0.0,
             replaygain_prevent_clipping: true,
             volume: 1.0,
+            resume_file: None,
+            resume_save_interval: Duration::from_secs(5),
         }
     }
 }
@@ -135,6 +197,12 @@ impl Default for PlayerConfig {
 enum Command {
     SetQueue(Vec<PathBuf>),
     Enqueue(PathBuf),
+    /// Insert one or more tracks at a Rockbox insertion position.
+    Insert(Vec<PathBuf>, InsertPosition),
+    /// Restore a persisted queue + exact position (does not auto-play).
+    Resume(ResumeState),
+    /// Force an immediate resume-file save.
+    SaveResume,
     Play,
     Pause,
     Toggle,
@@ -167,6 +235,9 @@ struct Shared {
     output_rate: AtomicU32,
     ring: Mutex<VecDeque<i16>>,
     meta: Mutex<Option<Metadata>>,
+    /// Mirror of the engine's queue so the handle can read it (for
+    /// `queue()` / `export_m3u`) without a round-trip to the engine thread.
+    queue: Mutex<Vec<PathBuf>>,
 }
 
 impl Shared {
@@ -210,6 +281,9 @@ pub struct Player {
     shared: Arc<Shared>,
     _stream: cpal::Stream,
     engine: Option<std::thread::JoinHandle<()>>,
+    /// Resume file path (mirrors `PlayerConfig::resume_file`) so
+    /// [`Player::resume`] can read it on the handle side.
+    resume_file: Option<PathBuf>,
 }
 
 impl Player {
@@ -241,6 +315,7 @@ impl Player {
             output_rate: AtomicU32::new(rate),
             ring: Mutex::new(VecDeque::new()),
             meta: Mutex::new(None),
+            queue: Mutex::new(Vec::new()),
         });
 
         let stream = build_stream(&device, rate, Arc::clone(&shared))?;
@@ -248,6 +323,7 @@ impl Player {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let engine_shared = Arc::clone(&shared);
+        let resume_file = config.resume_file.clone();
         let engine_cfg = EngineConfig {
             output_rate: rate,
             buffer_frames: (config.buffer_seconds.max(0.5) * rate as f32) as usize,
@@ -257,6 +333,8 @@ impl Player {
                 preamp_db: config.replaygain_preamp_db,
                 prevent_clipping: config.replaygain_prevent_clipping,
             },
+            resume_file: resume_file.clone(),
+            resume_save_interval: config.resume_save_interval,
         };
         let engine = std::thread::Builder::new()
             .name("rbplayback".into())
@@ -268,6 +346,7 @@ impl Player {
             shared,
             _stream: stream,
             engine: Some(engine),
+            resume_file,
         })
     }
 
@@ -290,6 +369,154 @@ impl Player {
     /// Append one track to the end of the queue.
     pub fn enqueue(&self, track: impl Into<PathBuf>) {
         let _ = self.tx.send(Command::Enqueue(track.into()));
+    }
+
+    /// Insert one track at a Rockbox insertion position (see
+    /// [`InsertPosition`]). Does not change playback state.
+    pub fn insert(&self, track: impl Into<PathBuf>, position: InsertPosition) {
+        let _ = self.tx.send(Command::Insert(vec![track.into()], position));
+    }
+
+    /// Insert several tracks at a Rockbox insertion position, preserving
+    /// their order (except for the shuffled positions). See
+    /// [`InsertPosition`].
+    pub fn insert_tracks<I, P>(&self, tracks: I, position: InsertPosition)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        let v: Vec<PathBuf> = tracks.into_iter().map(Into::into).collect();
+        let _ = self.tx.send(Command::Insert(v, position));
+    }
+
+    /// "Play next" — insert a track immediately after the current one
+    /// ([`InsertPosition::InsertNext`]).
+    pub fn insert_next(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertNext);
+    }
+
+    /// "Play last" — append a track to the end of the queue
+    /// ([`InsertPosition::InsertLast`]).
+    pub fn insert_last(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertLast);
+    }
+
+    /// Insert a track at a random point between the current track and the
+    /// end ([`InsertPosition::InsertShuffled`]).
+    pub fn insert_shuffled(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertShuffled);
+    }
+
+    /// Insert a track at a random point in the tail region
+    /// ([`InsertPosition::InsertLastShuffled`]).
+    pub fn insert_last_shuffled(&self, track: impl Into<PathBuf>) {
+        self.insert(track, InsertPosition::InsertLastShuffled);
+    }
+
+    /// Insert several tracks immediately after the current one, in order
+    /// ([`InsertPosition::InsertNext`]).
+    pub fn insert_tracks_next<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertNext);
+    }
+
+    /// Append several tracks to the end of the queue, in order
+    /// ([`InsertPosition::InsertLast`]).
+    pub fn insert_tracks_last<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertLast);
+    }
+
+    /// Insert several tracks at random points between the current track and
+    /// the end ([`InsertPosition::InsertShuffled`]).
+    pub fn insert_tracks_shuffled<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertShuffled);
+    }
+
+    /// Insert several tracks shuffled among themselves at the tail of the
+    /// queue ([`InsertPosition::InsertLastShuffled`]).
+    pub fn insert_tracks_last_shuffled<I, P>(&self, tracks: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.insert_tracks(tracks, InsertPosition::InsertLastShuffled);
+    }
+
+    // ---- resume (auto-persist / restore) --------------------------------
+
+    /// A snapshot of the current queue, in order.
+    pub fn queue(&self) -> Vec<PathBuf> {
+        self.shared.queue.lock().unwrap().clone()
+    }
+
+    /// Restore the queue and the exact position saved by a previous session
+    /// (from `PlayerConfig::resume_file`). Returns the restored state, or
+    /// `None` if resume is disabled or there is nothing to resume.
+    ///
+    /// Playback is **not** started — call [`Player::play`] to resume from the
+    /// stored position, mirroring Rockbox's resume-on-startup.
+    pub fn resume(&self) -> Option<ResumeState> {
+        let path = self.resume_file.as_ref()?;
+        let state = resume::load(path)?;
+        let _ = self.tx.send(Command::Resume(state.clone()));
+        Some(state)
+    }
+
+    /// Force an immediate write of the resume file (the engine also saves on
+    /// pause / stop / track change / shutdown and periodically while
+    /// playing). No-op when resume is disabled.
+    pub fn save_resume(&self) {
+        let _ = self.tx.send(Command::SaveResume);
+    }
+
+    /// Delete the resume file so the next launch starts fresh.
+    pub fn clear_resume(&self) {
+        if let Some(p) = &self.resume_file {
+            resume::clear(p);
+        }
+    }
+
+    // ---- m3u / m3u8 playlist files --------------------------------------
+
+    /// Import an `.m3u` / `.m3u8` file into the queue at `position`
+    /// (relative paths resolve against the file's directory). Returns the
+    /// tracks that were read.
+    pub fn import_m3u(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        position: InsertPosition,
+    ) -> std::io::Result<Vec<PathBuf>> {
+        let tracks = m3u::read_paths(path.as_ref())?;
+        if !tracks.is_empty() || position == InsertPosition::Replace {
+            let _ = self.tx.send(Command::Insert(tracks.clone(), position));
+        }
+        Ok(tracks)
+    }
+
+    /// Replace the queue with the contents of an `.m3u` / `.m3u8` file.
+    /// Does not change playback state; call [`Player::play`] to start.
+    pub fn load_m3u(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<Vec<PathBuf>> {
+        let tracks = m3u::read_paths(path.as_ref())?;
+        self.set_queue(tracks.clone());
+        Ok(tracks)
+    }
+
+    /// Export the current queue to an `.m3u8` file (UTF-8, `#EXTM3U`
+    /// header, one path per line), written atomically. Use the same path to
+    /// **update** an existing playlist.
+    pub fn export_m3u(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        m3u::write_paths(path.as_ref(), &self.queue())
     }
 
     pub fn play(&self) {
@@ -440,6 +667,8 @@ struct EngineConfig {
     buffer_frames: usize,
     crossfade: CrossfadeSettings,
     replaygain: ReplayGainConfig,
+    resume_file: Option<PathBuf>,
+    resume_save_interval: Duration,
 }
 
 struct Engine {
@@ -462,6 +691,42 @@ struct Engine {
     /// Set for the duration of a manual-skip crossfade so [`Engine::next_index`]
     /// resolves to the skip target instead of `index + 1`.
     pending_manual_target: Option<usize>,
+    /// Position of the last inserted track, so successive
+    /// [`InsertPosition::Insert`]s append to the same block (mirrors
+    /// Rockbox's `last_insert_pos`). `None` once invalidated.
+    last_insert_pos: Option<usize>,
+    /// xorshift64 state for the shuffled insertion positions.
+    rng_state: u64,
+    /// Set once a `Shutdown` command is seen so every loop — including the
+    /// inner `push_frames` back-off, which may consume the command before the
+    /// main loop does — unwinds instead of decoding forever.
+    shutdown: bool,
+    /// A `(index, position)` seek to apply the next time `index`'s decoder is
+    /// opened — set by a resume restore so the track starts at the exact
+    /// saved position. Discarded if the user navigates elsewhere first.
+    pending_seek: Option<(usize, Duration)>,
+    /// Last time the resume file was written (for interval throttling).
+    last_save: Instant,
+    /// Keeps the current track's HTTP cache (a temp file) alive for as long as
+    /// its decoder is open. Dropped — and the temp file deleted — when the
+    /// track is reset. Boxed as `Any` so the field needn't be `cfg`-gated.
+    current_source: Option<Box<dyn std::any::Any + Send>>,
+    /// Live-radio (ICY) metadata for the current stream, if any: the station
+    /// base metadata plus a handle to the changing `StreamTitle`.
+    #[cfg(feature = "http")]
+    current_icy: Option<IcyLive>,
+}
+
+/// Tracks a live stream's ICY metadata so the engine can refresh
+/// [`Shared::meta`] as the `StreamTitle` changes.
+#[cfg(feature = "http")]
+struct IcyLive {
+    /// Shared, live-updated current `StreamTitle`.
+    title: std::sync::Arc<Mutex<Option<String>>>,
+    /// Station-derived base metadata (codec, station name, genre, bitrate).
+    base: Metadata,
+    /// Last title reflected into `Shared::meta`, to detect changes.
+    last_title: Option<String>,
 }
 
 impl Engine {
@@ -481,11 +746,24 @@ impl Engine {
             finishing: false,
             input_rate: 0,
             pending_manual_target: None,
+            last_insert_pos: None,
+            rng_state: seed_rng(),
+            shutdown: false,
+            pending_seek: None,
+            last_save: Instant::now(),
+            current_source: None,
+            #[cfg(feature = "http")]
+            current_icy: None,
         }
     }
 
     fn run(mut self) {
         loop {
+            // Break even if a Shutdown was consumed by an inner loop
+            // (e.g. push_frames) rather than the pump below.
+            if self.shutdown {
+                break;
+            }
             // Drain pending commands; returns false on Shutdown.
             if !self.pump_commands(false) {
                 break;
@@ -516,6 +794,10 @@ impl Engine {
                 } else {
                     self.finishing = false;
                     self.playing = false;
+                    // Queue played to the end — don't resume a finished
+                    // playlist next launch. Clear before signalling Stopped so
+                    // an observer never sees Stopped with a stale file.
+                    self.clear_resume();
                     self.set_state(ST_STOPPED);
                     self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
                     self.shared.index.store(usize::MAX, Ordering::Relaxed);
@@ -551,6 +833,18 @@ impl Engine {
 
             self.set_state(ST_PLAYING);
             self.decode_step();
+
+            // Publish live-radio (ICY) StreamTitle changes to status().
+            #[cfg(feature = "http")]
+            self.refresh_icy();
+
+            // Refresh the resume file periodically so a crash loses at most
+            // `resume_save_interval` of position.
+            if self.cfg.resume_file.is_some()
+                && self.last_save.elapsed() >= self.cfg.resume_save_interval
+            {
+                self.save_resume();
+            }
         }
     }
 
@@ -720,23 +1014,44 @@ impl Engine {
     /// Returns false on Shutdown.
     fn handle(&mut self, cmd: Command) -> bool {
         match cmd {
-            Command::Shutdown => return false,
+            Command::Shutdown => {
+                // Persist the exact position on exit, like Rockbox saves on
+                // power-off — but only mid-session (a finished queue already
+                // cleared its resume file).
+                if self.playing || self.paused {
+                    self.save_resume();
+                }
+                self.shutdown = true;
+                return false;
+            }
             Command::SetQueue(q) => {
                 self.queue = q;
-                self.shared
-                    .queue_len
-                    .store(self.queue.len(), Ordering::Relaxed);
                 self.index = 0;
                 self.finishing = false;
                 self.paused = false;
+                self.last_insert_pos = None;
+                self.pending_seek = None;
                 self.reset_current();
+                self.sync_queue();
             }
             Command::Enqueue(p) => {
                 self.queue.push(p);
-                self.shared
-                    .queue_len
-                    .store(self.queue.len(), Ordering::Relaxed);
+                self.sync_queue();
             }
+            Command::Insert(tracks, position) => self.insert_tracks(tracks, position),
+            Command::Resume(state) => {
+                self.queue = state.tracks;
+                self.index = state.index.min(self.queue.len().saturating_sub(1));
+                self.pending_seek = Some((self.index, state.elapsed));
+                self.finishing = false;
+                self.paused = false;
+                self.last_insert_pos = None;
+                self.reset_current();
+                self.sync_queue();
+                // Reflect the restored index in status before play().
+                self.shared.index.store(self.index, Ordering::Relaxed);
+            }
+            Command::SaveResume => self.save_resume(),
             Command::Play => {
                 if self.queue.is_empty() {
                     return true;
@@ -806,6 +1121,7 @@ impl Engine {
                 self.shared
                     .target_amp
                     .store(0f32.to_bits(), Ordering::Relaxed);
+                self.save_resume();
             }
         } else if self.paused || (!self.playing && !self.queue.is_empty()) {
             self.paused = false;
@@ -820,6 +1136,11 @@ impl Engine {
     }
 
     fn stop_playback(&mut self) {
+        // Save the position before tearing down so a manual stop can still be
+        // resumed (Rockbox keeps its last resume info on stop).
+        if self.playing || self.paused || self.finishing {
+            self.save_resume();
+        }
         self.playing = false;
         self.paused = false;
         self.finishing = false;
@@ -876,6 +1197,7 @@ impl Engine {
             self.shared
                 .decode_pos_ms
                 .store(pos.as_millis() as u64, Ordering::Relaxed);
+            self.save_resume();
         }
     }
 
@@ -885,28 +1207,230 @@ impl Engine {
         let Some(path) = self.queue.get(self.index).cloned() else {
             return false;
         };
-        match Decoder::open(&path) {
-            Ok(dec) => {
-                self.input_rate = 0; // force resampler reconfigure on first chunk
-                let meta = dec.metadata().clone();
-                self.shared
-                    .duration_ms
-                    .store(meta.duration.as_millis() as u64, Ordering::Relaxed);
-                self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
-                self.shared.index.store(self.index, Ordering::Relaxed);
-                apply_replaygain_track(&mut self.dsp, &meta);
-                *self.shared.meta.lock().unwrap() = Some(meta);
-                self.decoder = Some(dec);
-                true
-            }
-            Err(_) => false,
+        let s = path.to_string_lossy().into_owned();
+        // Any previous stream's live metadata no longer applies.
+        #[cfg(feature = "http")]
+        {
+            self.current_icy = None;
         }
+
+        // A remote URL is either a seekable finite file (fetched into a cache
+        // and decoded like a local file) or an unbounded live stream (decoded
+        // forward-only). Local paths open directly.
+        if source::is_url(&s) {
+            match self.open_remote(&s) {
+                Some(ok) => return ok,
+                None => return false,
+            }
+        }
+        self.current_source = None;
+        let dec = match Decoder::open(&path) {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+        self.install_decoder(dec, /* seekable = */ true)
+    }
+
+    /// Open an `http(s)://` URL. Returns `Some(true/false)` once handled (the
+    /// bool is decoder-open success), or `None` when the `http` feature is off.
+    fn open_remote(&mut self, url: &str) -> Option<bool> {
+        #[cfg(feature = "http")]
+        {
+            match source::open_remote(url) {
+                Ok(source::Remote::File(mut src)) => {
+                    self.current_source = None;
+                    // Buffer only the header via range requests, then decode
+                    // the rest on demand — no full download, playback starts
+                    // as soon as the header is present. ~512 KiB covers the
+                    // format/rate/duration for the common codecs.
+                    const HEADER_BYTES: u64 = 512 * 1024;
+                    if src.prefetch(HEADER_BYTES).is_err() {
+                        return Some(false);
+                    }
+                    let size = src.size();
+                    // Parse tags/duration from the prefetched header (the cache
+                    // file is full-size and sparse, so this reads what's there).
+                    let meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                    let ext = src
+                        .cache_path()
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let freq = meta.sample_rate;
+                    match Decoder::open_seekable(Box::new(src), size, freq, &ext, meta) {
+                        Ok(dec) => Some(self.install_decoder(dec, true)),
+                        Err(_) => Some(false),
+                    }
+                }
+                Ok(source::Remote::Stream(stream)) => {
+                    // Unbounded: no random access, so skip get_metadata and
+                    // decode the response body forward-only.
+                    self.current_source = None;
+                    let ext = stream.format_ext().to_string();
+                    // Seed metadata from the ICY station headers; the changing
+                    // per-song StreamTitle is refreshed from `current_icy`.
+                    let station = stream.station().clone();
+                    let mut base = Metadata::default();
+                    base.codec = ext.to_uppercase();
+                    base.album = station.name.clone().unwrap_or_default();
+                    base.genre = station.genre.clone().unwrap_or_default();
+                    base.bitrate = station.bitrate.unwrap_or(0);
+                    self.current_icy = Some(IcyLive {
+                        title: stream.title(),
+                        base: base.clone(),
+                        last_title: None,
+                    });
+                    match Decoder::open_stream(Box::new(stream), &ext, base) {
+                        Ok(dec) => Some(self.install_decoder(dec, false)),
+                        Err(_) => Some(false),
+                    }
+                }
+                Err(_) => Some(false),
+            }
+        }
+        #[cfg(not(feature = "http"))]
+        {
+            let _ = url;
+            None
+        }
+    }
+
+    /// Wire an opened decoder into engine state. `seekable` gates the
+    /// resume-position seek (a live stream can't seek). Returns `true`.
+    fn install_decoder(&mut self, mut dec: Decoder, seekable: bool) -> bool {
+        self.input_rate = 0; // force resampler reconfigure on first chunk
+        let meta = dec.metadata().clone();
+        self.shared
+            .duration_ms
+            .store(meta.duration.as_millis() as u64, Ordering::Relaxed);
+        // A resume restore seeks this track to its exact saved position; any
+        // other track (or a stale target) starts at 0. Streams can't seek.
+        let mut start_ms = 0u64;
+        if let Some((idx, pos)) = self.pending_seek.take() {
+            if seekable && idx == self.index && !pos.is_zero() {
+                dec.seek(pos);
+                start_ms = pos.as_millis() as u64;
+            }
+        }
+        self.shared.decode_pos_ms.store(start_ms, Ordering::Relaxed);
+        self.shared.index.store(self.index, Ordering::Relaxed);
+        apply_replaygain_track(&mut self.dsp, &meta);
+        *self.shared.meta.lock().unwrap() = Some(meta);
+        self.decoder = Some(dec);
+        // Track change (or resume) — refresh the resume index.
+        self.save_resume();
+        true
     }
 
     fn reset_current(&mut self) {
         self.decoder = None;
+        self.current_source = None; // drop any HTTP temp cache
+        #[cfg(feature = "http")]
+        {
+            self.current_icy = None;
+        }
         self.dsp.flush();
         self.shared.ring.lock().unwrap().clear();
+    }
+
+    /// Reflect a live stream's changing ICY `StreamTitle` (and the decoded
+    /// sample rate, which is only known once decoding starts) into the shared
+    /// metadata so `status()` shows the current song. Cheap no-op when nothing
+    /// changed or there's no live stream.
+    #[cfg(feature = "http")]
+    fn refresh_icy(&mut self) {
+        let rate = self.input_rate;
+        let Some(icy) = self.current_icy.as_mut() else {
+            return;
+        };
+        let current = icy.title.lock().unwrap().clone();
+        if current == icy.last_title && icy.base.sample_rate == rate {
+            return;
+        }
+        icy.last_title = current.clone();
+        icy.base.sample_rate = rate; // 0 until the first chunk decodes
+        let mut meta = icy.base.clone();
+        if let Some(t) = current {
+            // "Artist - Title" is the common StreamTitle form.
+            match t.split_once(" - ") {
+                Some((artist, title)) => {
+                    meta.artist = artist.trim().to_string();
+                    meta.title = title.trim().to_string();
+                }
+                None => meta.title = t,
+            }
+        }
+        *self.shared.meta.lock().unwrap() = Some(meta);
+    }
+
+    // ---- insertion (Rockbox playlist_insert_track semantics) ------------
+
+    /// Insert `tracks` at the given [`InsertPosition`]. Delegates to the
+    /// pure [`perform_insert`] model, then reconciles engine-side state
+    /// (decoder/ring for `Replace`, the shared queue length).
+    fn insert_tracks(&mut self, tracks: Vec<PathBuf>, position: InsertPosition) {
+        let is_replace = position == InsertPosition::Replace;
+        perform_insert(
+            &mut self.queue,
+            &mut self.index,
+            &mut self.last_insert_pos,
+            &mut self.rng_state,
+            self.playing,
+            tracks,
+            position,
+        );
+        if is_replace {
+            // Cue the new queue from the top; the run loop reopens index 0.
+            self.finishing = false;
+            self.pending_seek = None;
+            self.reset_current();
+        }
+        self.sync_queue();
+    }
+
+    // ---- resume persistence ---------------------------------------------
+
+    /// Mirror the queue (len + contents) into `Shared` for the handle.
+    fn sync_queue(&self) {
+        self.shared
+            .queue_len
+            .store(self.queue.len(), Ordering::Relaxed);
+        *self.shared.queue.lock().unwrap() = self.queue.clone();
+    }
+
+    /// The playback position within the current track (decode position minus
+    /// the ring-buffer lag) — what the listener has actually heard.
+    fn playback_pos_ms(&self) -> u64 {
+        let decode = self.shared.decode_pos_ms.load(Ordering::Relaxed);
+        let rate = self.cfg.output_rate.max(1) as u64;
+        let lag = (self.shared.ring_frames() as u64 * 1000) / rate;
+        decode.saturating_sub(lag)
+    }
+
+    /// Write the resume file (queue + current index + exact position). No-op
+    /// when resume is disabled or the queue is empty.
+    fn save_resume(&mut self) {
+        let Some(path) = self.cfg.resume_file.clone() else {
+            return;
+        };
+        self.last_save = Instant::now();
+        if self.queue.is_empty() {
+            return;
+        }
+        let state = ResumeState {
+            tracks: self.queue.clone(),
+            index: self.index.min(self.queue.len() - 1),
+            elapsed: Duration::from_millis(self.playback_pos_ms()),
+        };
+        let _ = resume::save(&path, &state);
+    }
+
+    /// Delete the resume file (queue finished — nothing to resume).
+    fn clear_resume(&self) {
+        if let Some(path) = &self.cfg.resume_file {
+            resume::clear(path);
+        }
     }
 
     /// The index the next auto/manual transition moves to, if any.
@@ -935,6 +1459,147 @@ impl Engine {
     }
 }
 
+/// Pure Rockbox `playlist_insert_track` model: mutate `queue` / `index` /
+/// `last_insert_pos` in place for `position`. `started` means playback has
+/// begun (so the current track under `index` must be kept playing).
+///
+/// Ordered positions ([`InsertPosition::Prepend`], `Insert`, `InsertNext`,
+/// `InsertLast`, `Index`) place the tracks as a contiguous, order-preserving
+/// block. The shuffled positions place each track at its own random point;
+/// `Replace` erases the queue and cues the new tracks from the top.
+///
+/// Kept free of engine/audio state so it is unit-testable in isolation.
+fn perform_insert(
+    queue: &mut Vec<PathBuf>,
+    index: &mut usize,
+    last_insert_pos: &mut Option<usize>,
+    rng: &mut u64,
+    started: bool,
+    tracks: Vec<PathBuf>,
+    position: InsertPosition,
+) {
+    if tracks.is_empty() && position != InsertPosition::Replace {
+        return;
+    }
+
+    match position {
+        InsertPosition::Replace => {
+            *queue = tracks;
+            *index = 0;
+            *last_insert_pos = None;
+        }
+        InsertPosition::InsertShuffled => {
+            for t in tracks {
+                let amount = queue.len();
+                let at = if started && amount > 0 {
+                    // Random point between the current track and the end.
+                    let offset = rand_below(rng, amount - *index);
+                    (*index + offset + 1).min(amount)
+                } else {
+                    rand_below(rng, amount + 1)
+                };
+                insert_one(queue, index, last_insert_pos, started, at, t, false);
+            }
+        }
+        InsertPosition::InsertLastShuffled => {
+            // Freeze the region start, then drop each new track at a random
+            // point within the growing tail so the batch ends up shuffled
+            // among itself while earlier tracks stay put.
+            let start = queue.len();
+            for t in tracks {
+                let span = queue.len() - start + 1;
+                let at = start + rand_below(rng, span);
+                insert_one(queue, index, last_insert_pos, started, at, t, false);
+            }
+        }
+        _ => {
+            let (mut at, sets_last) = block_start(queue, *index, *last_insert_pos, position);
+            for t in tracks {
+                insert_one(queue, index, last_insert_pos, started, at, t, sets_last);
+                at += 1;
+            }
+        }
+    }
+}
+
+/// Insert one track at raw position `at`, keeping the currently-playing
+/// track under `index` and shifting `last_insert_pos` if it moved.
+fn insert_one(
+    queue: &mut Vec<PathBuf>,
+    index: &mut usize,
+    last_insert_pos: &mut Option<usize>,
+    started: bool,
+    at: usize,
+    path: PathBuf,
+    sets_last: bool,
+) {
+    let at = at.min(queue.len());
+    let pre_amount = queue.len();
+    queue.insert(at, path);
+
+    if started && pre_amount > 0 && at <= *index {
+        *index += 1;
+    }
+    if let Some(lp) = *last_insert_pos {
+        if at <= lp {
+            *last_insert_pos = Some(lp + 1);
+        }
+    }
+    if sets_last {
+        *last_insert_pos = Some(at);
+    }
+}
+
+/// Resolve the start index for an ordered-block insertion and whether it
+/// updates `last_insert_pos`.
+fn block_start(
+    queue: &[PathBuf],
+    index: usize,
+    last_insert_pos: Option<usize>,
+    position: InsertPosition,
+) -> (usize, bool) {
+    let amount = queue.len();
+    match position {
+        InsertPosition::Prepend => (0, false),
+        InsertPosition::InsertNext => (if amount > 0 { index + 1 } else { 0 }, true),
+        InsertPosition::InsertLast => (amount, true),
+        InsertPosition::Insert => {
+            let p = match last_insert_pos {
+                Some(lp) if lp < amount => lp + 1,
+                _ if amount > 0 => index + 1,
+                _ => 0,
+            };
+            (p, true)
+        }
+        InsertPosition::Index(i) => (i.min(amount), false),
+        // Shuffled / Replace are handled by perform_insert directly.
+        _ => (amount, false),
+    }
+}
+
+/// Uniform random in `0..n` via xorshift64 (`0` when `n == 0`).
+fn rand_below(rng: &mut u64, n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    let mut x = *rng;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *rng = x;
+    (x % n as u64) as usize
+}
+
+/// Seed the shuffled-insertion PRNG. xorshift64 must not start at 0, so a
+/// non-zero fallback constant is used if the clock is unavailable.
+fn seed_rng() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    nanos | 0x9E37_79B9_7F4A_7C15
+}
+
 fn apply_replaygain_mode(dsp: &mut rockbox_dsp::Dsp, rg: &ReplayGainConfig) {
     let mode = match rg.mode {
         ReplayGainMode::Off => rockbox_dsp::REPLAYGAIN_OFF,
@@ -952,4 +1617,208 @@ fn apply_replaygain_track(dsp: &mut rockbox_dsp::Dsp, meta: &Metadata) {
         rg.raw_track_peak,
         rg.raw_album_peak,
     );
+}
+
+#[cfg(test)]
+mod insertion_tests {
+    //! Unit tests for the pure Rockbox insertion model ([`perform_insert`]).
+    //! These need no audio device — they exercise the queue/index bookkeeping
+    //! directly.
+
+    use super::*;
+
+    /// Build a queue of single-letter paths.
+    fn q(names: &str) -> Vec<PathBuf> {
+        names
+            .chars()
+            .map(|c| PathBuf::from(c.to_string()))
+            .collect()
+    }
+
+    /// Render a queue back to a compact string for assertions.
+    fn s(queue: &[PathBuf]) -> String {
+        queue
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Run one insertion against a fresh state and return
+    /// `(queue_string, index, last_insert_pos)`.
+    fn run(
+        start: &str,
+        index: usize,
+        last: Option<usize>,
+        started: bool,
+        tracks: &str,
+        pos: InsertPosition,
+    ) -> (String, usize, Option<usize>) {
+        let mut queue = q(start);
+        let mut idx = index;
+        let mut lip = last;
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        perform_insert(
+            &mut queue,
+            &mut idx,
+            &mut lip,
+            &mut rng,
+            started,
+            q(tracks),
+            pos,
+        );
+        (s(&queue), idx, lip)
+    }
+
+    #[test]
+    fn insert_next_after_current_shifts_nothing_before() {
+        // Playing "B" (index 1) in A B C; InsertNext X → A B X C, index unchanged.
+        let (queue, idx, lip) = run("ABC", 1, None, true, "X", InsertPosition::InsertNext);
+        assert_eq!(queue, "ABXC");
+        assert_eq!(idx, 1);
+        assert_eq!(lip, Some(2));
+    }
+
+    #[test]
+    fn insert_next_block_preserves_order() {
+        let (queue, idx, _) = run("ABC", 0, None, true, "XY", InsertPosition::InsertNext);
+        assert_eq!(queue, "AXYBC");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn insert_last_appends_in_order() {
+        let (queue, idx, lip) = run("ABC", 1, None, true, "XY", InsertPosition::InsertLast);
+        assert_eq!(queue, "ABCXY");
+        assert_eq!(idx, 1);
+        assert_eq!(lip, Some(4)); // last inserted position
+    }
+
+    #[test]
+    fn prepend_before_current_shifts_index() {
+        // Playing index 1; prepend at 0 pushes the current track to index 2.
+        let (queue, idx, _) = run("ABC", 1, None, true, "X", InsertPosition::Prepend);
+        assert_eq!(queue, "XABC");
+        assert_eq!(idx, 2);
+    }
+
+    #[test]
+    fn prepend_when_stopped_keeps_index() {
+        // Not started: index does not chase the insertion.
+        let (queue, idx, _) = run("ABC", 0, None, false, "X", InsertPosition::Prepend);
+        assert_eq!(queue, "XABC");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn insert_chaining_grows_one_block_after_current() {
+        // Two separate Insert calls should build a contiguous block right
+        // after the current track, in call order.
+        let mut queue = q("ABC");
+        let mut idx = 0usize;
+        let mut lip = None;
+        let mut rng = 1u64;
+        perform_insert(
+            &mut queue,
+            &mut idx,
+            &mut lip,
+            &mut rng,
+            true,
+            q("X"),
+            InsertPosition::Insert,
+        );
+        perform_insert(
+            &mut queue,
+            &mut idx,
+            &mut lip,
+            &mut rng,
+            true,
+            q("Y"),
+            InsertPosition::Insert,
+        );
+        assert_eq!(s(&queue), "AXYBC");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn explicit_index_inserts_and_clamps() {
+        let (queue, _, _) = run("ABC", 0, None, true, "X", InsertPosition::Index(2));
+        assert_eq!(queue, "ABXC");
+        let (clamped, _, _) = run("ABC", 0, None, true, "X", InsertPosition::Index(99));
+        assert_eq!(clamped, "ABCX");
+    }
+
+    #[test]
+    fn replace_erases_and_cues_from_top() {
+        let (queue, idx, lip) = run("ABC", 2, Some(1), true, "XYZ", InsertPosition::Replace);
+        assert_eq!(queue, "XYZ");
+        assert_eq!(idx, 0);
+        assert_eq!(lip, None);
+    }
+
+    #[test]
+    fn insert_shuffled_stays_after_current_and_keeps_it() {
+        // Every random placement must land strictly after the current track
+        // and leave the played prefix intact.
+        for rng_seed in 1..200u64 {
+            let mut queue = q("ABCDE");
+            let mut idx = 2usize; // playing "C"
+            let mut lip = None;
+            let mut rng = rng_seed;
+            perform_insert(
+                &mut queue,
+                &mut idx,
+                &mut lip,
+                &mut rng,
+                true,
+                q("X"),
+                InsertPosition::InsertShuffled,
+            );
+            assert_eq!(queue.len(), 6);
+            let xpos = queue.iter().position(|p| p == &PathBuf::from("X")).unwrap();
+            assert!(xpos > idx, "X at {xpos} must be after current index {idx}");
+            // Prefix up to and including the current track is untouched.
+            assert_eq!(s(&queue[..=idx]), "ABC");
+        }
+    }
+
+    #[test]
+    fn insert_last_shuffled_keeps_prefix_and_adds_batch() {
+        for rng_seed in 1..200u64 {
+            let mut queue = q("ABC");
+            let mut idx = 1usize;
+            let mut lip = None;
+            let mut rng = rng_seed;
+            perform_insert(
+                &mut queue,
+                &mut idx,
+                &mut lip,
+                &mut rng,
+                true,
+                q("XYZ"),
+                InsertPosition::InsertLastShuffled,
+            );
+            // Original tracks stay in their original order and positions.
+            assert_eq!(s(&queue[..3]), "ABC");
+            assert_eq!(queue.len(), 6);
+            // The batch is entirely in the tail region.
+            let tail = s(&queue[3..]);
+            for c in ['X', 'Y', 'Z'] {
+                assert!(
+                    tail.contains(c),
+                    "batch member {c} missing from tail {tail}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn empty_insert_is_a_noop_except_replace() {
+        let (queue, idx, _) = run("ABC", 1, None, true, "", InsertPosition::InsertLast);
+        assert_eq!(queue, "ABC");
+        assert_eq!(idx, 1);
+        // Replace with no tracks clears the queue.
+        let (empty, ridx, _) = run("ABC", 1, None, true, "", InsertPosition::Replace);
+        assert_eq!(empty, "");
+        assert_eq!(ridx, 0);
+    }
 }

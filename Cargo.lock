@@ -9637,7 +9637,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-codecs"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "cc",
  "cpal",
@@ -9990,12 +9990,14 @@ dependencies = [
 
 [[package]]
 name = "rockbox-playback"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "cpal",
+ "reqwest",
  "rockbox-codecs",
  "rockbox-dsp",
  "rockbox-metadata",
+ "tempfile",
 ]
 
 [[package]]

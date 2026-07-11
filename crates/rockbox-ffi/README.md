@@ -16,6 +16,31 @@ C FFI:
 
 The public surface is declared in [`include/rockbox_ffi.h`](../../include/rockbox_ffi.h).
 
+### Playback surface
+
+`rb_player_*` covers the whole `rockbox-playback` feature set:
+
+- **Transport / queue** — `play` / `pause` / `toggle` / `stop`, `next` /
+  `previous` / `skip_to`, `seek_ms`, `set_volume`, `set_queue_json`,
+  `enqueue`, `queue_json`.
+- **Rockbox queue insertion** — `rb_player_insert_json(json, position, index)`
+  with the full position set (0 prepend, 1 insert, 2 insert-next,
+  3 insert-last, 4 shuffled, 5 last-shuffled, 6 replace, 7 explicit index).
+- **HTTP remote media** — queue `http(s)://` URLs beside local paths; finite
+  files stream on demand via range requests, and unbounded **live radio**
+  decodes on the fly. For live radio the status JSON's `metadata` carries the
+  ICY now-playing info (`title` / `artist`, `album` = station, `bitrate`,
+  `sample_rate`), refreshed as songs change.
+- **Resume** — build with `rb_player_new_with_config_ex(…, resume_file,
+  interval_ms)`, then `rb_player_resume` / `save_resume` / `clear_resume`;
+  `rb_load_resume_json(path)` peeks without a player.
+- **`.m3u` / `.m3u8`** — `rb_player_import_m3u` / `load_m3u` / `export_m3u`,
+  plus standalone `rb_m3u_read_json` / `rb_m3u_write_json`; `rb_is_url(s)`
+  classifies an entry.
+
+Rich values (status, metadata, queue, resume state, m3u entries) come back as
+**JSON** C strings — free them with `rb_string_free`.
+
 ## Build
 
 ```sh

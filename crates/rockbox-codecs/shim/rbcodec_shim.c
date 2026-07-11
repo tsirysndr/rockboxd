@@ -385,8 +385,87 @@ static void ci_set_elapsed(unsigned long value)
     atomic_store(&elapsed_ms, value);
 }
 
+/* ---- streaming (unbounded, forward-only) source ------------------------- *
+ * For live/remote streams there is no seekable fd: bytes are pulled from a
+ * Rust callback (blocking) into a lookahead buffer that supports the codec's
+ * peek(request_buffer)/advance pattern and forward-only seeks. `get_metadata`
+ * is skipped (it needs random access); self-describing codecs (MP3/Ogg/AAC)
+ * derive their format from the bitstream. `rbcodec_stream_read_fn` is
+ * declared in rbcodec.h. */
+
+static rbcodec_stream_read_fn stream_read_cb;
+static rbcodec_stream_seek_fn stream_seek_cb; /* NULL = forward-only stream */
+static void *stream_user;
+static int stream_mode; /* 1 = callback source (input_fd unused) */
+
+static unsigned char *sbuf; /* lookahead buffer */
+static size_t sbuf_cap, sbuf_len, sbuf_pos;
+static int stream_eof;
+
+static void stream_reset(void)
+{
+    stream_read_cb = NULL;
+    stream_seek_cb = NULL;
+    stream_user = NULL;
+    stream_mode = 0;
+    sbuf_len = sbuf_pos = 0;
+    stream_eof = 0;
+}
+
+/* Ensure at least `need` unconsumed bytes are buffered, or EOF is reached. */
+static void stream_fill(size_t need)
+{
+    if (sbuf_pos > 0)
+    {
+        memmove(sbuf, sbuf + sbuf_pos, sbuf_len - sbuf_pos);
+        sbuf_len -= sbuf_pos;
+        sbuf_pos = 0;
+    }
+    while (!stream_eof && sbuf_len < need)
+    {
+        if (sbuf_len + 65536 > sbuf_cap)
+        {
+            size_t ncap = sbuf_cap ? sbuf_cap : 262144;
+            while (ncap < sbuf_len + 65536)
+                ncap *= 2;
+            unsigned char *nb = realloc(sbuf, ncap);
+            if (!nb)
+                break;
+            sbuf = nb;
+            sbuf_cap = ncap;
+        }
+        long n = stream_read_cb(stream_user, sbuf + sbuf_len, 65536);
+        if (n <= 0)
+        {
+            stream_eof = 1;
+            break;
+        }
+        sbuf_len += (size_t)n;
+    }
+}
+
 static size_t ci_read_filebuf(void *ptr, size_t size)
 {
+    if (stream_mode)
+    {
+        size_t got = 0;
+        while (got < size)
+        {
+            if (sbuf_pos >= sbuf_len)
+            {
+                stream_fill(size - got);
+                if (sbuf_pos >= sbuf_len)
+                    break; /* EOF */
+            }
+            size_t avail = sbuf_len - sbuf_pos;
+            size_t take = (size - got < avail) ? size - got : avail;
+            memcpy((unsigned char *)ptr + got, sbuf + sbuf_pos, take);
+            sbuf_pos += take;
+            got += take;
+        }
+        shim_api.curpos += got;
+        return got;
+    }
     ssize_t actual = read(input_fd, ptr, size);
     if (actual < 0)
         actual = 0;
@@ -399,6 +478,14 @@ static void *ci_request_buffer(size_t *realsize, size_t reqsize)
     if (reqsize > REQUEST_BUFFER_MAX &&
         !rbcodec_format_is_atomic(current_id3.codectype))
         reqsize = REQUEST_BUFFER_MAX;
+
+    if (stream_mode)
+    {
+        stream_fill(reqsize);
+        size_t avail = sbuf_len - sbuf_pos;
+        *realsize = (reqsize < avail) ? reqsize : avail;
+        return sbuf + sbuf_pos;
+    }
 
     if (reqsize > peek_capacity)
     {
@@ -422,6 +509,25 @@ static void *ci_request_buffer(size_t *realsize, size_t reqsize)
 
 static void ci_advance_buffer(size_t amount)
 {
+    if (stream_mode)
+    {
+        while (amount > 0)
+        {
+            if (sbuf_pos >= sbuf_len)
+            {
+                stream_fill(amount);
+                if (sbuf_pos >= sbuf_len)
+                    break; /* EOF */
+            }
+            size_t avail = sbuf_len - sbuf_pos;
+            size_t take = (amount < avail) ? amount : avail;
+            sbuf_pos += take;
+            amount -= take;
+            shim_api.curpos += take;
+        }
+        current_id3.offset = shim_api.curpos;
+        return;
+    }
     lseek(input_fd, (off_t)amount, SEEK_CUR);
     shim_api.curpos += amount;
     current_id3.offset = shim_api.curpos;
@@ -429,6 +535,26 @@ static void ci_advance_buffer(size_t amount)
 
 static bool ci_seek_buffer(size_t newpos)
 {
+    if (stream_mode)
+    {
+        if (stream_seek_cb)
+        {
+            /* Seekable callback (e.g. HTTP range-request cache): jump both
+             * directions; the source fetches the target range on demand. */
+            if (stream_seek_cb(stream_user, (int64_t)newpos) != 0)
+                return false;
+            sbuf_len = sbuf_pos = 0; /* discard lookahead from the old position */
+            stream_eof = 0;
+            shim_api.curpos = (off_t)newpos;
+            current_id3.offset = shim_api.curpos;
+            return true;
+        }
+        /* Forward-only live stream: rewind is impossible. */
+        if ((off_t)newpos < shim_api.curpos)
+            return false;
+        ci_advance_buffer((size_t)((off_t)newpos - shim_api.curpos));
+        return shim_api.curpos == (off_t)newpos;
+    }
     off_t actual = lseek(input_fd, (off_t)newpos, SEEK_SET);
     if (actual >= 0)
         shim_api.curpos = actual;
@@ -569,6 +695,7 @@ void rbcodec_set_sink(rbcodec_sink_t cb, void *user)
 
 int rbcodec_open(const char *path)
 {
+    stream_mode = 0;
     input_fd = open(path, O_RDONLY);
     if (input_fd < 0)
         return -1;
@@ -627,9 +754,139 @@ int rbcodec_open(const char *path)
     return 0;
 }
 
+/* Map a file extension (dot-optional) to an AFMT codec type, for streaming
+ * where there is no file to sniff. Only self-describing streamable formats
+ * need be listed. */
+static unsigned int afmt_for_ext(const char *ext)
+{
+    if (!ext)
+        return AFMT_UNKNOWN;
+    while (*ext == '.')
+        ext++;
+    if (!strcasecmp(ext, "mp3") || !strcasecmp(ext, "mp2") ||
+        !strcasecmp(ext, "mpa") || !strcasecmp(ext, "mp1"))
+        return AFMT_MPA_L3;
+    if (!strcasecmp(ext, "ogg") || !strcasecmp(ext, "oga"))
+        return AFMT_OGG_VORBIS;
+    if (!strcasecmp(ext, "opus"))
+        return AFMT_OPUS;
+    if (!strcasecmp(ext, "flac"))
+        return AFMT_FLAC;
+    if (!strcasecmp(ext, "aac"))
+        return AFMT_MP4_AAC;
+    if (!strcasecmp(ext, "m4a") || !strcasecmp(ext, "mp4"))
+        return AFMT_MP4_AAC;
+    if (!strcasecmp(ext, "wv"))
+        return AFMT_WAVPACK;
+    if (!strcasecmp(ext, "mpc"))
+        return AFMT_MPC_SV7;
+    if (!strcasecmp(ext, "wma"))
+        return AFMT_WMA;
+    if (!strcasecmp(ext, "wav") || !strcasecmp(ext, "wave"))
+        return AFMT_PCM_WAV;
+    if (!strcasecmp(ext, "aif") || !strcasecmp(ext, "aiff"))
+        return AFMT_AIFF;
+    return AFMT_UNKNOWN;
+}
+
+int rbcodec_open_stream(rbcodec_stream_read_fn read_cb, void *user,
+                        const char *ext)
+{
+    unsigned int afmt = afmt_for_ext(ext);
+    current_hdr = header_for_codectype(afmt);
+    if (!current_hdr)
+        return -3;
+    if (current_hdr->lc_hdr.magic != CODEC_MAGIC ||
+        current_hdr->lc_hdr.api_version != CODEC_API_VERSION)
+        return -4;
+
+    stream_reset();
+    stream_read_cb = read_cb;
+    stream_user = user;
+    stream_mode = 1;
+    input_fd = -1;
+
+    memset(&current_id3, 0, sizeof(current_id3));
+    current_id3.codectype = afmt;
+    /* Self-describing codecs set the true rate via DSP_SET_FREQUENCY; this is
+     * only a sane fallback. */
+    current_id3.frequency = 44100;
+
+    shim_api = shim_api_template;
+    shim_api.filesize = INT64_MAX; /* unknown / unbounded */
+    shim_api.curpos = 0;
+    shim_api.id3 = &current_id3;
+    shim_api.audio_hid = -1;
+    shim_api.dsp = NULL;
+
+    fmt.freq = 44100;
+    fmt.depth = 16;
+    fmt.stereo_mode = STEREO_INTERLEAVED;
+    fmt.channels = 2;
+
+    atomic_store(&pending_action, CODEC_ACTION_NULL);
+    atomic_store(&elapsed_ms, 0);
+
+    *current_hdr->api = &shim_api;
+    if (current_hdr->entry_point(CODEC_LOAD) != CODEC_OK)
+    {
+        stream_reset();
+        return -5;
+    }
+    return 0;
+}
+
+int rbcodec_open_seekable(rbcodec_stream_read_fn read_cb,
+                          rbcodec_stream_seek_fn seek_cb, void *user,
+                          int64_t size, unsigned long frequency,
+                          const char *ext)
+{
+    unsigned int afmt = afmt_for_ext(ext);
+    current_hdr = header_for_codectype(afmt);
+    if (!current_hdr)
+        return -3;
+    if (current_hdr->lc_hdr.magic != CODEC_MAGIC ||
+        current_hdr->lc_hdr.api_version != CODEC_API_VERSION)
+        return -4;
+
+    stream_reset();
+    stream_read_cb = read_cb;
+    stream_seek_cb = seek_cb; /* seekable: HTTP range-request cache */
+    stream_user = user;
+    stream_mode = 1;
+    input_fd = -1;
+
+    memset(&current_id3, 0, sizeof(current_id3));
+    current_id3.codectype = afmt;
+    current_id3.frequency = frequency ? frequency : 44100;
+
+    shim_api = shim_api_template;
+    shim_api.filesize = size > 0 ? size : INT64_MAX;
+    shim_api.curpos = 0;
+    shim_api.id3 = &current_id3;
+    shim_api.audio_hid = -1;
+    shim_api.dsp = NULL;
+
+    fmt.freq = current_id3.frequency;
+    fmt.depth = 16;
+    fmt.stereo_mode = STEREO_INTERLEAVED;
+    fmt.channels = 2;
+
+    atomic_store(&pending_action, CODEC_ACTION_NULL);
+    atomic_store(&elapsed_ms, 0);
+
+    *current_hdr->api = &shim_api;
+    if (current_hdr->entry_point(CODEC_LOAD) != CODEC_OK)
+    {
+        stream_reset();
+        return -5;
+    }
+    return 0;
+}
+
 int rbcodec_run(void)
 {
-    if (input_fd < 0 || !current_hdr)
+    if ((!stream_mode && input_fd < 0) || !current_hdr)
         return CODEC_ERROR;
     return current_hdr->run_proc();
 }
@@ -646,6 +903,7 @@ void rbcodec_close(void)
         close(input_fd);
         input_fd = -1;
     }
+    stream_reset();
 }
 
 void rbcodec_request_seek(long time_ms)

@@ -8,8 +8,8 @@
 use crate::meta::MetadataJson;
 use crate::util::{cstr, into_cstring};
 use rockbox_playback::{
-    CrossfadeMode, CrossfadeSettings, MixMode, PlaybackState, Player, PlayerConfig, ReplayGainMode,
-    Status,
+    m3u, CrossfadeMode, CrossfadeSettings, InsertPosition, MixMode, PlaybackState, Player,
+    PlayerConfig, ReplayGainMode, ResumeState, Status,
 };
 use serde::Serialize;
 use std::os::raw::c_char;
@@ -21,6 +21,23 @@ fn rg_mode(v: i32) -> ReplayGainMode {
         1 => ReplayGainMode::Track,
         2 => ReplayGainMode::Album,
         _ => ReplayGainMode::Off,
+    }
+}
+
+/// Decode an insertion position: 0 prepend, 1 insert, 2 insert-next,
+/// 3 insert-last, 4 insert-shuffled, 5 insert-last-shuffled, 6 replace,
+/// 7 explicit index (uses `index`). Anything else → insert-last.
+fn insert_position(v: i32, index: usize) -> InsertPosition {
+    match v {
+        0 => InsertPosition::Prepend,
+        1 => InsertPosition::Insert,
+        2 => InsertPosition::InsertNext,
+        3 => InsertPosition::InsertLast,
+        4 => InsertPosition::InsertShuffled,
+        5 => InsertPosition::InsertLastShuffled,
+        6 => InsertPosition::Replace,
+        7 => InsertPosition::Index(index),
+        _ => InsertPosition::InsertLast,
     }
 }
 
@@ -104,6 +121,63 @@ pub extern "C" fn rb_player_new_with_config(
         replaygain_preamp_db: rg_preamp_db,
         replaygain_prevent_clipping: rg_prevent_clipping,
         volume,
+        resume_file: None,
+        resume_save_interval: Duration::from_secs(5),
+    };
+    match Player::with_config(cfg) {
+        Ok(p) => Box::into_raw(Box::new(p)),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Like [`rb_player_new_with_config`] but also enables **resume**: the queue
+/// and exact playback position are auto-persisted to `resume_file` (an
+/// extended `.m3u8`) and restored via [`rb_player_resume`]. A null or empty
+/// `resume_file` disables persistence; `resume_save_interval_ms` of 0 uses
+/// the 5 s default. Returns null on failure.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn rb_player_new_with_config_ex(
+    sample_rate: u32,
+    buffer_seconds: f32,
+    volume: f32,
+    rg_mode_v: i32,
+    rg_preamp_db: f32,
+    rg_prevent_clipping: bool,
+    xfade_mode_v: i32,
+    fo_delay_ms: u32,
+    fo_dur_ms: u32,
+    fi_delay_ms: u32,
+    fi_dur_ms: u32,
+    mix_mode_v: i32,
+    resume_file: *const c_char,
+    resume_save_interval_ms: u32,
+) -> *mut Player {
+    let resume_file = cstr(resume_file)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
+    let interval = if resume_save_interval_ms == 0 {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_millis(resume_save_interval_ms as u64)
+    };
+    let cfg = PlayerConfig {
+        sample_rate: (sample_rate != 0).then_some(sample_rate),
+        buffer_seconds,
+        crossfade: crossfade(
+            xfade_mode_v,
+            fo_delay_ms,
+            fo_dur_ms,
+            fi_delay_ms,
+            fi_dur_ms,
+            mix_mode_v,
+        ),
+        replaygain_mode: rg_mode(rg_mode_v),
+        replaygain_preamp_db: rg_preamp_db,
+        replaygain_prevent_clipping: rg_prevent_clipping,
+        volume,
+        resume_file,
+        resume_save_interval: interval,
     };
     match Player::with_config(cfg) {
         Ok(p) => Box::into_raw(Box::new(p)),
@@ -129,6 +203,17 @@ macro_rules! player {
     }};
 }
 
+/// Like [`player!`] but for functions that return a value: yields `$ret` on a
+/// null handle.
+macro_rules! player_or {
+    ($p:ident, $ret:expr) => {{
+        if $p.is_null() {
+            return $ret;
+        }
+        unsafe { &*$p }
+    }};
+}
+
 /// Replace the queue from a JSON array of path strings, e.g.
 /// `["a.flac","b.mp3"]`. Invalid JSON is ignored.
 #[no_mangle]
@@ -146,6 +231,43 @@ pub extern "C" fn rb_player_enqueue(p: *mut Player, path: *const c_char) {
     let player = player!(p);
     if let Some(path) = cstr(path) {
         player.enqueue(PathBuf::from(path));
+    }
+}
+
+/// Insert one or more tracks (JSON array of path/URL strings) into the queue
+/// at a Rockbox insertion `position` (see [`insert_position`]); `index` is
+/// only used when `position == 7` (explicit index). Local paths and
+/// `http(s)://` URLs may be mixed. Invalid JSON is ignored.
+#[no_mangle]
+pub extern "C" fn rb_player_insert_json(
+    p: *mut Player,
+    json: *const c_char,
+    position: i32,
+    index: usize,
+) {
+    let player = player!(p);
+    let Some(json) = cstr(json) else { return };
+    if let Ok(paths) = serde_json::from_str::<Vec<String>>(json) {
+        player.insert_tracks(
+            paths.into_iter().map(PathBuf::from).collect::<Vec<_>>(),
+            insert_position(position, index),
+        );
+    }
+}
+
+/// The current queue as a JSON array of path/URL strings. Free with
+/// `rb_string_free`; null on a null handle or a serialization error.
+#[no_mangle]
+pub extern "C" fn rb_player_queue_json(p: *mut Player) -> *mut c_char {
+    let player = player_or!(p, std::ptr::null_mut());
+    let paths: Vec<String> = player
+        .queue()
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    match serde_json::to_string(&paths) {
+        Ok(s) => into_cstring(s),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -273,6 +395,199 @@ pub extern "C" fn rb_player_status_json(p: *mut Player) -> *mut c_char {
     }
     let status = unsafe { &*p }.status();
     match serde_json::to_string(&StatusJson::from(&status)) {
+        Ok(s) => into_cstring(s),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// ---- resume (auto-persist / restore) ------------------------------------
+
+#[derive(Serialize)]
+struct ResumeStateJson {
+    tracks: Vec<String>,
+    index: usize,
+    elapsed_ms: u64,
+}
+
+impl From<&ResumeState> for ResumeStateJson {
+    fn from(s: &ResumeState) -> Self {
+        ResumeStateJson {
+            tracks: s
+                .tracks
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            index: s.index,
+            elapsed_ms: s.elapsed.as_millis() as u64,
+        }
+    }
+}
+
+/// Restore the queue and exact position saved by a previous session (from the
+/// `resume_file` given to `rb_player_new_with_config_ex`). Does NOT start
+/// playback — call `rb_player_play` to resume from the stored position.
+/// Returns the restored state as JSON (free with `rb_string_free`), or null if
+/// resume is disabled or there's nothing to resume.
+#[no_mangle]
+pub extern "C" fn rb_player_resume(p: *mut Player) -> *mut c_char {
+    let player = player_or!(p, std::ptr::null_mut());
+    match player.resume() {
+        Some(state) => match serde_json::to_string(&ResumeStateJson::from(&state)) {
+            Ok(s) => into_cstring(s),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Force an immediate write of the resume file (no-op when resume is disabled).
+#[no_mangle]
+pub extern "C" fn rb_player_save_resume(p: *mut Player) {
+    player!(p).save_resume();
+}
+
+/// Delete the resume file so the next launch starts fresh.
+#[no_mangle]
+pub extern "C" fn rb_player_clear_resume(p: *mut Player) {
+    player!(p).clear_resume();
+}
+
+/// Peek at a resume snapshot on disk without constructing a player (e.g. to
+/// offer "resume playback" in a UI). Returns JSON (free with `rb_string_free`)
+/// or null if the file is missing / not a resume file / empty.
+#[no_mangle]
+pub extern "C" fn rb_load_resume_json(path: *const c_char) -> *mut c_char {
+    let Some(path) = cstr(path) else {
+        return std::ptr::null_mut();
+    };
+    match rockbox_playback::load_resume(path) {
+        Some(state) => match serde_json::to_string(&ResumeStateJson::from(&state)) {
+            Ok(s) => into_cstring(s),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
+    }
+}
+
+// ---- m3u / m3u8 playlists -----------------------------------------------
+
+/// Import an `.m3u` / `.m3u8` file into the queue at `position` (see
+/// [`insert_position`]; `index` used only for position 7). Returns the
+/// imported paths as a JSON array (free with `rb_string_free`), or null if the
+/// file can't be read.
+#[no_mangle]
+pub extern "C" fn rb_player_import_m3u(
+    p: *mut Player,
+    path: *const c_char,
+    position: i32,
+    index: usize,
+) -> *mut c_char {
+    let player = player_or!(p, std::ptr::null_mut());
+    let Some(path) = cstr(path) else {
+        return std::ptr::null_mut();
+    };
+    match player.import_m3u(path, insert_position(position, index)) {
+        Ok(tracks) => paths_json(&tracks),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Replace the queue with the contents of an `.m3u` / `.m3u8` file. Does not
+/// change playback state. Returns the loaded paths as a JSON array (free with
+/// `rb_string_free`), or null on read error.
+#[no_mangle]
+pub extern "C" fn rb_player_load_m3u(p: *mut Player, path: *const c_char) -> *mut c_char {
+    let player = player_or!(p, std::ptr::null_mut());
+    let Some(path) = cstr(path) else {
+        return std::ptr::null_mut();
+    };
+    match player.load_m3u(path) {
+        Ok(tracks) => paths_json(&tracks),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Export the current queue to an `.m3u8` file (atomic write). Returns 0 on
+/// success, -1 on a null handle or I/O error.
+#[no_mangle]
+pub extern "C" fn rb_player_export_m3u(p: *mut Player, path: *const c_char) -> i32 {
+    let player = player_or!(p, -1);
+    let Some(path) = cstr(path) else {
+        return -1;
+    };
+    match player.export_m3u(path) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Read an `.m3u` / `.m3u8` file into a JSON array of entries — each
+/// `{path, duration_ms, title}` (duration/title null when no `#EXTINF`).
+/// Relative paths resolve against the file's directory. Free with
+/// `rb_string_free`; null on read error.
+#[no_mangle]
+pub extern "C" fn rb_m3u_read_json(path: *const c_char) -> *mut c_char {
+    let Some(path) = cstr(path) else {
+        return std::ptr::null_mut();
+    };
+    let entries = match m3u::read(std::path::Path::new(path)) {
+        Ok(e) => e,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let json: Vec<M3uEntryJson> = entries.iter().map(Into::into).collect();
+    match serde_json::to_string(&json) {
+        Ok(s) => into_cstring(s),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Write a JSON array of path strings to `path` as an `.m3u8` playlist
+/// (atomic). Returns 0 on success, -1 on invalid JSON or I/O error.
+#[no_mangle]
+pub extern "C" fn rb_m3u_write_json(path: *const c_char, json: *const c_char) -> i32 {
+    let (Some(path), Some(json)) = (cstr(path), cstr(json)) else {
+        return -1;
+    };
+    let Ok(paths) = serde_json::from_str::<Vec<String>>(json) else {
+        return -1;
+    };
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    match m3u::write_paths(std::path::Path::new(path), &paths) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Whether `s` looks like an `http(s)://` URL (vs. a local path).
+#[no_mangle]
+pub extern "C" fn rb_is_url(s: *const c_char) -> bool {
+    cstr(s).map(rockbox_playback::is_url).unwrap_or(false)
+}
+
+#[derive(Serialize)]
+struct M3uEntryJson {
+    path: String,
+    duration_ms: Option<u64>,
+    title: Option<String>,
+}
+
+impl From<&m3u::M3uEntry> for M3uEntryJson {
+    fn from(e: &m3u::M3uEntry) -> Self {
+        M3uEntryJson {
+            path: e.path.to_string_lossy().into_owned(),
+            duration_ms: e.duration.map(|d| d.as_millis() as u64),
+            title: e.title.clone(),
+        }
+    }
+}
+
+/// Serialize a slice of paths to a JSON-array C string.
+fn paths_json(paths: &[PathBuf]) -> *mut c_char {
+    let v: Vec<String> = paths
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    match serde_json::to_string(&v) {
         Ok(s) => into_cstring(s),
         Err(_) => std::ptr::null_mut(),
     }
