@@ -71,13 +71,13 @@ jobs:
                 # xz lives in the FreeBSD base system, so tar handles .tar.xz
                 # without a package.
                 sudo pkg install -y \
-                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib perl5 wget
+                  bash gcc gmake cmake protobuf rust pkgconf alsa-lib perl5 zip wget
                 ;;
               NetBSD)
                 # pkgin ships in the cross-platform-actions NetBSD image.
                 # gcc and xz are in the NetBSD base system, so no package.
                 sudo pkgin -y install \
-                  bash gmake cmake protobuf rust pkgconf alsa-lib perl wget
+                  bash gmake cmake protobuf rust pkgconf alsa-lib perl zip wget
                 ;;
               *)
                 echo "Unsupported OS: $OS" >&2
