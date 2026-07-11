@@ -23,7 +23,9 @@
 #include <sys/time.h>
 #if !defined(WIN32)
 #include <sys/ioctl.h>
-#if !defined(__APPLE__) && !defined(CTRU)
+/* The Linux RTC ioctl interface (linux/rtc.h, /dev/rtc0) is Linux-only.
+ * macOS, the *BSDs and CTRU have no such header, so guard on __linux__. */
+#if defined(__linux__)
 #include <linux/rtc.h>
 #endif
 #include <fcntl.h>
@@ -65,19 +67,26 @@ int rtc_write_datetime(const struct tm *tm)
     time_t now = time(NULL);
     tm_time = gmtime(&now);
 
-    /* Try to write the HW RTC, if present. */
+#if defined(__linux__)
+    /* Try to write the HW RTC, if present. The /dev/rtc0 ioctl interface
+     * exists only on Linux; other POSIX hosts just set the system clock. */
     int rtc = open("/dev/rtc0", O_WRONLY | O_CLOEXEC);
     if (rtc > 0) {
         ioctl(rtc, RTC_SET_TIME, (struct rtc_time *)tm_time);
         close(rtc);
     }
 #else
+    (void)tm_time;
+#endif
+#else
     (void)(*tm);
 #endif
     return 0;
 }
 
-#if defined(HAVE_RTC_ALARM) && !defined(SIMULATOR)
+/* The alarm implementation is entirely Linux RTC ioctl based
+ * (struct rtc_time / rtc_wkalrm, RTC_* ioctls), so it is Linux-only. */
+#if defined(HAVE_RTC_ALARM) && !defined(SIMULATOR) && defined(__linux__)
 void rtc_set_alarm(int h, int m)
 {
     struct rtc_time tm;
