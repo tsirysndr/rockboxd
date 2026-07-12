@@ -11,7 +11,9 @@ on:
         description: "Flake reference to install"
         type: string
         required: false
-        default: "github:tsirysndr/rockboxd?submodules=1"
+        # git+https (not github:) so ?submodules=1 actually pulls the
+        # deno/rmpc submodules — the github: tarball fetcher ignores it.
+        default: "git+https://github.com/tsirysndr/rockboxd?submodules=1"
 
 jobs:
   install:
