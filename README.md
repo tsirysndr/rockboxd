@@ -602,6 +602,37 @@ brew install tsirysndr/tap/rockbox
 curl -fsSL https://raw.githubusercontent.com/tsirysndr/rockboxd/HEAD/install.sh | bash
 ```
 
+### Nix (flake)
+
+With [Nix](https://nixos.org/download) (flakes enabled) you can run or install
+rockboxd straight from the repo:
+
+```sh
+# Run the daemon without installing
+nix run github:tsirysndr/rockboxd
+
+# Install into your profile (provides the `rockboxd` binary)
+nix profile install github:tsirysndr/rockboxd
+```
+
+**⚡ Speed up the build with Cachix.** A from-source build links the Rockbox C
+firmware, every codec, and — for the `#rockbox` CLI — a full Deno/V8 stack, so
+it is heavy. Enable the public **`rockbox`** binary cache to pull pre-built
+artifacts instead of compiling locally:
+
+```sh
+nix profile install nixpkgs#cachix   # if you don't already have cachix
+cachix use rockbox
+```
+
+Other flake outputs:
+
+```sh
+nix run   github:tsirysndr/rockboxd#rockbox   # the `rockbox` CLI client
+nix build github:tsirysndr/rockboxd           # → ./result/bin/rockboxd
+nix develop github:tsirysndr/rockboxd         # dev shell: Zig, Rust, typesense, tools/console…
+```
+
 ---
 
 ## 📦 Downloads

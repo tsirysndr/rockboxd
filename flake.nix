@@ -485,17 +485,11 @@
             ''}";
           };
 
+          # `nix run` (no attr) runs the daemon; the built binary is wrapped so
+          # typesense-server is on its PATH.
           default = {
             type    = "app";
-            program = "${pkgs.writeShellScript "rockboxd-info" ''
-              echo "Usage:"
-              echo "  nix build .                # build rockboxd"
-              echo "  nix shell .                # shell with rockboxd in PATH"
-              echo "  nix profile install .      # install rockboxd permanently"
-              echo "  nix run .#build-headless   # build in the working tree (headless)"
-              echo "  nix run .#build-sdl        # build in the working tree (SDL)"
-              echo "  nix develop                # dev shell with all toolchains"
-            ''}";
+            program = "${rockboxd}/bin/rockboxd";
           };
         };
       }
