@@ -1,6 +1,6 @@
 {
   "name": "rockbox-ffi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TypeScript bindings (Bun + Deno + Node.js FFI) for the Rockbox DSP / metadata / playback engine",
   "license": "GPL-2.0-or-later",
   "type": "module",
@@ -42,12 +42,12 @@
     "koffi": "^2.9.0"
   },
   "optionalDependencies": {
-    "@rockbox-ffi/darwin-arm64": "0.2.0",
-    "@rockbox-ffi/darwin-x64": "0.2.0",
-    "@rockbox-ffi/linux-x64": "0.2.0",
-    "@rockbox-ffi/linux-arm64": "0.2.0",
-    "@rockbox-ffi/freebsd-x64": "0.2.0",
-    "@rockbox-ffi/netbsd-x64": "0.2.0"
+    "@rockbox-ffi/darwin-arm64": "0.3.0",
+    "@rockbox-ffi/darwin-x64": "0.3.0",
+    "@rockbox-ffi/linux-x64": "0.3.0",
+    "@rockbox-ffi/linux-arm64": "0.3.0",
+    "@rockbox-ffi/freebsd-x64": "0.3.0",
+    "@rockbox-ffi/netbsd-x64": "0.3.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

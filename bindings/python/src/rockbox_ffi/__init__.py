@@ -12,10 +12,14 @@ from ._ffi import lib, take_string
 from .dsp import Dsp, sine_stereo
 from .enums import (
     ChannelConfig,
+    ChannelMode,
     CrossfadeMode,
+    CrossfeedMode,
     DspReplayGainMode,
+    EqPreset,
     InsertPosition,
     MixMode,
+    RepeatMode,
     ReplayGainMode,
 )
 from .player import Player
@@ -26,10 +30,14 @@ __all__ = [
     "Player",
     "sine_stereo",
     "ChannelConfig",
+    "ChannelMode",
     "CrossfadeMode",
+    "CrossfeedMode",
     "DspReplayGainMode",
+    "EqPreset",
     "InsertPosition",
     "MixMode",
+    "RepeatMode",
     "ReplayGainMode",
     "abi_version",
     "load_resume",

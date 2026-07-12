@@ -1,5 +1,5 @@
 name = "rockbox_ffi"
-version = "1.1.0"
+version = "1.2.0"
 target = "erlang"
 licences = ["GPL-2.0-or-later"]
 description = "Gleam bindings for the Rockbox DSP / metadata / playback engine"

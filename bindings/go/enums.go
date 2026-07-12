@@ -23,6 +23,16 @@ const (
 	ReplayGainAlbum ReplayGainMode = 2
 )
 
+// RepeatMode selects the repeat behaviour for [Player.SetRepeat] and
+// [Player.Repeat].
+type RepeatMode int32
+
+const (
+	RepeatOff RepeatMode = 0
+	RepeatOne RepeatMode = 1
+	RepeatAll RepeatMode = 2
+)
+
 // CrossfadeMode selects the crossfade behaviour for [Player.SetCrossfade] and
 // [Config.CrossfadeMode].
 type CrossfadeMode int32
@@ -70,4 +80,54 @@ const (
 	ChannelMonoRight ChannelConfig = 4
 	ChannelKaraoke   ChannelConfig = 5
 	ChannelSwap      ChannelConfig = 6
+)
+
+// EqPreset selects a built-in equalizer preset for [Player.SetEqPreset].
+type EqPreset int32
+
+const (
+	EqPresetFlat          EqPreset = 0
+	EqPresetAcoustic      EqPreset = 1
+	EqPresetBassBoost     EqPreset = 2
+	EqPresetBassReducer   EqPreset = 3
+	EqPresetClassical     EqPreset = 4
+	EqPresetDance         EqPreset = 5
+	EqPresetDeep          EqPreset = 6
+	EqPresetElectronic    EqPreset = 7
+	EqPresetHipHop        EqPreset = 8
+	EqPresetJazz          EqPreset = 9
+	EqPresetLatin         EqPreset = 10
+	EqPresetLoudness      EqPreset = 11
+	EqPresetLounge        EqPreset = 12
+	EqPresetPiano         EqPreset = 13
+	EqPresetPop           EqPreset = 14
+	EqPresetRnB           EqPreset = 15
+	EqPresetRock          EqPreset = 16
+	EqPresetSmallSpeakers EqPreset = 17
+	EqPresetTrebleBoost   EqPreset = 18
+	EqPresetTrebleReducer EqPreset = 19
+	EqPresetVocalBoost    EqPreset = 20
+)
+
+// CrossfeedMode selects the crossfeed processing mode for
+// [Player.SetCrossfeed].
+type CrossfeedMode int32
+
+const (
+	CrossfeedOff    CrossfeedMode = 0
+	CrossfeedMeier  CrossfeedMode = 1
+	CrossfeedCustom CrossfeedMode = 2
+)
+
+// ChannelMode selects the channel routing for [Player.SetChannelMode].
+type ChannelMode int32
+
+const (
+	ChannelModeStereo    ChannelMode = 0
+	ChannelModeMono      ChannelMode = 1
+	ChannelModeCustom    ChannelMode = 2
+	ChannelModeMonoLeft  ChannelMode = 3
+	ChannelModeMonoRight ChannelMode = 4
+	ChannelModeKaraoke   ChannelMode = 5
+	ChannelModeSwap      ChannelMode = 6
 )

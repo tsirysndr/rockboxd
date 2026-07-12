@@ -36,22 +36,72 @@ checkout falls back to `target/release`.
   (dsp/set-eq-band d 0 100 0.7 3.0)
   (dsp/process d samples))           ; => short-array
 
-;; Player (queue + transport)
+;; Player (queue + transport + DSP)
 (player/with-player [p {:volume 0.8}]
-  (player/set-queue p ["/music/a.flac" "/music/b.mp3"])
-  (player/play p)
+  ;; Mutating fns return the handle, so setup threads cleanly with `->`.
+  (-> p
+      ;; queue entries: local paths, http(s):// URLs, or live-radio / stream URLs
+      (player/set-queue ["/music/a.flac"
+                         "https://example.com/b.mp3"
+                         "http://stream.example.com/live"])
+      (player/set-eq-enabled true)
+      (player/set-eq-preset :bass-boost)   ; one of 21 built-in presets
+      (player/set-shuffle true)
+      (player/set-repeat :all)
+      (player/play))
   (:state (player/status p)))
 ```
 
+## Player API
+
+Every mutating player fn takes the handle `p` first and **returns `p`**, so a
+full session — queue, DSP chain, shuffle/repeat, transport — threads with `->`.
+Getters/queries (`volume`, `status`, `queue`, `dsp-settings`, `shuffle-enabled?`,
+`repeat`, `eq-enabled?`, …) return their values as usual.
+
+| Namespace                | Fns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rockbox.ffi.metadata`   | `read`, `probe`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `rockbox.ffi.dsp`        | `with-dsp`, `eq-enable`, `set-eq-band`, `set-replaygain`, `process`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `rockbox.ffi.player`     | **lifecycle** `new-player`, `with-player`, `free` · **queue** `set-queue`, `enqueue`, `insert`, `queue` · **transport** `play`, `pause`, `toggle`, `stop`, `next`, `previous`, `skip-to`, `seek-ms` · **settings** `set-volume`, `volume`, `sample-rate`, `set-crossfade`, `set-replaygain` · **shuffle/repeat** `set-shuffle`, `shuffle-enabled?`, `set-repeat`, `repeat` · **status** `status` · **resume** `resume`, `save-resume`, `clear-resume`, `load-resume` · **playlists** `import-m3u`, `load-m3u`, `export-m3u`, `m3u-read`, `m3u-write`, `is-url?` |
+| `rockbox.ffi.player` DSP | `set-eq-enabled`, `eq-enabled?`, `set-eq-preset`, `set-eq-band`, `set-eq-precut`, `set-tone`, `set-bass`, `set-treble`, `set-bass-cutoff`, `set-treble-cutoff`, `set-crossfeed`, `set-surround`, `set-channel-mode`, `set-stereo-width`, `set-bass-enhancement`, `set-fatigue-reduction`, `set-compressor`, `set-dither`, `set-pitch`, `dsp-settings`                                                                                                                                                                                                           |
+
+### Sources
+
+`set-queue`, `enqueue`, and `insert` accept **local file paths**, finite
+**`http(s)://` URLs**, and **live-radio / streaming URLs** in the same list —
+mix them freely. `dsp-settings` returns a keywordized snapshot of the whole
+chain.
+
+### Enums
+
+Every enum arg accepts either the keyword or the raw int (`rockbox.ffi.enums`):
+
+| Map               | Keywords                                                                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `eq-preset`       | `:flat` `:acoustic` `:bass-boost` `:bass-reducer` `:classical` `:dance` `:deep` `:electronic` `:hip-hop` `:jazz` `:latin` `:loudness` `:lounge` `:piano` `:pop` `:rnb` `:rock` `:small-speakers` `:treble-boost` `:treble-reducer` `:vocal-boost` (21) |
+| `crossfeed-mode`  | `:off` `:meier` `:custom`                                                                                                                                                                                                                              |
+| `channel-mode`    | `:stereo` `:mono` `:custom` `:mono-left` `:mono-right` `:karaoke` `:swap`                                                                                                                                                                              |
+| `repeat-mode`     | `:off` `:one` `:all`                                                                                                                                                                                                                                   |
+| `crossfade-mode`  | `:off` `:auto-skip` `:manual-skip` `:shuffle` `:shuffle-or-manual` `:always`                                                                                                                                                                           |
+| `replaygain-mode` | `:off` `:track` `:album` (player) — see the ReplayGain warning below                                                                                                                                                                                   |
+
+<Tip>
+  The DSP chain mirrors Rockbox's own sound settings. For what each control does
+  (EQ bands, crossfeed, tone/bass/treble, compressor, dithering, pitch, …) see
+  the official
+  [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+</Tip>
+
 ## Notes
 
-- Rich values (metadata, player status) come back as maps with **keyword
-  keys**, parsed with `clojure.data.json`.
+- Rich values (metadata, player status, `dsp-settings`) come back as maps with
+  **keyword keys**, parsed with `clojure.data.json`.
 - Native memory is freed automatically — `with-dsp` / `with-player` free their
   handle, and every `char*` / `int16*` the ABI returns is freed inside the
   binding.
 - Enum arguments accept either a keyword or the raw int (see
-  `src/rockbox/enums.clj`).
+  `src/rockbox/ffi/enums.clj`).
 
 <Warning>
   **Two ReplayGain encodings** — `dsp-replaygain-mode` (`:track` 0, `:album` 1,

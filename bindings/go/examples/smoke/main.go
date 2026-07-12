@@ -88,6 +88,10 @@ func main() {
 	if err := player.SetQueue([]string{fixture}); err != nil {
 		log.Fatal(err)
 	}
+	// DSP: Bass Boost preset + a +7 dB bass / +4 dB treble lift.
+	player.SetEqPreset(rockbox.EqPresetBassBoost)
+	player.SetBass(7)
+	player.SetTreble(4)
 	time.Sleep(100 * time.Millisecond) // queue command is applied asynchronously
 
 	st, err := player.Status()

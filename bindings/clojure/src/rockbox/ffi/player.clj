@@ -7,8 +7,19 @@
   `free` (or use `with-player`).
 
   ReplayGain `mode` here uses the *player* values (rockbox.ffi.enums/replaygain-mode:
-  :off :track :album) — distinct from the DSP encoding."
-  (:refer-clojure :exclude [next])
+  :off :track :album) — distinct from the DSP encoding.
+
+  Mutating functions return the player handle, so they thread cleanly with `->`:
+
+      (-> p
+          (player/set-queue tracks)
+          (player/set-shuffle true)
+          (player/set-repeat :all)
+          (player/play))
+
+  Getters/queries (`volume`, `status`, `queue`, `dsp-settings`, …) return their
+  values as usual."
+  (:refer-clojure :exclude [next repeat])
   (:require [rockbox.ffi :as ffi]
             [rockbox.ffi.enums :as enums]
             [clojure.data.json :as json])
@@ -71,18 +82,28 @@
 
 ;; ---- queue ------------------------------------------------------------
 
-(defn set-queue [^MemorySegment p paths]
+(defn set-queue
+  "Replace the queue. Each entry may be a local file path, an http(s):// URL
+  to a finite remote file, or a live-radio / streaming URL. Returns `p` for
+  threading."
+  [^MemorySegment p paths]
   (with-open [a (Arena/ofConfined)]
-    (ffi/call :player-set-queue-json p (.allocateFrom a ^String (json/write-str (vec paths))))))
+    (ffi/call :player-set-queue-json p (.allocateFrom a ^String (json/write-str (vec paths)))))
+  p)
 
-(defn enqueue [^MemorySegment p path]
+(defn enqueue
+  "Append one track to the queue. `path` may be a local file path, an
+  http(s):// URL to a finite remote file, or a live-radio / streaming URL.
+  Returns `p` for threading."
+  [^MemorySegment p path]
   (with-open [a (Arena/ofConfined)]
-    (ffi/call :player-enqueue p (.allocateFrom a ^String path))))
+    (ffi/call :player-enqueue p (.allocateFrom a ^String path)))
+  p)
 
 (defn insert
   "Splice `paths` (local paths or http(s):// URLs) into the queue at `position`
   (rockbox.ffi.enums/insert-position; default :insert-last). `index` is only
-  used when `position` is :index."
+  used when `position` is :index. Returns `p` for threading."
   ([^MemorySegment p paths] (insert p paths :insert-last 0))
   ([^MemorySegment p paths position] (insert p paths position 0))
   ([^MemorySegment p paths position index]
@@ -90,7 +111,8 @@
      (ffi/call :player-insert-json p
                (.allocateFrom a ^String (json/write-str (vec paths)))
                (int (enums/code enums/insert-position position))
-               (long index)))))
+               (long index)))
+   p))
 
 (defn queue
   "The current queue as a vector of path/URL strings."
@@ -101,23 +123,24 @@
 
 ;; ---- transport --------------------------------------------------------
 
-(defn play [^MemorySegment p] (ffi/call :player-play p))
-(defn pause [^MemorySegment p] (ffi/call :player-pause p))
-(defn toggle [^MemorySegment p] (ffi/call :player-toggle p))
-(defn stop [^MemorySegment p] (ffi/call :player-stop p))
-(defn next [^MemorySegment p] (ffi/call :player-next p))
-(defn previous [^MemorySegment p] (ffi/call :player-previous p))
-(defn skip-to [^MemorySegment p index] (ffi/call :player-skip-to p (long index)))
-(defn seek-ms [^MemorySegment p ms] (ffi/call :player-seek-ms p (long ms)))
+(defn play "Start playback. Returns `p` for threading." [^MemorySegment p] (ffi/call :player-play p) p)
+(defn pause "Pause playback. Returns `p` for threading." [^MemorySegment p] (ffi/call :player-pause p) p)
+(defn toggle "Toggle play/pause. Returns `p` for threading." [^MemorySegment p] (ffi/call :player-toggle p) p)
+(defn stop "Stop playback. Returns `p` for threading." [^MemorySegment p] (ffi/call :player-stop p) p)
+(defn next "Skip to the next track. Returns `p` for threading." [^MemorySegment p] (ffi/call :player-next p) p)
+(defn previous "Skip to the previous track. Returns `p` for threading." [^MemorySegment p] (ffi/call :player-previous p) p)
+(defn skip-to "Jump to queue `index`. Returns `p` for threading." [^MemorySegment p index] (ffi/call :player-skip-to p (long index)) p)
+(defn seek-ms "Seek to `ms` in the current track. Returns `p` for threading." [^MemorySegment p ms] (ffi/call :player-seek-ms p (long ms)) p)
 
 ;; ---- settings ---------------------------------------------------------
 
-(defn set-volume [^MemorySegment p vol] (ffi/call :player-set-volume p (float vol)))
+(defn set-volume "Set the output volume (0.0–1.0). Returns `p` for threading." [^MemorySegment p vol] (ffi/call :player-set-volume p (float vol)) p)
 (defn volume ^double [^MemorySegment p] (double (ffi/call :player-volume p)))
 (defn sample-rate ^long [^MemorySegment p]
   (bit-and (long (ffi/call :player-sample-rate p)) 0xFFFFFFFF))
 
 (defn set-crossfade
+  "Configure crossfade. Returns `p` for threading."
   [^MemorySegment p mode & {:keys [fade-out-delay-ms fade-out-duration-ms
                                    fade-in-delay-ms fade-in-duration-ms mix-mode]
                             :or {fade-out-delay-ms 0 fade-out-duration-ms 2000
@@ -125,13 +148,175 @@
   (ffi/call :player-set-crossfade p (int (enums/code enums/crossfade-mode mode))
             (int fade-out-delay-ms) (int fade-out-duration-ms)
             (int fade-in-delay-ms) (int fade-in-duration-ms)
-            (int (enums/code enums/mix-mode mix-mode))))
+            (int (enums/code enums/mix-mode mix-mode)))
+  p)
 
 (defn set-replaygain
-  "`mode`: rockbox.ffi.enums/replaygain-mode (:off :track :album)."
+  "`mode`: rockbox.ffi.enums/replaygain-mode (:off :track :album). Returns `p`
+  for threading."
   [^MemorySegment p mode preamp-db prevent-clipping?]
   (ffi/call :player-set-replaygain p (int (enums/code enums/replaygain-mode mode))
-            (float preamp-db) (boolean prevent-clipping?)))
+            (float preamp-db) (boolean prevent-clipping?))
+  p)
+
+(defn set-shuffle
+  "Enable or disable shuffle playback. Returns `p` for threading."
+  [^MemorySegment p enabled?]
+  (ffi/call :player-set-shuffle p (boolean enabled?))
+  p)
+
+(defn shuffle-enabled?
+  "Whether shuffle playback is currently enabled."
+  [^MemorySegment p]
+  (boolean (ffi/call :player-is-shuffle-enabled p)))
+
+(defn set-repeat
+  "Set the repeat mode (rockbox.ffi.enums/repeat-mode; :off :one :all). Returns
+  `p` for threading."
+  [^MemorySegment p mode]
+  (ffi/call :player-set-repeat p (int (enums/code enums/repeat-mode mode)))
+  p)
+
+(defn repeat
+  "The current repeat mode as its raw int (0 off, 1 one, 2 all)."
+  ^long [^MemorySegment p]
+  (long (ffi/call :player-repeat p)))
+
+;; ---- DSP --------------------------------------------------------------
+
+(defn set-eq-enabled
+  "Enable or disable the parametric EQ. Returns `p` for threading."
+  [^MemorySegment p enabled?]
+  (ffi/call :player-set-eq-enabled p (boolean enabled?))
+  p)
+
+(defn eq-enabled?
+  "Whether the parametric EQ is currently enabled."
+  [^MemorySegment p]
+  (boolean (ffi/call :player-is-eq-enabled p)))
+
+(defn set-eq-band
+  "Configure one EQ band. `q` and `gain-db` are plain (not tenths) values.
+  Returns `p` for threading."
+  [^MemorySegment p band cutoff-hz q gain-db]
+  (ffi/call :player-set-eq-band p (long band) (int cutoff-hz) (float q) (float gain-db))
+  p)
+
+(defn set-eq-precut
+  "Set the EQ pre-cut (attenuation) in dB. Returns `p` for threading."
+  [^MemorySegment p db]
+  (ffi/call :player-set-eq-precut p (float db))
+  p)
+
+(defn set-eq-preset
+  "Apply a built-in EQ preset (rockbox.ffi.enums/eq-preset; e.g. :flat :rock).
+  Returns `p` for threading."
+  [^MemorySegment p preset]
+  (ffi/call :player-set-eq-preset p (int (enums/code enums/eq-preset preset)))
+  p)
+
+(defn set-tone
+  "Set the tone controls: bass/treble gain (dB) and their cutoffs (Hz). Returns
+  `p` for threading."
+  [^MemorySegment p bass-db treble-db bass-cutoff-hz treble-cutoff-hz]
+  (ffi/call :player-set-tone p (int bass-db) (int treble-db)
+            (int bass-cutoff-hz) (int treble-cutoff-hz))
+  p)
+
+(defn set-bass
+  "Set the bass tone gain in dB. Returns `p` for threading."
+  [^MemorySegment p bass-db]
+  (ffi/call :player-set-bass p (int bass-db))
+  p)
+
+(defn set-treble
+  "Set the treble tone gain in dB. Returns `p` for threading."
+  [^MemorySegment p treble-db]
+  (ffi/call :player-set-treble p (int treble-db))
+  p)
+
+(defn set-bass-cutoff
+  "Set the bass tone-control cutoff frequency in Hz. Returns `p` for threading."
+  [^MemorySegment p hz]
+  (ffi/call :player-set-bass-cutoff p (int hz))
+  p)
+
+(defn set-treble-cutoff
+  "Set the treble tone-control cutoff frequency in Hz. Returns `p` for threading."
+  [^MemorySegment p hz]
+  (ffi/call :player-set-treble-cutoff p (int hz))
+  p)
+
+(defn set-crossfeed
+  "Configure the crossfeed effect (headphone spatialization).
+
+  `mode` is rockbox.ffi.enums/crossfeed-mode (:off :meier :custom). The gains
+  (`direct-gain`, `cross-gain`, `hf-gain`) and `hf-cutoff` (Hz) are only used in
+  :custom mode. Returns `p` for threading."
+  [^MemorySegment p mode direct-gain cross-gain hf-gain hf-cutoff]
+  (ffi/call :player-set-crossfeed p (int (enums/code enums/crossfeed-mode mode))
+            (int direct-gain) (int cross-gain) (int hf-gain) (int hf-cutoff))
+  p)
+
+(defn set-bass-enhancement
+  "Configure bass enhancement: `strength` and `precut`. Returns `p` for
+  threading."
+  [^MemorySegment p strength precut]
+  (ffi/call :player-set-bass-enhancement p (int strength) (int precut))
+  p)
+
+(defn set-fatigue-reduction
+  "Set the listening-fatigue reduction `strength`. Returns `p` for threading."
+  [^MemorySegment p strength]
+  (ffi/call :player-set-fatigue-reduction p (int strength))
+  p)
+
+(defn set-surround
+  "Configure the surround effect: delay (ms), balance, and low/high cutoffs (Hz).
+  Returns `p` for threading."
+  [^MemorySegment p delay-ms balance cutoff-low-hz cutoff-high-hz]
+  (ffi/call :player-set-surround p (int delay-ms) (int balance)
+            (int cutoff-low-hz) (int cutoff-high-hz))
+  p)
+
+(defn set-channel-mode
+  "Set the channel mode (rockbox.ffi.enums/channel-mode; e.g. :stereo :mono).
+  Returns `p` for threading."
+  [^MemorySegment p mode]
+  (ffi/call :player-set-channel-mode p (int (enums/code enums/channel-mode mode)))
+  p)
+
+(defn set-stereo-width
+  "Set the stereo width as a percentage. Returns `p` for threading."
+  [^MemorySegment p percent]
+  (ffi/call :player-set-stereo-width p (int percent))
+  p)
+
+(defn set-compressor
+  "Configure the dynamic-range compressor. Returns `p` for threading."
+  [^MemorySegment p threshold-db makeup-gain ratio knee attack-ms release-ms]
+  (ffi/call :player-set-compressor p (int threshold-db) (int makeup-gain)
+            (int ratio) (int knee) (int attack-ms) (int release-ms))
+  p)
+
+(defn set-dither
+  "Enable or disable dithering. Returns `p` for threading."
+  [^MemorySegment p enabled?]
+  (ffi/call :player-set-dither p (boolean enabled?))
+  p)
+
+(defn set-pitch
+  "Set the playback pitch ratio. Returns `p` for threading."
+  [^MemorySegment p ratio]
+  (ffi/call :player-set-pitch p (int ratio))
+  p)
+
+(defn dsp-settings
+  "A snapshot of the player's DSP settings as a map (keyword keys)."
+  [^MemorySegment p]
+  (let [s (ffi/take-string (ffi/call :player-dsp-settings-json p))]
+    (when-not s (throw (ex-info "rb_player_dsp_settings_json returned NULL" {})))
+    (json/read-str s :key-fn keyword)))
 
 ;; ---- status -----------------------------------------------------------
 
@@ -153,14 +338,17 @@
     (json/read-str s :key-fn keyword)))
 
 (defn save-resume
-  "Persist the queue + current position to the player's resume file now."
+  "Persist the queue + current position to the player's resume file now.
+  Returns `p` for threading."
   [^MemorySegment p]
-  (ffi/call :player-save-resume p))
+  (ffi/call :player-save-resume p)
+  p)
 
 (defn clear-resume
-  "Delete the player's resume file."
+  "Delete the player's resume file. Returns `p` for threading."
   [^MemorySegment p]
-  (ffi/call :player-clear-resume p))
+  (ffi/call :player-clear-resume p)
+  p)
 
 (defn load-resume
   "Peek at a resume/.m3u8 file at `path` without a player. Returns a map

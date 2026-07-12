@@ -16,10 +16,14 @@ several languages. All of them sit on top of one shared flat **C ABI**,
 [`rockbox-ffi`](../crates/rockbox-ffi) (`crates/rockbox-ffi`), whose public
 surface is declared in [`include/rockbox_ffi.h`](../include/rockbox_ffi.h).
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 ```
                  crates/rockbox-ffi  (cdylib + staticlib)
              rb_dsp_* / rb_meta_* / rb_player_*   ← include/rockbox_ffi.h
-                                   │
+                                     │
    ┌──────┬──────┬──────────┬────────┬───────┬───────┬───────┬────────┬────────┐
  Python  Go  TypeScript  Elixir   Gleam  Ruby   Swift  Kotlin  Clojure
  (cffi)(purego)(Bun/Deno/ (erl_nif)─(erl_nif)(fiddle)(dlopen)(Java FFM)(Java FFM)

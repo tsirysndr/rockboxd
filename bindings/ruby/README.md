@@ -10,6 +10,10 @@ via [`fiddle`](https://docs.ruby-lang.org/en/master/Fiddle.html) (Ruby stdlib)
 over the prebuilt `librockbox_ffi` shared library. No native extension is
 compiled — the gem `dlopen`s the shared library at load time.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 ## Setup
 
 Build the shared library once (from the repo root):

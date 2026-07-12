@@ -12,6 +12,10 @@ TypeScript bindings for the [Rockbox](https://www.rockbox.org) audio engine —
 compressor, ReplayGain, resampler), and a queue-based **player** with
 crossfade. One typed API, three runtimes: **Bun**, **Deno**, and **Node.js**.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 ```ts
 import { metadata, Dsp } from "rockbox-ffi/bun";
 

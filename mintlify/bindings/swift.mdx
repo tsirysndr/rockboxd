@@ -8,10 +8,10 @@ The Swift package ships the engine two ways, from one shared implementation
 (`RockboxFFICore` — the public API plus a `dlsym` loader). Pick the product that
 fits how you want to distribute:
 
-| Product              | Native code        | Runtime lookup | Use when                                       |
-| -------------------- | ------------------ | -------------- | ---------------------------------------------- |
-| `RockboxFFI`         | statically linked  | none           | you want a single self-contained binary        |
-| `RockboxFFIDynamic`  | `dlopen`ed         | file lookup    | you'd rather ship the library beside your app  |
+| Product             | Native code       | Runtime lookup | Use when                                      |
+| ------------------- | ----------------- | -------------- | --------------------------------------------- |
+| `RockboxFFI`        | statically linked | none           | you want a single self-contained binary       |
+| `RockboxFFIDynamic` | `dlopen`ed        | file lookup    | you'd rather ship the library beside your app |
 
 Both drive the same typed `@convention(c)` closures; the loader resolves the
 `rb_*` symbols from the process image (static) or from a `dlopen`ed library
@@ -74,12 +74,68 @@ dsp.eqEnable(true)
 dsp.setEqBand(0, cutoffHz: 100, q: 0.7, gainDb: 3.0)
 let out = try dsp.process(samples)
 
-// Player (queue + transport)
+// Player (queue + transport) — mutating setters are @discardableResult and
+// return Self, so they chain fluently.
 var cfg = Player.Config(); cfg.volume = 0.8
 let player = try Player(config: cfg)
-try player.setQueue(["/music/a.flac", "/music/b.mp3"])
-player.play()
+try player
+    .setQueue(["/music/a.flac", "https://example.com/b.mp3"])  // files, http(s), live streams
+    .setEqEnabled(true)
+    .setEqPreset(.bassBoost)
+    .setShuffle(true)
+    .setRepeat(.all)
+    .play()
 ```
+
+`setQueue` / `enqueue` / `insert` accept **local file paths**, finite
+`http(s)://` URLs, and **live-radio / streaming URLs** interchangeably.
+
+## Player DSP chain
+
+The `Player` exposes the full Rockbox DSP pipeline. Every setter is
+`@discardableResult` and returns `Self`, so they compose in one fluent chain
+(the statement-style calls still compile unchanged). Read the live state back
+with `dspSettings()` (a `[String: Any]` snapshot).
+
+```swift
+try player
+    .setEqEnabled(true)
+    .setEqPreset(.rock)                       // 21-case EqPreset (flat … vocalBoost)
+    .setEqBand(0, cutoffHz: 100, q: 0.7, gainDb: 3.0)
+    .setEqPrecut(2.0)
+    .setBass(4).setTreble(2)                  // or setTone(bassDb:trebleDb:bassCutoffHz:trebleCutoffHz:)
+    .setCrossfeed(.meier, directGain: 0, crossGain: 0, hfGain: 0, hfCutoff: 0)
+    .setChannelMode(.stereo).setStereoWidth(120)
+    .setBassEnhancement(strength: 50, precut: 0)
+    .setFatigueReduction(30)
+
+let dsp = try player.dspSettings()            // [String: Any] snapshot
+```
+
+### Player API
+
+| Group          | Methods                                                                                                                                                                    |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Queue          | `setQueue(_:)`, `enqueue(_:)`, `insert(_:position:index:)`, `queue()`                                                                                                      |
+| Transport      | `play()`, `pause()`, `toggle()`, `stop()`, `next()`, `previous()`, `skip(to:)`, `seek(ms:)`                                                                                |
+| Settings       | `setVolume(_:)`, `volume`, `sampleRate`, `setCrossfade(_:…)`, `setReplaygain(_:preampDb:preventClipping:)`                                                                 |
+| Shuffle/repeat | `setShuffle(_:)`, `isShuffleEnabled()`, `setRepeat(_:)`, `` `repeat`() ``                                                                                                  |
+| EQ             | `setEqEnabled(_:)`, `isEqEnabled()`, `setEqPreset(_:)`, `setEqBand(_:cutoffHz:q:gainDb:)`, `setEqPrecut(_:)`                                                               |
+| Tone           | `setTone(bassDb:trebleDb:bassCutoffHz:trebleCutoffHz:)`, `setBass(_:)`, `setTreble(_:)`, `setBassCutoff(_:)`, `setTrebleCutoff(_:)`                                        |
+| Spatial        | `setCrossfeed(_:directGain:crossGain:hfGain:hfCutoff:)`, `setSurround(delayMs:balance:cutoffLowHz:cutoffHighHz:)`, `setChannelMode(_:)`, `setStereoWidth(_:)`              |
+| Enhancement    | `setBassEnhancement(strength:precut:)`, `setFatigueReduction(_:)`, `setCompressor(thresholdDb:makeupGain:ratio:knee:attackMs:releaseMs:)`, `setDither(_:)`, `setPitch(_:)` |
+| Status/DSP     | `status()`, `dspSettings()`                                                                                                                                                |
+| Resume / m3u   | `resume()`, `saveResume()`, `clearResume()`, `importM3u(_:position:index:)`, `loadM3u(_:)`, `exportM3u(_:)`                                                                |
+
+Relevant enums: `RepeatMode` (`off`/`one`/`all`), `EqPreset` (21 cases,
+`flat` … `vocalBoost`), `CrossfeedMode` (`off`/`meier`/`custom`), `ChannelMode`
+(`stereo`/`mono`/`custom`/`monoLeft`/`monoRight`/`karaoke`/`swap`),
+`CrossfadeMode`, and `MixMode`.
+
+<Tip>
+  The DSP controls mirror Rockbox's own Sound Settings. For what each parameter
+  does, see the [official Rockbox manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+</Tip>
 
 ## Notes
 

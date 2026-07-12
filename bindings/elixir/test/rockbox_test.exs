@@ -42,8 +42,10 @@ defmodule RockboxTest do
     assert p != nil
     assert Rockbox.Player.sample_rate(p) > 0
 
-    :ok = Rockbox.Player.set_volume(p, 0.0)
-    :ok = Rockbox.Player.set_queue(p, [@fixture])
+    p
+    |> Rockbox.Player.set_volume(0.0)
+    |> Rockbox.Player.set_queue([@fixture])
+
     # the queue command is applied asynchronously by the engine thread
     Process.sleep(100)
 
@@ -54,8 +56,11 @@ defmodule RockboxTest do
 
   test "queue insert and read back" do
     p = Rockbox.Player.new(volume: 0.0)
-    :ok = Rockbox.Player.set_queue(p, [@fixture])
-    :ok = Rockbox.Player.insert(p, [@fixture], :insert_last)
+
+    p
+    |> Rockbox.Player.set_queue([@fixture])
+    |> Rockbox.Player.insert([@fixture], :insert_last)
+
     Process.sleep(100)
 
     q = Rockbox.Player.queue(p)
@@ -89,7 +94,7 @@ defmodule RockboxTest do
 
   test "player export_m3u and load_m3u" do
     p = Rockbox.Player.new(volume: 0.0)
-    :ok = Rockbox.Player.set_queue(p, [@fixture])
+    Rockbox.Player.set_queue(p, [@fixture])
     Process.sleep(100)
 
     path = Path.join(System.tmp_dir!(), "rockbox_export_#{System.unique_integer([:positive])}.m3u8")
@@ -108,10 +113,10 @@ defmodule RockboxTest do
     on_exit(fn -> File.rm(path) end)
 
     p = Rockbox.Player.new(volume: 0.0, resume_file: path)
-    :ok = Rockbox.Player.set_queue(p, [@fixture])
+    Rockbox.Player.set_queue(p, [@fixture])
     Process.sleep(100)
 
-    :ok = Rockbox.Player.save_resume(p)
+    Rockbox.Player.save_resume(p)
     # save_resume is processed asynchronously by the engine thread.
     Process.sleep(100)
     assert File.exists?(path)
@@ -121,7 +126,7 @@ defmodule RockboxTest do
     assert is_integer(state.index)
     assert is_integer(state.elapsed_ms)
 
-    :ok = Rockbox.Player.clear_resume(p)
+    Rockbox.Player.clear_resume(p)
     refute File.exists?(path)
   end
 end

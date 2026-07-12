@@ -92,6 +92,39 @@ ffi.cdef(
                                   uint32_t fi_dur_ms, int32_t mix_mode);
     void  rb_player_set_replaygain(RbPlayer *p, int32_t mode, float preamp_db,
                                    bool prevent_clipping);
+    void    rb_player_set_shuffle(RbPlayer *p, bool enabled);
+    bool    rb_player_is_shuffle_enabled(RbPlayer *p);
+    void    rb_player_set_repeat(RbPlayer *p, int32_t mode);
+    int32_t rb_player_repeat(RbPlayer *p);
+    void  rb_player_set_eq_enabled(RbPlayer *p, bool enabled);
+    bool  rb_player_is_eq_enabled(RbPlayer *p);
+    void  rb_player_set_eq_band(RbPlayer *p, size_t band, int32_t cutoff_hz,
+                                float q, float gain_db);
+    void  rb_player_set_eq_precut(RbPlayer *p, float db);
+    void  rb_player_set_eq_preset(RbPlayer *p, int32_t preset);
+    void  rb_player_set_tone(RbPlayer *p, int32_t bass_db, int32_t treble_db,
+                             int32_t bass_cutoff_hz, int32_t treble_cutoff_hz);
+    void  rb_player_set_bass(RbPlayer *p, int32_t bass_db);
+    void  rb_player_set_treble(RbPlayer *p, int32_t treble_db);
+    void  rb_player_set_surround(RbPlayer *p, int32_t delay_ms, int32_t balance,
+                                 int32_t cutoff_low_hz, int32_t cutoff_high_hz);
+    void  rb_player_set_channel_mode(RbPlayer *p, int32_t mode);
+    void  rb_player_set_stereo_width(RbPlayer *p, int32_t percent);
+    void  rb_player_set_compressor(RbPlayer *p, int32_t threshold_db,
+                                   int32_t makeup_gain, int32_t ratio,
+                                   int32_t knee, int32_t attack_ms,
+                                   int32_t release_ms);
+    void  rb_player_set_bass_cutoff(RbPlayer *p, int32_t hz);
+    void  rb_player_set_treble_cutoff(RbPlayer *p, int32_t hz);
+    void  rb_player_set_crossfeed(RbPlayer *p, int32_t mode, int32_t direct_gain,
+                                  int32_t cross_gain, int32_t hf_gain,
+                                  int32_t hf_cutoff);
+    void  rb_player_set_bass_enhancement(RbPlayer *p, int32_t strength,
+                                         int32_t precut);
+    void  rb_player_set_fatigue_reduction(RbPlayer *p, int32_t strength);
+    void  rb_player_set_dither(RbPlayer *p, bool enabled);
+    void  rb_player_set_pitch(RbPlayer *p, int32_t ratio);
+    char *rb_player_dsp_settings_json(RbPlayer *p);
     float    rb_player_volume(RbPlayer *p);
     uint32_t rb_player_sample_rate(RbPlayer *p);
     char    *rb_player_status_json(RbPlayer *p);

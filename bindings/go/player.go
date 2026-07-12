@@ -88,6 +88,87 @@ func NewDefaultPlayer() (*Player, error) {
 	return &Player{ptr: ptr}, nil
 }
 
+// Option mutates a [Config] as part of the functional-options constructor
+// [New]. Use the With* helpers to build one.
+type Option func(*Config)
+
+// WithSampleRate sets the output sample rate in Hz. 0 (the default) means the
+// output device default.
+func WithSampleRate(hz uint32) Option {
+	return func(c *Config) { c.SampleRate = hz }
+}
+
+// WithBufferSeconds sets the audio buffer size in seconds.
+func WithBufferSeconds(seconds float32) Option {
+	return func(c *Config) { c.BufferSeconds = seconds }
+}
+
+// WithVolume sets the initial linear output volume (0.0..=1.0).
+func WithVolume(vol float32) Option {
+	return func(c *Config) { c.Volume = vol }
+}
+
+// WithReplayGain configures ReplayGain: the mode (player encoding — see
+// [ReplayGainMode], Off=0, Track=1, Album=2), the pre-amp in dB, and whether
+// clipping prevention is applied.
+func WithReplayGain(mode ReplayGainMode, preampDb float32, preventClipping bool) Option {
+	return func(c *Config) {
+		c.ReplayGainMode = mode
+		c.ReplayGainPreampDb = preampDb
+		c.ReplayGainPreventClipping = preventClipping
+	}
+}
+
+// WithCrossfade configures crossfading: the mode (see [CrossfadeMode]), the
+// fade-out delay/duration and fade-in delay/duration in milliseconds, and the
+// mix mode (see [MixMode]).
+func WithCrossfade(mode CrossfadeMode, foDelayMs, foDurationMs, fiDelayMs, fiDurationMs uint32, mix MixMode) Option {
+	return func(c *Config) {
+		c.CrossfadeMode = mode
+		c.FadeOutDelayMs = foDelayMs
+		c.FadeOutDurationMs = foDurationMs
+		c.FadeInDelayMs = fiDelayMs
+		c.FadeInDurationMs = fiDurationMs
+		c.MixMode = mix
+	}
+}
+
+// WithResumeFile sets the .m3u8 path the player auto-persists the queue and
+// exact playback position to, enabling [Player.Resume]. See [Config.ResumeFile].
+func WithResumeFile(path string) Option {
+	return func(c *Config) { c.ResumeFile = path }
+}
+
+// WithResumeSaveIntervalMs sets how often the resume file is rewritten while
+// playing. 0 uses the Rockbox default (5 s). Ignored when no resume file is
+// set. See [Config.ResumeSaveIntervalMs].
+func WithResumeSaveIntervalMs(ms uint32) Option {
+	return func(c *Config) { c.ResumeSaveIntervalMs = ms }
+}
+
+// New creates a player on the default device using the functional-options
+// style: it starts from [DefaultConfig], applies each Option, and delegates to
+// [NewPlayer]. It is a convenience wrapper — for full control over the [Config]
+// struct, use [NewPlayer] directly.
+//
+//	p, err := rockbox.New(
+//		rockbox.WithVolume(0.8),
+//		rockbox.WithReplayGain(rockbox.ReplayGainTrack, 0.0, true),
+//		rockbox.WithCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade),
+//		rockbox.WithResumeFile("state.m3u8"),
+//	)
+//	if err != nil {
+//		// ...
+//	}
+//	defer p.Close()
+func New(opts ...Option) (*Player, error) {
+	cfg := DefaultConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return NewPlayer(cfg)
+}
+
 // Close frees the native player and stops its engine thread. Safe to call more
 // than once.
 func (p *Player) Close() {
@@ -98,7 +179,8 @@ func (p *Player) Close() {
 	p.ptr = 0
 }
 
-// SetQueue replaces the queue with the given file paths.
+// SetQueue replaces the queue. Each entry may be a local file path, an
+// http(s):// URL to a finite remote file, or a live-radio / streaming URL.
 func (p *Player) SetQueue(paths []string) error {
 	b, err := json.Marshal(paths)
 	if err != nil {
@@ -108,7 +190,9 @@ func (p *Player) SetQueue(paths []string) error {
 	return nil
 }
 
-// Enqueue appends a single file path to the queue.
+// Enqueue appends a single track to the queue. path may be a local file
+// path, an http(s):// URL to a finite remote file, or a live-radio /
+// streaming URL.
 func (p *Player) Enqueue(path string) { rbPlayerEnqueue(p.ptr, path) }
 
 // Insert adds paths (local files or URLs) to the queue at position. index is
@@ -177,6 +261,110 @@ func (p *Player) SetCrossfade(mode CrossfadeMode, fadeOutDelayMs, fadeOutDuratio
 // Album=2), pre-amp in dB, and clipping prevention.
 func (p *Player) SetReplaygain(mode ReplayGainMode, preampDb float32, preventClipping bool) {
 	rbPlayerSetReplaygain(p.ptr, int32(mode), preampDb, preventClipping)
+}
+
+// SetShuffle turns queue shuffling on or off.
+func (p *Player) SetShuffle(enabled bool) { rbPlayerSetShuffle(p.ptr, enabled) }
+
+// IsShuffleEnabled reports whether queue shuffling is currently enabled.
+func (p *Player) IsShuffleEnabled() bool { return rbPlayerIsShuffleEnabled(p.ptr) }
+
+// SetRepeat sets the repeat mode (see [RepeatMode], Off=0, One=1, All=2).
+func (p *Player) SetRepeat(mode RepeatMode) { rbPlayerSetRepeat(p.ptr, int32(mode)) }
+
+// Repeat reports the current repeat mode (see [RepeatMode]).
+func (p *Player) Repeat() RepeatMode { return RepeatMode(rbPlayerRepeat(p.ptr)) }
+
+// SetEqEnabled turns the parametric equalizer on or off.
+func (p *Player) SetEqEnabled(enabled bool) { rbPlayerSetEqEnabled(p.ptr, enabled) }
+
+// IsEqEnabled reports whether the parametric equalizer is currently enabled.
+func (p *Player) IsEqEnabled() bool { return rbPlayerIsEqEnabled(p.ptr) }
+
+// SetEqBand configures a single EQ band: its cutoff/center frequency in Hz, Q
+// factor, and gain in dB.
+func (p *Player) SetEqBand(band int, cutoffHz int32, q, gainDb float32) {
+	rbPlayerSetEqBand(p.ptr, uint64(band), cutoffHz, q, gainDb)
+}
+
+// SetEqPrecut sets the EQ pre-cut (headroom) in dB.
+func (p *Player) SetEqPrecut(db float32) { rbPlayerSetEqPrecut(p.ptr, db) }
+
+// SetEqPreset applies a built-in EQ preset (see [EqPreset]).
+func (p *Player) SetEqPreset(preset EqPreset) { rbPlayerSetEqPreset(p.ptr, int32(preset)) }
+
+// SetTone configures the bass/treble tone controls: bass and treble gain in dB
+// and their respective cutoff frequencies in Hz.
+func (p *Player) SetTone(bassDb, trebleDb, bassCutoffHz, trebleCutoffHz int32) {
+	rbPlayerSetTone(p.ptr, bassDb, trebleDb, bassCutoffHz, trebleCutoffHz)
+}
+
+// SetBass sets the bass tone gain in dB.
+func (p *Player) SetBass(bassDb int32) { rbPlayerSetBass(p.ptr, bassDb) }
+
+// SetTreble sets the treble tone gain in dB.
+func (p *Player) SetTreble(trebleDb int32) { rbPlayerSetTreble(p.ptr, trebleDb) }
+
+// SetSurround configures surround processing: delay in ms, balance, and the low
+// and high cutoff frequencies in Hz.
+func (p *Player) SetSurround(delayMs, balance, cutoffLowHz, cutoffHighHz int32) {
+	rbPlayerSetSurround(p.ptr, delayMs, balance, cutoffLowHz, cutoffHighHz)
+}
+
+// SetChannelMode selects the channel routing (see [ChannelMode]).
+func (p *Player) SetChannelMode(mode ChannelMode) { rbPlayerSetChannelMode(p.ptr, int32(mode)) }
+
+// SetStereoWidth sets the stereo width as a percentage.
+func (p *Player) SetStereoWidth(percent int32) { rbPlayerSetStereoWidth(p.ptr, percent) }
+
+// SetCompressor configures the dynamic-range compressor: threshold in dB,
+// make-up gain, ratio, knee, attack in ms, and release in ms.
+func (p *Player) SetCompressor(thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs int32) {
+	rbPlayerSetCompressor(p.ptr, thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs)
+}
+
+// SetDither turns output dithering on or off.
+func (p *Player) SetDither(enabled bool) { rbPlayerSetDither(p.ptr, enabled) }
+
+// SetPitch sets the playback pitch ratio.
+func (p *Player) SetPitch(ratio int32) { rbPlayerSetPitch(p.ptr, ratio) }
+
+// SetBassCutoff sets the bass tone-control cutoff frequency in Hz.
+func (p *Player) SetBassCutoff(hz int32) { rbPlayerSetBassCutoff(p.ptr, hz) }
+
+// SetTrebleCutoff sets the treble tone-control cutoff frequency in Hz.
+func (p *Player) SetTrebleCutoff(hz int32) { rbPlayerSetTrebleCutoff(p.ptr, hz) }
+
+// SetCrossfeed configures crossfeed (headphone spatialization): the mode (see
+// [CrossfeedMode]), the direct-signal gain, the cross-feed gain, the
+// high-frequency gain, and the high-frequency cutoff in Hz. Gains are in the
+// native Rockbox encoding.
+func (p *Player) SetCrossfeed(mode CrossfeedMode, directGain, crossGain, hfGain, hfCutoff int32) {
+	rbPlayerSetCrossfeed(p.ptr, int32(mode), directGain, crossGain, hfGain, hfCutoff)
+}
+
+// SetBassEnhancement configures the bass-enhancement effect: its strength and
+// the pre-cut (headroom) applied to avoid clipping.
+func (p *Player) SetBassEnhancement(strength, precut int32) {
+	rbPlayerSetBassEnhancement(p.ptr, strength, precut)
+}
+
+// SetFatigueReduction sets the listening-fatigue-reduction strength.
+func (p *Player) SetFatigueReduction(strength int32) {
+	rbPlayerSetFatigueReduction(p.ptr, strength)
+}
+
+// DSPSettings returns a snapshot of the current DSP settings as a decoded map.
+func (p *Player) DSPSettings() (map[string]any, error) {
+	s, ok := takeString(rbPlayerDspSettingsJSON(p.ptr))
+	if !ok {
+		return nil, errors.New("rockbox: rb_player_dsp_settings_json returned NULL")
+	}
+	var settings map[string]any
+	if err := json.Unmarshal([]byte(s), &settings); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding dsp settings json: %w", err)
+	}
+	return settings, nil
 }
 
 // ResumeState is a saved queue plus the exact playback position, as persisted
@@ -300,6 +488,8 @@ type Status struct {
 	DurationMs uint64 `json:"duration_ms"`
 	QueueLen   int    `json:"queue_len"`
 	Metadata   *Meta  `json:"metadata"`
+	Shuffle    bool   `json:"shuffle"`
+	Repeat     string `json:"repeat"` // "off" | "one" | "all"
 }
 
 // Status returns a snapshot of the player's status.

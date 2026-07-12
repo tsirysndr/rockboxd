@@ -9669,7 +9669,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-dsp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "cpal",
@@ -9743,7 +9743,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-ffi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rockbox-dsp",
  "rockbox-metadata",
@@ -9990,7 +9990,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-playback"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cpal",
  "reqwest",

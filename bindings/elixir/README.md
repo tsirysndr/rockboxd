@@ -10,6 +10,10 @@
 Elixir bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, via an `erl_nif` shim over the `librockbox_ffi` C ABI.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 ## Setup
 
 The NIF links the Rust static archive (`target/release/librockbox_ffi.a`);

@@ -81,6 +81,33 @@ var (
 	rbPlayerSampleRate      func(uintptr) uint32
 	rbPlayerStatusJSON      func(uintptr) uintptr
 
+	rbPlayerSetShuffle       func(uintptr, bool)
+	rbPlayerIsShuffleEnabled func(uintptr) bool
+	rbPlayerSetRepeat        func(uintptr, int32)
+	rbPlayerRepeat           func(uintptr) int32
+
+	// ---- player DSP ---------------------------------------------------
+	rbPlayerSetEqEnabled        func(uintptr, bool)
+	rbPlayerIsEqEnabled         func(uintptr) bool
+	rbPlayerSetEqBand           func(uintptr, uint64, int32, float32, float32)
+	rbPlayerSetEqPrecut         func(uintptr, float32)
+	rbPlayerSetEqPreset         func(uintptr, int32)
+	rbPlayerSetTone             func(uintptr, int32, int32, int32, int32)
+	rbPlayerSetBass             func(uintptr, int32)
+	rbPlayerSetTreble           func(uintptr, int32)
+	rbPlayerSetSurround         func(uintptr, int32, int32, int32, int32)
+	rbPlayerSetChannelMode      func(uintptr, int32)
+	rbPlayerSetStereoWidth      func(uintptr, int32)
+	rbPlayerSetCompressor       func(uintptr, int32, int32, int32, int32, int32, int32)
+	rbPlayerSetDither           func(uintptr, bool)
+	rbPlayerSetPitch            func(uintptr, int32)
+	rbPlayerSetBassCutoff       func(uintptr, int32)
+	rbPlayerSetTrebleCutoff     func(uintptr, int32)
+	rbPlayerSetCrossfeed        func(uintptr, int32, int32, int32, int32, int32)
+	rbPlayerSetBassEnhancement  func(uintptr, int32, int32)
+	rbPlayerSetFatigueReduction func(uintptr, int32)
+	rbPlayerDspSettingsJSON     func(uintptr) uintptr
+
 	// ---- resume -------------------------------------------------------
 	rbPlayerResume      func(uintptr) uintptr
 	rbPlayerSaveResume  func(uintptr)
@@ -149,6 +176,32 @@ func init() {
 	purego.RegisterLibFunc(&rbPlayerVolume, handle, "rb_player_volume")
 	purego.RegisterLibFunc(&rbPlayerSampleRate, handle, "rb_player_sample_rate")
 	purego.RegisterLibFunc(&rbPlayerStatusJSON, handle, "rb_player_status_json")
+
+	purego.RegisterLibFunc(&rbPlayerSetShuffle, handle, "rb_player_set_shuffle")
+	purego.RegisterLibFunc(&rbPlayerIsShuffleEnabled, handle, "rb_player_is_shuffle_enabled")
+	purego.RegisterLibFunc(&rbPlayerSetRepeat, handle, "rb_player_set_repeat")
+	purego.RegisterLibFunc(&rbPlayerRepeat, handle, "rb_player_repeat")
+
+	purego.RegisterLibFunc(&rbPlayerSetEqEnabled, handle, "rb_player_set_eq_enabled")
+	purego.RegisterLibFunc(&rbPlayerIsEqEnabled, handle, "rb_player_is_eq_enabled")
+	purego.RegisterLibFunc(&rbPlayerSetEqBand, handle, "rb_player_set_eq_band")
+	purego.RegisterLibFunc(&rbPlayerSetEqPrecut, handle, "rb_player_set_eq_precut")
+	purego.RegisterLibFunc(&rbPlayerSetEqPreset, handle, "rb_player_set_eq_preset")
+	purego.RegisterLibFunc(&rbPlayerSetTone, handle, "rb_player_set_tone")
+	purego.RegisterLibFunc(&rbPlayerSetBass, handle, "rb_player_set_bass")
+	purego.RegisterLibFunc(&rbPlayerSetTreble, handle, "rb_player_set_treble")
+	purego.RegisterLibFunc(&rbPlayerSetSurround, handle, "rb_player_set_surround")
+	purego.RegisterLibFunc(&rbPlayerSetChannelMode, handle, "rb_player_set_channel_mode")
+	purego.RegisterLibFunc(&rbPlayerSetStereoWidth, handle, "rb_player_set_stereo_width")
+	purego.RegisterLibFunc(&rbPlayerSetCompressor, handle, "rb_player_set_compressor")
+	purego.RegisterLibFunc(&rbPlayerSetDither, handle, "rb_player_set_dither")
+	purego.RegisterLibFunc(&rbPlayerSetPitch, handle, "rb_player_set_pitch")
+	purego.RegisterLibFunc(&rbPlayerSetBassCutoff, handle, "rb_player_set_bass_cutoff")
+	purego.RegisterLibFunc(&rbPlayerSetTrebleCutoff, handle, "rb_player_set_treble_cutoff")
+	purego.RegisterLibFunc(&rbPlayerSetCrossfeed, handle, "rb_player_set_crossfeed")
+	purego.RegisterLibFunc(&rbPlayerSetBassEnhancement, handle, "rb_player_set_bass_enhancement")
+	purego.RegisterLibFunc(&rbPlayerSetFatigueReduction, handle, "rb_player_set_fatigue_reduction")
+	purego.RegisterLibFunc(&rbPlayerDspSettingsJSON, handle, "rb_player_dsp_settings_json")
 
 	purego.RegisterLibFunc(&rbPlayerResume, handle, "rb_player_resume")
 	purego.RegisterLibFunc(&rbPlayerSaveResume, handle, "rb_player_save_resume")

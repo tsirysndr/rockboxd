@@ -40,25 +40,74 @@ Rockbox.Dsp.set_replaygain_gains(d, -6.02, nil, nil, nil)
 out = Rockbox.Dsp.process(d, pcm_binary)             # int16 LE in/out
 
 # --- playback (needs an output device) ---
-p = Rockbox.Player.new(volume: 0.8, crossfade_mode: 5)   # 5 = always
-Rockbox.Player.set_replaygain(p, 1, 0.0, true)           # 1 = track (player)
-Rockbox.Player.set_queue(p, ["a.flac", "b.mp3"])
-Rockbox.Player.play(p)
-Rockbox.Player.status(p)   # %{state: "playing", index: 0, ...}
+# Every mutating Rockbox.Player function returns the handle, so setup pipes.
+# Queue entries can be local paths, http(s):// files, or live-radio / stream URLs.
+alias Rockbox.Player
+
+p = Player.new(volume: 0.8, crossfade_mode: 5)   # 5 = always
+
+p
+|> Player.set_replaygain(1, 0.0, true)           # 1 = track (player)
+|> Player.set_queue(["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
+|> Player.set_eq_enabled(true)
+|> Player.set_eq_preset(:bass_boost)             # one of 21 presets
+|> Player.set_bass(6)                            # dB, tone control
+|> Player.set_crossfeed(:meier, 0, 0, 0, 0)      # headphone crossfeed
+|> Player.set_shuffle(true)
+|> Player.set_repeat(:all)                       # :off | :one | :all
+|> Player.play()
+
+Player.status(p)         # %{state: "playing", index: 0, ...}
+Player.dsp_settings(p)   # %{eq_enabled: true, bass: 6, ...} full DSP chain
 ```
 
 ## API
 
-| Module                 | Contents                                                          |
-| ---------------------- | ----------------------------------------------------------------- |
-| `Rockbox.Metadata`     | `read/1 -> {:ok, map}`, `probe/1 -> String.t()`                    |
-| `Rockbox.Dsp`          | EQ / tone / surround / compressor / ReplayGain, `process/2`        |
-| `Rockbox.Player`       | queue + transport + crossfade + ReplayGain, `status/1 -> map`      |
+| Module             | Contents                                                                                        |
+| ------------------ | ----------------------------------------------------------------------------------------------- |
+| `Rockbox.Metadata` | `read/1 -> {:ok, map}`, `probe/1 -> String.t()`                                                 |
+| `Rockbox.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process/2`                                     |
+| `Rockbox.Player`   | queue + transport + crossfade + ReplayGain + full DSP chain + shuffle/repeat, `status/1 -> map` |
+
+`Rockbox.Player` — every mutating function returns the handle (pipe-friendly),
+so setup chains with `|>`; getters/queries return their values:
+
+- **Transport**: `play/1`, `pause/1`, `toggle/1`, `stop/1`, `next/1`,
+  `previous/1`, `skip_to/2`, `seek_ms/2`, `set_volume/2` / `volume/1`,
+  `sample_rate/1`, `status/1`.
+- **Sources / queue**: `set_queue/2` and `enqueue/2` accept local file paths,
+  `http(s)://` URLs, and live-radio / streaming URLs; plus `insert/4`,
+  `queue/1`, `import_m3u/4`, `load_m3u/2`, `export_m3u/2`, and resume via
+  `resume/1` / `save_resume/1` / `clear_resume/1`.
+- **Shuffle & repeat**: `set_shuffle/2` / `shuffle_enabled?/1`;
+  `set_repeat/2` / `repeat/1` (`Rockbox.RepeatMode`).
+- **DSP chain**: `set_eq_enabled/2` / `eq_enabled?/1`, `set_eq_preset/2`
+  (21 `Rockbox.EqPreset` presets), `set_eq_band/5`, `set_eq_precut/2`,
+  `set_tone/5` / `set_bass/2` / `set_treble/2` / `set_bass_cutoff/2` /
+  `set_treble_cutoff/2`, `set_crossfeed/6` (`Rockbox.CrossfeedMode`),
+  `set_surround/5`, `set_channel_mode/2` (`Rockbox.ChannelMode`) /
+  `set_stereo_width/2`, `set_bass_enhancement/3`, `set_fatigue_reduction/2`,
+  `set_compressor/7`, `set_dither/2`, `set_pitch/2`, and `dsp_settings/1`
+  (full DSP state as a map).
+- **Crossfade / ReplayGain**: `set_crossfade/7`, `set_replaygain/4`.
+
+Enum helper modules (each takes an atom **or** the raw integer):
+
+| Module                   | Atoms                                                                     |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `Rockbox.RepeatMode`     | `:off` `:one` `:all`                                                      |
+| `Rockbox.EqPreset`       | 21 presets — `:flat` `:acoustic` `:bass_boost` `:rock` `:jazz` `:pop` …   |
+| `Rockbox.ChannelMode`    | `:stereo` `:mono` `:custom` `:mono_left` `:mono_right` `:karaoke` `:swap` |
+| `Rockbox.CrossfeedMode`  | `:off` `:meier` `:custom`                                                 |
+| `Rockbox.InsertPosition` | queue-insert positions for `insert/4` / `import_m3u/4`                    |
 
 - Handles (`Rockbox.Dsp` / `Rockbox.Player`) are NIF resources freed by the
   BEAM garbage collector — no explicit close.
 - PCM crosses the boundary as an **int16 LE binary**.
 - Rich values come back as maps with atom keys.
+- The DSP chain mirrors Rockbox's own; see the
+  [official Rockbox sound-settings manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+  for what each control does.
 
 <Warning>
   The DSP and player use **different mode integers**:

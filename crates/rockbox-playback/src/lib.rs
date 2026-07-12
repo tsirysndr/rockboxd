@@ -1,11 +1,14 @@
 //! A small audio playback engine built on Rockbox's own building blocks:
 //! [`rockbox-codecs`](https://crates.io/crates/rockbox-codecs) for
-//! decoding, [`rockbox-dsp`](https://crates.io/crates/rockbox-dsp) for
-//! ReplayGain + resampling (and optional EQ), and
+//! decoding, [`rockbox-dsp`](https://crates.io/crates/rockbox-dsp) for the
+//! full DSP chain (ReplayGain, resampling, 10-band EQ, tone controls,
+//! surround, channel mixing, compressor, dither and pitch), and
 //! [`cpal`](https://crates.io/crates/cpal) for output.
 //!
-//! It provides a queue, transport controls, native **ReplayGain**, and a
-//! faithful port of Rockbox's **crossfade** (see [`crossfade`]).
+//! It provides a queue, transport controls, native **ReplayGain**, the
+//! complete Rockbox **DSP** feature set (see [`DspSettings`] and the
+//! `Player::set_*` setters), and a faithful port of Rockbox's **crossfade**
+//! (see [`crossfade`]).
 //!
 //! ```no_run
 //! use rockbox_playback::{Player, CrossfadeSettings};
@@ -13,6 +16,7 @@
 //! let player = Player::new()?;
 //! player.set_crossfade(CrossfadeSettings::always());   // 2 s crossfade
 //! player.set_replaygain(rockbox_playback::ReplayGainMode::Track, 0.0, true);
+//! player.set_eq_preset(rockbox_playback::EqPreset::Rock); // ready-made EQ curve
 //! player.set_queue(vec!["a.flac", "b.mp3", "c.opus"]);
 //! player.play();
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -52,12 +56,43 @@ pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+/// How the queue repeats when a track (or the whole queue) finishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RepeatMode {
+    /// No repeat — playback stops after the last track.
+    #[default]
+    Off,
+    /// Repeat the current track indefinitely (on automatic advance; a manual
+    /// `next` / `previous` still moves to another track).
+    One,
+    /// Repeat the whole queue — wrap back to the start after the last track
+    /// (and to the end when stepping back from the first).
+    All,
+}
+
+impl RepeatMode {
+    fn to_u8(self) -> u8 {
+        match self {
+            RepeatMode::Off => 0,
+            RepeatMode::One => 1,
+            RepeatMode::All => 2,
+        }
+    }
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => RepeatMode::One,
+            2 => RepeatMode::All,
+            _ => RepeatMode::Off,
+        }
+    }
+}
 
 /// ReplayGain mode — which tag to apply (mirrors `rockbox-dsp`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -84,6 +119,362 @@ impl Default for ReplayGainConfig {
             mode: ReplayGainMode::Off,
             preamp_db: 0.0,
             prevent_clipping: true,
+        }
+    }
+}
+
+/// Number of parametric-EQ bands, matching Rockbox's `EQ_NUM_BANDS`.
+pub const EQ_BANDS: usize = rockbox_dsp::EQ_NUM_BANDS;
+
+/// Pitch/speed ratio for normal playback (10000 = 100 %). Values are a
+/// percentage ×100, so 10500 is +5 %; pitch and tempo shift together.
+pub const PITCH_NORMAL: i32 = rockbox_dsp::PITCH_SPEED_100;
+
+/// One parametric-EQ band. Band 0 is a low shelf, band `EQ_BANDS - 1` a
+/// high shelf, and the bands in between are peaking filters. Units are
+/// plain: `cutoff_hz` in Hz, `q` a Q factor, `gain_db` in dB.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EqBand {
+    pub cutoff_hz: i32,
+    pub q: f32,
+    pub gain_db: f32,
+}
+
+/// The 10-band parametric equalizer.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Equalizer {
+    /// Master enable for the whole EQ stage.
+    pub enabled: bool,
+    /// Pre-gain applied ahead of the bands to avoid clipping, in dB of
+    /// headroom (positive value attenuates).
+    pub precut_db: f32,
+    /// Per-band settings; up to [`EQ_BANDS`] entries (extras are ignored).
+    pub bands: Vec<EqBand>,
+}
+
+/// Standard center frequency (Hz) of each EQ band — octave-spaced, one per
+/// [`EQ_BANDS`]. Used to build the [`EqPreset`] equalizers.
+pub const EQ_BAND_FREQUENCIES: [i32; EQ_BANDS] =
+    [32, 64, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000];
+
+/// Built-in, ready-to-use equalizer presets. Turn one into a live
+/// [`Equalizer`] with [`EqPreset::equalizer`], or apply it directly with
+/// [`Player::set_eq_preset`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EqPreset {
+    Flat,
+    Acoustic,
+    BassBoost,
+    BassReducer,
+    Classical,
+    Dance,
+    Deep,
+    Electronic,
+    HipHop,
+    Jazz,
+    Latin,
+    Loudness,
+    Lounge,
+    Piano,
+    Pop,
+    RnB,
+    Rock,
+    SmallSpeakers,
+    TrebleBoost,
+    TrebleReducer,
+    VocalBoost,
+}
+
+impl EqPreset {
+    /// Every preset, in a sensible display order (Flat first).
+    pub const ALL: [EqPreset; 21] = [
+        EqPreset::Flat,
+        EqPreset::Acoustic,
+        EqPreset::BassBoost,
+        EqPreset::BassReducer,
+        EqPreset::Classical,
+        EqPreset::Dance,
+        EqPreset::Deep,
+        EqPreset::Electronic,
+        EqPreset::HipHop,
+        EqPreset::Jazz,
+        EqPreset::Latin,
+        EqPreset::Loudness,
+        EqPreset::Lounge,
+        EqPreset::Piano,
+        EqPreset::Pop,
+        EqPreset::RnB,
+        EqPreset::Rock,
+        EqPreset::SmallSpeakers,
+        EqPreset::TrebleBoost,
+        EqPreset::TrebleReducer,
+        EqPreset::VocalBoost,
+    ];
+
+    /// A human-readable name, e.g. for a UI picker.
+    pub fn name(self) -> &'static str {
+        match self {
+            EqPreset::Flat => "Flat",
+            EqPreset::Acoustic => "Acoustic",
+            EqPreset::BassBoost => "Bass Boost",
+            EqPreset::BassReducer => "Bass Reducer",
+            EqPreset::Classical => "Classical",
+            EqPreset::Dance => "Dance",
+            EqPreset::Deep => "Deep",
+            EqPreset::Electronic => "Electronic",
+            EqPreset::HipHop => "Hip-Hop",
+            EqPreset::Jazz => "Jazz",
+            EqPreset::Latin => "Latin",
+            EqPreset::Loudness => "Loudness",
+            EqPreset::Lounge => "Lounge",
+            EqPreset::Piano => "Piano",
+            EqPreset::Pop => "Pop",
+            EqPreset::RnB => "R&B",
+            EqPreset::Rock => "Rock",
+            EqPreset::SmallSpeakers => "Small Speakers",
+            EqPreset::TrebleBoost => "Treble Boost",
+            EqPreset::TrebleReducer => "Treble Reducer",
+            EqPreset::VocalBoost => "Vocal Boost",
+        }
+    }
+
+    /// Per-band gains in dB. Index `i` corresponds to
+    /// `EQ_BAND_FREQUENCIES[i]` (32 Hz … 16 kHz).
+    pub fn gains(self) -> [f32; EQ_BANDS] {
+        // Bands:      32   64  125  250  500   1k   2k   4k   8k  16k
+        match self {
+            EqPreset::Flat => [0.0; EQ_BANDS],
+            EqPreset::Acoustic => [5.0, 5.0, 4.0, 1.0, 2.0, 2.0, 3.0, 4.0, 3.0, 2.0],
+            EqPreset::BassBoost => [7.0, 6.0, 5.0, 3.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            EqPreset::BassReducer => [-6.0, -5.0, -4.0, -2.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            EqPreset::Classical => [5.0, 4.0, 3.0, 2.0, -1.0, -1.0, 0.0, 2.0, 3.0, 4.0],
+            EqPreset::Dance => [4.0, 7.0, 5.0, 0.0, 2.0, 3.0, 5.0, 4.0, 3.0, 0.0],
+            EqPreset::Deep => [5.0, 4.0, 2.0, 1.0, 3.0, 2.0, 1.0, -2.0, -4.0, -5.0],
+            EqPreset::Electronic => [4.0, 4.0, 1.0, 0.0, -2.0, 2.0, 1.0, 1.0, 4.0, 5.0],
+            EqPreset::HipHop => [5.0, 4.0, 2.0, 3.0, -1.0, -1.0, 1.0, -1.0, 2.0, 3.0],
+            EqPreset::Jazz => [4.0, 3.0, 1.0, 2.0, -2.0, -2.0, 0.0, 1.0, 3.0, 4.0],
+            EqPreset::Latin => [4.0, 3.0, 0.0, 0.0, -2.0, -2.0, -2.0, 0.0, 3.0, 5.0],
+            EqPreset::Loudness => [6.0, 4.0, 0.0, 0.0, -3.0, 0.0, -1.0, -5.0, 5.0, 1.0],
+            EqPreset::Lounge => [-3.0, -1.0, -1.0, 1.0, 4.0, 2.0, 0.0, -2.0, 2.0, 1.0],
+            EqPreset::Piano => [3.0, 2.0, 0.0, 2.0, 3.0, 1.0, 3.0, 4.0, 3.0, 3.0],
+            EqPreset::Pop => [-2.0, -1.0, 0.0, 2.0, 4.0, 4.0, 2.0, 0.0, -1.0, -2.0],
+            EqPreset::RnB => [3.0, 7.0, 6.0, 1.0, -2.0, -1.0, 2.0, 3.0, 3.0, 4.0],
+            EqPreset::Rock => [5.0, 4.0, 3.0, 1.0, -1.0, -1.0, 1.0, 3.0, 4.0, 5.0],
+            EqPreset::SmallSpeakers => [6.0, 5.0, 4.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -4.0],
+            EqPreset::TrebleBoost => [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 3.0, 5.0, 6.0, 7.0],
+            EqPreset::TrebleReducer => [0.0, 0.0, 0.0, 0.0, 0.0, -1.0, -3.0, -4.0, -5.0, -6.0],
+            EqPreset::VocalBoost => [-2.0, -3.0, -3.0, 1.0, 4.0, 4.0, 3.0, 1.0, 0.0, -2.0],
+        }
+    }
+
+    /// Build a ready-to-use [`Equalizer`]: enabled, all ten bands set at the
+    /// standard center frequencies with Q 1.0, and a precut equal to the
+    /// largest positive band gain so boosted presets don't clip. `Flat`
+    /// yields an enabled but transparent EQ.
+    pub fn equalizer(self) -> Equalizer {
+        let gains = self.gains();
+        let precut_db = gains.iter().cloned().fold(0.0_f32, f32::max);
+        let bands = EQ_BAND_FREQUENCIES
+            .iter()
+            .zip(gains)
+            .map(|(&cutoff_hz, gain_db)| EqBand {
+                cutoff_hz,
+                q: 1.0,
+                gain_db,
+            })
+            .collect();
+        Equalizer {
+            enabled: true,
+            precut_db,
+            bands,
+        }
+    }
+}
+
+/// Bass/treble shelving tone controls (0/0 dB disables the stage).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ToneControls {
+    pub bass_db: i32,
+    pub treble_db: i32,
+    /// Bass shelf cutoff in Hz; 0 keeps the default (200 Hz).
+    pub bass_cutoff_hz: i32,
+    /// Treble shelf cutoff in Hz; 0 keeps the default (3.5 kHz).
+    pub treble_cutoff_hz: i32,
+}
+
+/// Haas-effect surround widening.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Surround {
+    /// Haas delay in ms; 0 disables the stage.
+    pub delay_ms: i32,
+    /// Left/right balance in percent.
+    pub balance: i32,
+    /// Low band-split cutoff in Hz; 0/0 keeps the defaults.
+    pub cutoff_low_hz: i32,
+    /// High band-split cutoff in Hz.
+    pub cutoff_high_hz: i32,
+}
+
+/// Channel-mixing mode (`SOUND_CHAN_*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChannelMode {
+    #[default]
+    Stereo,
+    Mono,
+    /// Custom stereo width — see [`Player::set_stereo_width`].
+    Custom,
+    MonoLeft,
+    MonoRight,
+    Karaoke,
+    /// Swap the left and right channels.
+    Swap,
+}
+
+impl ChannelMode {
+    fn to_raw(self) -> i32 {
+        match self {
+            ChannelMode::Stereo => rockbox_dsp::SOUND_CHAN_STEREO,
+            ChannelMode::Mono => rockbox_dsp::SOUND_CHAN_MONO,
+            ChannelMode::Custom => rockbox_dsp::SOUND_CHAN_CUSTOM,
+            ChannelMode::MonoLeft => rockbox_dsp::SOUND_CHAN_MONO_LEFT,
+            ChannelMode::MonoRight => rockbox_dsp::SOUND_CHAN_MONO_RIGHT,
+            ChannelMode::Karaoke => rockbox_dsp::SOUND_CHAN_KARAOKE,
+            ChannelMode::Swap => rockbox_dsp::SOUND_CHAN_SWAP,
+        }
+    }
+}
+
+/// Dynamic-range compressor. `threshold_db == 0` disables the stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Compressor {
+    /// Threshold in dB below full scale (e.g. -20); 0 = off.
+    pub threshold_db: i32,
+    /// Make-up gain: 0 = off, 1 = auto.
+    pub makeup_gain: i32,
+    /// Ratio index: 0 = 2:1, 1 = 4:1, 2 = 6:1, 3 = 10:1, 4 = limit.
+    pub ratio: i32,
+    /// Knee index: 0 = hard, 1 = medium, 2 = soft.
+    pub knee: i32,
+    /// Attack time in ms.
+    pub attack_ms: i32,
+    /// Release time in ms.
+    pub release_ms: i32,
+}
+
+impl Compressor {
+    fn to_raw(self) -> rockbox_dsp::compressor_settings {
+        rockbox_dsp::compressor_settings {
+            threshold: self.threshold_db,
+            makeup_gain: self.makeup_gain,
+            ratio: self.ratio,
+            knee: self.knee,
+            release_time: self.release_ms,
+            attack_time: self.attack_ms,
+        }
+    }
+}
+
+/// Headphone **crossfeed** mode (`crossfeed_type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CrossfeedMode {
+    /// Crossfeed disabled.
+    #[default]
+    Off,
+    /// Meier crossfeed — a fixed, natural-sounding profile.
+    Meier,
+    /// Custom crossfeed, driven by the [`Crossfeed`] gain/cutoff fields.
+    Custom,
+}
+
+impl CrossfeedMode {
+    fn to_raw(self) -> i32 {
+        match self {
+            CrossfeedMode::Off => rockbox_dsp::CROSSFEED_OFF,
+            CrossfeedMode::Meier => rockbox_dsp::CROSSFEED_MEIER,
+            CrossfeedMode::Custom => rockbox_dsp::CROSSFEED_CUSTOM,
+        }
+    }
+}
+
+/// Headphone crossfeed — bleeds some of each channel into the other to ease
+/// the hard L/R separation of headphones. The `*_cross_*` fields only apply
+/// in [`CrossfeedMode::Custom`]. All gains are in **tenths of a dB** (≤ 0).
+/// Defaults mirror Rockbox's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Crossfeed {
+    pub mode: CrossfeedMode,
+    /// Dry-mix (direct) gain in tenths of a dB (≤ 0; -15 = −1.5 dB).
+    pub direct_gain: i32,
+    /// Custom cross-mix low-frequency gain in tenths of a dB (≤ 0).
+    pub cross_gain: i32,
+    /// Custom cross-mix high-frequency attenuation in tenths of a dB (≤ 0).
+    pub high_freq_gain: i32,
+    /// Custom cross-mix high-frequency cutoff in Hz.
+    pub high_freq_cutoff: i32,
+}
+
+impl Default for Crossfeed {
+    fn default() -> Self {
+        Crossfeed {
+            mode: CrossfeedMode::Off,
+            direct_gain: -15,
+            cross_gain: -60,
+            high_freq_gain: -160,
+            high_freq_cutoff: 700,
+        }
+    }
+}
+
+/// **Perceptual Bass Enhancement** (PBE). `strength == 0` disables the stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BassEnhancement {
+    /// Strength as a percent (0 = off … 100).
+    pub strength: i32,
+    /// Pre-cut headroom in tenths of a dB (≤ 0), applied ahead of the boost.
+    pub precut: i32,
+}
+
+/// Initial configuration for the full DSP chain (everything past
+/// ReplayGain). Every stage defaults to neutral, so
+/// `DspSettings::default()` is a transparent pipeline; each stage can also
+/// be changed live through the matching [`Player`] setter.
+#[derive(Debug, Clone)]
+pub struct DspSettings {
+    pub equalizer: Equalizer,
+    pub tone: ToneControls,
+    /// Headphone crossfeed.
+    pub crossfeed: Crossfeed,
+    pub surround: Surround,
+    pub channel_mode: ChannelMode,
+    /// Custom stereo width in percent (100 = unchanged); only audible with
+    /// [`ChannelMode::Custom`].
+    pub stereo_width: i32,
+    /// Perceptual Bass Enhancement.
+    pub bass_enhancement: BassEnhancement,
+    /// Auditory Fatigue Reduction level: 0 off, 1 weak, 2 moderate, 3 strong.
+    pub fatigue_reduction: i32,
+    pub compressor: Compressor,
+    /// Output dithering + noise shaping.
+    pub dither: bool,
+    /// Pitch/speed ratio ([`PITCH_NORMAL`] = normal); pitch and tempo shift
+    /// together.
+    pub pitch: i32,
+}
+
+impl Default for DspSettings {
+    fn default() -> Self {
+        DspSettings {
+            equalizer: Equalizer::default(),
+            tone: ToneControls::default(),
+            crossfeed: Crossfeed::default(),
+            surround: Surround::default(),
+            channel_mode: ChannelMode::default(),
+            stereo_width: 100,
+            bass_enhancement: BassEnhancement::default(),
+            fatigue_reduction: 0,
+            compressor: Compressor::default(),
+            dither: false,
+            pitch: PITCH_NORMAL,
         }
     }
 }
@@ -152,6 +543,10 @@ pub struct Status {
     pub metadata: Option<Metadata>,
     /// Number of tracks in the queue.
     pub queue_len: usize,
+    /// Whether shuffle playback is enabled.
+    pub shuffle: bool,
+    /// The current repeat mode.
+    pub repeat: RepeatMode,
 }
 
 /// Configuration for [`Player::with_config`].
@@ -166,6 +561,14 @@ pub struct PlayerConfig {
     pub replaygain_mode: ReplayGainMode,
     pub replaygain_preamp_db: f32,
     pub replaygain_prevent_clipping: bool,
+    /// Initial state of the full DSP chain (EQ, tone, surround, channel
+    /// mixing, compressor, dither, pitch). Defaults to a transparent
+    /// pipeline.
+    pub dsp: DspSettings,
+    /// Whether shuffle playback starts enabled.
+    pub shuffle: bool,
+    /// Initial repeat mode.
+    pub repeat: RepeatMode,
     /// Initial volume, 0.0..=1.0.
     pub volume: f32,
     /// When set, the queue and the exact playback position are auto-saved to
@@ -187,10 +590,112 @@ impl Default for PlayerConfig {
             replaygain_mode: ReplayGainMode::Off,
             replaygain_preamp_db: 0.0,
             replaygain_prevent_clipping: true,
+            dsp: DspSettings::default(),
+            shuffle: false,
+            repeat: RepeatMode::Off,
             volume: 1.0,
             resume_file: None,
             resume_save_interval: Duration::from_secs(5),
         }
+    }
+}
+
+impl PlayerConfig {
+    /// Start a fluent [`PlayerConfigBuilder`] seeded with the defaults:
+    ///
+    /// ```no_run
+    /// use rockbox_playback::{PlayerConfig, RepeatMode};
+    ///
+    /// let player = PlayerConfig::builder()
+    ///     .volume(0.8)
+    ///     .shuffle(true)
+    ///     .repeat(RepeatMode::All)
+    ///     .open()?;                     // build + construct in one step
+    /// # Ok::<(), rockbox_playback::Error>(())
+    /// ```
+    pub fn builder() -> PlayerConfigBuilder {
+        PlayerConfigBuilder {
+            cfg: PlayerConfig::default(),
+        }
+    }
+}
+
+/// Fluent builder for [`PlayerConfig`] — obtain one from [`PlayerConfig::builder`].
+/// Every method takes and returns `self` so calls chain; finish with
+/// [`build`](PlayerConfigBuilder::build) (get the config) or
+/// [`open`](PlayerConfigBuilder::open) (build it *and* construct the player).
+pub struct PlayerConfigBuilder {
+    cfg: PlayerConfig,
+}
+
+impl PlayerConfigBuilder {
+    /// Output sample rate in Hz. Unset (the default) uses the output device's
+    /// native rate; every track is resampled to this rate.
+    pub fn sample_rate(mut self, hz: u32) -> Self {
+        self.cfg.sample_rate = Some(hz);
+        self
+    }
+    /// Seconds of audio to decode ahead into the ring buffer.
+    pub fn buffer_seconds(mut self, secs: f32) -> Self {
+        self.cfg.buffer_seconds = secs;
+        self
+    }
+    /// Crossfade behaviour (see [`CrossfadeSettings`]).
+    pub fn crossfade(mut self, crossfade: CrossfadeSettings) -> Self {
+        self.cfg.crossfade = crossfade;
+        self
+    }
+    /// ReplayGain mode, preamp in dB, and clip prevention — mirrors
+    /// [`Player::set_replaygain`].
+    pub fn replaygain(
+        mut self,
+        mode: ReplayGainMode,
+        preamp_db: f32,
+        prevent_clipping: bool,
+    ) -> Self {
+        self.cfg.replaygain_mode = mode;
+        self.cfg.replaygain_preamp_db = preamp_db;
+        self.cfg.replaygain_prevent_clipping = prevent_clipping;
+        self
+    }
+    /// Initial DSP-chain settings (EQ, tone, surround, …). See [`DspSettings`].
+    pub fn dsp(mut self, dsp: DspSettings) -> Self {
+        self.cfg.dsp = dsp;
+        self
+    }
+    /// Whether shuffle playback starts enabled.
+    pub fn shuffle(mut self, enabled: bool) -> Self {
+        self.cfg.shuffle = enabled;
+        self
+    }
+    /// Initial [`RepeatMode`].
+    pub fn repeat(mut self, mode: RepeatMode) -> Self {
+        self.cfg.repeat = mode;
+        self
+    }
+    /// Initial volume, 0.0..=1.0.
+    pub fn volume(mut self, volume: f32) -> Self {
+        self.cfg.volume = volume;
+        self
+    }
+    /// Enable resume: auto-persist the queue + exact position to this `.m3u8`.
+    pub fn resume_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.cfg.resume_file = Some(path.into());
+        self
+    }
+    /// How often the resume file is refreshed while playing.
+    pub fn resume_save_interval(mut self, interval: Duration) -> Self {
+        self.cfg.resume_save_interval = interval;
+        self
+    }
+    /// Finish building and return the [`PlayerConfig`].
+    pub fn build(self) -> PlayerConfig {
+        self.cfg
+    }
+    /// Build the config and construct the [`Player`] in one step (a shortcut
+    /// for `Player::with_config(builder.build())`).
+    pub fn open(self) -> Result<Player, Error> {
+        Player::with_config(self.cfg)
     }
 }
 
@@ -214,6 +719,26 @@ enum Command {
     SetVolume(f32),
     SetCrossfade(CrossfadeSettings),
     SetReplayGain(ReplayGainConfig),
+    SetEqEnabled(bool),
+    SetEqBand(usize, EqBand),
+    SetEqPrecut(f32),
+    SetEqualizer(Equalizer),
+    SetTone(ToneControls),
+    SetBass(i32),
+    SetTreble(i32),
+    SetBassCutoff(i32),
+    SetTrebleCutoff(i32),
+    SetCrossfeed(Crossfeed),
+    SetSurround(Surround),
+    SetChannelMode(ChannelMode),
+    SetStereoWidth(i32),
+    SetBassEnhancement(BassEnhancement),
+    SetFatigueReduction(i32),
+    SetCompressor(Compressor),
+    SetDither(bool),
+    SetPitch(i32),
+    SetShuffle(bool),
+    SetRepeat(RepeatMode),
     Shutdown,
 }
 
@@ -233,8 +758,16 @@ struct Shared {
     /// User volume 0.0..=1.0 (f32 bits).
     volume: AtomicU32,
     output_rate: AtomicU32,
+    /// Whether shuffle playback is enabled (mirrored from the engine).
+    shuffle: AtomicBool,
+    /// The current [`RepeatMode`] as `u8` (mirrored from the engine).
+    repeat: AtomicU8,
     ring: Mutex<VecDeque<i16>>,
     meta: Mutex<Option<Metadata>>,
+    /// Live mirror of the DSP-chain settings, updated by the engine as it
+    /// applies each `Set*` command, so [`Player::dsp_settings`] can read the
+    /// current state without a round-trip to the engine thread.
+    dsp: Mutex<DspSettings>,
     /// Mirror of the engine's queue so the handle can read it (for
     /// `queue()` / `export_m3u`) without a round-trip to the engine thread.
     queue: Mutex<Vec<PathBuf>>,
@@ -313,8 +846,11 @@ impl Player {
             target_amp: AtomicU32::new(0f32.to_bits()),
             volume: AtomicU32::new(config.volume.clamp(0.0, 1.0).to_bits()),
             output_rate: AtomicU32::new(rate),
+            shuffle: AtomicBool::new(config.shuffle),
+            repeat: AtomicU8::new(config.repeat.to_u8()),
             ring: Mutex::new(VecDeque::new()),
             meta: Mutex::new(None),
+            dsp: Mutex::new(config.dsp.clone()),
             queue: Mutex::new(Vec::new()),
         });
 
@@ -333,6 +869,9 @@ impl Player {
                 preamp_db: config.replaygain_preamp_db,
                 prevent_clipping: config.replaygain_prevent_clipping,
             },
+            dsp: config.dsp,
+            shuffle: config.shuffle,
+            repeat: config.repeat,
             resume_file: resume_file.clone(),
             resume_save_interval: config.resume_save_interval,
         };
@@ -355,7 +894,10 @@ impl Player {
         self.shared.output_rate.load(Ordering::Relaxed)
     }
 
-    /// Replace the queue. Does not change playback state; call
+    /// Replace the queue. Each entry may be a **local file path**, an
+    /// **`http(s)://` URL** to a finite remote file (streamed on demand via
+    /// range requests), or a **live-radio / streaming URL** (decoded on the
+    /// fly, never fully downloaded). Does not change playback state; call
     /// [`Player::play`] to start.
     pub fn set_queue<I, P>(&self, tracks: I)
     where
@@ -366,7 +908,9 @@ impl Player {
         let _ = self.tx.send(Command::SetQueue(v));
     }
 
-    /// Append one track to the end of the queue.
+    /// Append one track to the end of the queue. The track may be a **local
+    /// file path**, an **`http(s)://` URL** to a finite remote file, or a
+    /// **live-radio / streaming URL**.
     pub fn enqueue(&self, track: impl Into<PathBuf>) {
         let _ = self.tx.send(Command::Enqueue(track.into()));
     }
@@ -565,9 +1109,136 @@ impl Player {
         }));
     }
 
+    /// Enable or disable the 10-band parametric equalizer. Configure the
+    /// bands with [`Player::set_eq_band`] first.
+    pub fn set_eq_enabled(&self, enabled: bool) {
+        let _ = self.tx.send(Command::SetEqEnabled(enabled));
+    }
+    /// Configure a single EQ band (`band` in `0..`[`EQ_BANDS`]; out-of-range
+    /// values are ignored). Takes effect immediately; the stage must also be
+    /// enabled via [`Player::set_eq_enabled`].
+    pub fn set_eq_band(&self, band: usize, band_setting: EqBand) {
+        let _ = self.tx.send(Command::SetEqBand(band, band_setting));
+    }
+    /// EQ pre-gain (headroom) in dB, applied ahead of the bands to avoid
+    /// clipping.
+    pub fn set_eq_precut(&self, db: f32) {
+        let _ = self.tx.send(Command::SetEqPrecut(db));
+    }
+    /// Apply a full equalizer configuration — enable state, precut, and all
+    /// bands — in a single message.
+    pub fn set_equalizer(&self, eq: Equalizer) {
+        let _ = self.tx.send(Command::SetEqualizer(eq));
+    }
+    /// Apply a built-in equalizer preset (see [`EqPreset`]) — enables the EQ
+    /// and configures all ten bands in one call.
+    pub fn set_eq_preset(&self, preset: EqPreset) {
+        self.set_equalizer(preset.equalizer());
+    }
+    /// Bass/treble shelving tone controls (sets both axes and the shelf
+    /// cutoffs at once).
+    pub fn set_tone(&self, tone: ToneControls) {
+        let _ = self.tx.send(Command::SetTone(tone));
+    }
+    /// Set the bass shelf gain in dB, leaving treble and the cutoffs
+    /// unchanged. 0 dB is flat.
+    pub fn set_bass(&self, bass_db: i32) {
+        let _ = self.tx.send(Command::SetBass(bass_db));
+    }
+    /// Set the treble shelf gain in dB, leaving bass and the cutoffs
+    /// unchanged. 0 dB is flat.
+    pub fn set_treble(&self, treble_db: i32) {
+        let _ = self.tx.send(Command::SetTreble(treble_db));
+    }
+    /// Override the bass shelf cutoff in Hz (0 = the Rockbox default of
+    /// 200 Hz), leaving the gains and the treble cutoff unchanged.
+    pub fn set_bass_cutoff(&self, hz: i32) {
+        let _ = self.tx.send(Command::SetBassCutoff(hz));
+    }
+    /// Override the treble shelf cutoff in Hz (0 = the Rockbox default of
+    /// 3.5 kHz), leaving the gains and the bass cutoff unchanged.
+    pub fn set_treble_cutoff(&self, hz: i32) {
+        let _ = self.tx.send(Command::SetTrebleCutoff(hz));
+    }
+    /// Headphone crossfeed (see [`Crossfeed`] / [`CrossfeedMode`]).
+    pub fn set_crossfeed(&self, crossfeed: Crossfeed) {
+        let _ = self.tx.send(Command::SetCrossfeed(crossfeed));
+    }
+    /// Haas-effect surround widening.
+    pub fn set_surround(&self, surround: Surround) {
+        let _ = self.tx.send(Command::SetSurround(surround));
+    }
+    /// Channel-mixing mode (stereo / mono / karaoke / swap / …).
+    pub fn set_channel_mode(&self, mode: ChannelMode) {
+        let _ = self.tx.send(Command::SetChannelMode(mode));
+    }
+    /// Custom stereo width in percent (100 = unchanged, 0 = mono, >100 =
+    /// wider); only audible with [`ChannelMode::Custom`].
+    pub fn set_stereo_width(&self, percent: i32) {
+        let _ = self.tx.send(Command::SetStereoWidth(percent));
+    }
+    /// Perceptual Bass Enhancement (see [`BassEnhancement`]; a `strength` of
+    /// 0 disables it).
+    pub fn set_bass_enhancement(&self, bass_enhancement: BassEnhancement) {
+        let _ = self.tx.send(Command::SetBassEnhancement(bass_enhancement));
+    }
+    /// Auditory Fatigue Reduction level: 0 off, 1 weak, 2 moderate, 3 strong.
+    pub fn set_fatigue_reduction(&self, strength: i32) {
+        let _ = self.tx.send(Command::SetFatigueReduction(strength));
+    }
+    /// Dynamic-range compressor (a `threshold_db` of 0 disables it).
+    pub fn set_compressor(&self, compressor: Compressor) {
+        let _ = self.tx.send(Command::SetCompressor(compressor));
+    }
+    /// Enable output dithering + noise shaping.
+    pub fn set_dither(&self, enabled: bool) {
+        let _ = self.tx.send(Command::SetDither(enabled));
+    }
+    /// Pitch/speed ratio ([`PITCH_NORMAL`] = normal); pitch and tempo shift
+    /// together.
+    pub fn set_pitch(&self, ratio: i32) {
+        let _ = self.tx.send(Command::SetPitch(ratio));
+    }
+
+    /// Enable or disable shuffle playback. When enabled the current track keeps
+    /// playing and the remaining queue is played in a shuffled order; disabling
+    /// restores natural queue order from the current track.
+    pub fn set_shuffle(&self, enabled: bool) {
+        let _ = self.tx.send(Command::SetShuffle(enabled));
+    }
+    /// Set the repeat mode ([`RepeatMode::Off`] / [`RepeatMode::One`] /
+    /// [`RepeatMode::All`]).
+    pub fn set_repeat(&self, mode: RepeatMode) {
+        let _ = self.tx.send(Command::SetRepeat(mode));
+    }
+    /// Whether shuffle playback is currently enabled. Because setters are
+    /// asynchronous, a value set moments ago may not be reflected until the
+    /// engine thread processes it.
+    pub fn shuffle(&self) -> bool {
+        self.shared.shuffle.load(Ordering::Relaxed)
+    }
+    /// The current repeat mode (see the note on [`Player::shuffle`]).
+    pub fn repeat(&self) -> RepeatMode {
+        RepeatMode::from_u8(self.shared.repeat.load(Ordering::Relaxed))
+    }
+
     /// Current volume, 0.0..=1.0.
     pub fn volume(&self) -> f32 {
         self.shared.volume_f32()
+    }
+
+    /// A snapshot of the full DSP-chain configuration (EQ, tone, surround,
+    /// channel mixing, stereo width, compressor, dither and pitch) as last
+    /// applied. Because setters are asynchronous, a value set moments ago may
+    /// not be reflected until the engine thread processes it.
+    pub fn dsp_settings(&self) -> DspSettings {
+        self.shared.dsp.lock().unwrap().clone()
+    }
+
+    /// Whether the 10-band parametric equalizer is currently enabled. A
+    /// convenience shortcut for `self.dsp_settings().equalizer.enabled`.
+    pub fn is_eq_enabled(&self) -> bool {
+        self.shared.dsp.lock().unwrap().equalizer.enabled
     }
 
     /// A snapshot of the player's status.
@@ -590,6 +1261,8 @@ impl Player {
             duration: Duration::from_millis(self.shared.duration_ms.load(Ordering::Relaxed)),
             metadata: self.shared.meta.lock().unwrap().clone(),
             queue_len: self.shared.queue_len.load(Ordering::Relaxed),
+            shuffle: self.shared.shuffle.load(Ordering::Relaxed),
+            repeat: RepeatMode::from_u8(self.shared.repeat.load(Ordering::Relaxed)),
         }
     }
 }
@@ -667,6 +1340,9 @@ struct EngineConfig {
     buffer_frames: usize,
     crossfade: CrossfadeSettings,
     replaygain: ReplayGainConfig,
+    dsp: DspSettings,
+    shuffle: bool,
+    repeat: RepeatMode,
     resume_file: Option<PathBuf>,
     resume_save_interval: Duration,
 }
@@ -678,6 +1354,15 @@ struct Engine {
     dsp: rockbox_dsp::Dsp,
     queue: Vec<PathBuf>,
     index: usize,
+    /// Whether shuffle playback is enabled.
+    shuffle: bool,
+    /// The current repeat mode.
+    repeat: RepeatMode,
+    /// Play order: a permutation of `0..queue.len()` giving the sequence in
+    /// which queue indices are played. Identity when shuffle is off; when on,
+    /// the current track stays first and the rest are shuffled. Rebuilt on
+    /// every queue change and shuffle toggle (see [`Engine::rebuild_play_order`]).
+    order: Vec<usize>,
     /// Open decoder for the current track, if playing.
     decoder: Option<Decoder>,
     playing: bool,
@@ -688,6 +1373,11 @@ struct Engine {
     /// Native rate of the current decoder's output (0 = unknown); the DSP
     /// resampler is only reconfigured when this changes.
     input_rate: u32,
+    /// Live copy of the DSP-chain settings, mirrored into [`Shared::dsp`]
+    /// after every change. Also lets `set_bass`/`set_treble` change one tone
+    /// axis while preserving the other (the DSP stage recomputes its prescale
+    /// from both values at once).
+    dsp_state: DspSettings,
     /// Set for the duration of a manual-skip crossfade so [`Engine::next_index`]
     /// resolves to the skip target instead of `index + 1`.
     pending_manual_target: Option<usize>,
@@ -733,6 +1423,9 @@ impl Engine {
     fn new(shared: Arc<Shared>, rx: Receiver<Command>, cfg: EngineConfig) -> Self {
         let mut dsp = rockbox_dsp::Dsp::new(cfg.output_rate);
         apply_replaygain_mode(&mut dsp, &cfg.replaygain);
+        apply_dsp_settings(&mut dsp, &cfg.dsp);
+        let dsp_state = cfg.dsp.clone();
+        let (shuffle, repeat) = (cfg.shuffle, cfg.repeat);
         Engine {
             shared,
             rx,
@@ -740,11 +1433,15 @@ impl Engine {
             dsp,
             queue: Vec::new(),
             index: 0,
+            shuffle,
+            repeat,
+            order: Vec::new(),
             decoder: None,
             playing: false,
             paused: false,
             finishing: false,
             input_rate: 0,
+            dsp_state,
             pending_manual_target: None,
             last_insert_pos: None,
             rng_state: seed_rng(),
@@ -1076,12 +1773,11 @@ impl Engine {
             Command::Stop => self.stop_playback(),
             Command::Next => self.manual_skip(self.next_index(false)),
             Command::Previous => {
-                let prev = if self.index == 0 {
-                    None
-                } else {
-                    Some(self.index - 1)
-                };
-                self.manual_skip(prev.or(Some(0)));
+                // Step back in play order; at the start (no wrap) restart the
+                // current track, matching the common "press prev to restart".
+                let prev =
+                    next_in_order(&self.order, self.index, self.repeat, false).or(Some(self.index));
+                self.manual_skip(prev);
             }
             Command::SkipTo(i) => {
                 if i < self.queue.len() {
@@ -1107,8 +1803,117 @@ impl Engine {
                     apply_replaygain_track(&mut self.dsp, meta);
                 }
             }
+            Command::SetEqEnabled(enabled) => {
+                self.dsp_state.equalizer.enabled = enabled;
+                self.dsp.eq_enable(enabled);
+                self.sync_dsp();
+            }
+            Command::SetEqBand(band, b) => {
+                if band < EQ_BANDS {
+                    upsert_eq_band(&mut self.dsp_state.equalizer.bands, band, b);
+                    self.dsp.set_eq_band(band, b.cutoff_hz, b.q, b.gain_db);
+                    self.sync_dsp();
+                }
+            }
+            Command::SetEqPrecut(db) => {
+                self.dsp_state.equalizer.precut_db = db;
+                self.dsp.set_eq_precut(db);
+                self.sync_dsp();
+            }
+            Command::SetEqualizer(eq) => {
+                self.dsp_state.equalizer = eq.clone();
+                apply_equalizer(&mut self.dsp, &eq);
+                self.sync_dsp();
+            }
+            Command::SetTone(tone) => {
+                self.dsp_state.tone = tone;
+                apply_tone(&mut self.dsp, tone);
+                self.sync_dsp();
+            }
+            Command::SetBass(db) => {
+                self.dsp_state.tone.bass_db = db;
+                apply_tone(&mut self.dsp, self.dsp_state.tone);
+                self.sync_dsp();
+            }
+            Command::SetTreble(db) => {
+                self.dsp_state.tone.treble_db = db;
+                apply_tone(&mut self.dsp, self.dsp_state.tone);
+                self.sync_dsp();
+            }
+            Command::SetBassCutoff(hz) => {
+                self.dsp_state.tone.bass_cutoff_hz = hz;
+                apply_tone(&mut self.dsp, self.dsp_state.tone);
+                self.sync_dsp();
+            }
+            Command::SetTrebleCutoff(hz) => {
+                self.dsp_state.tone.treble_cutoff_hz = hz;
+                apply_tone(&mut self.dsp, self.dsp_state.tone);
+                self.sync_dsp();
+            }
+            Command::SetCrossfeed(cf) => {
+                self.dsp_state.crossfeed = cf;
+                apply_crossfeed(&mut self.dsp, cf);
+                self.sync_dsp();
+            }
+            Command::SetSurround(s) => {
+                self.dsp_state.surround = s;
+                apply_surround(&mut self.dsp, s);
+                self.sync_dsp();
+            }
+            Command::SetChannelMode(mode) => {
+                self.dsp_state.channel_mode = mode;
+                self.dsp.set_channel_config(mode.to_raw());
+                self.sync_dsp();
+            }
+            Command::SetStereoWidth(pct) => {
+                self.dsp_state.stereo_width = pct;
+                self.dsp.set_stereo_width(pct);
+                self.sync_dsp();
+            }
+            Command::SetBassEnhancement(pbe) => {
+                self.dsp_state.bass_enhancement = pbe;
+                apply_bass_enhancement(&mut self.dsp, pbe);
+                self.sync_dsp();
+            }
+            Command::SetFatigueReduction(strength) => {
+                self.dsp_state.fatigue_reduction = strength;
+                self.dsp.afr_enable(strength);
+                self.sync_dsp();
+            }
+            Command::SetCompressor(c) => {
+                self.dsp_state.compressor = c;
+                self.dsp.set_compressor(&c.to_raw());
+                self.sync_dsp();
+            }
+            Command::SetDither(enabled) => {
+                self.dsp_state.dither = enabled;
+                self.dsp.dither_enable(enabled);
+                self.sync_dsp();
+            }
+            Command::SetPitch(ratio) => {
+                self.dsp_state.pitch = ratio;
+                self.dsp.set_pitch(ratio);
+                self.sync_dsp();
+            }
+            Command::SetShuffle(enabled) => {
+                if enabled != self.shuffle {
+                    self.shuffle = enabled;
+                    self.rebuild_play_order();
+                }
+                self.sync_modes();
+            }
+            Command::SetRepeat(mode) => {
+                self.repeat = mode;
+                self.sync_modes();
+            }
         }
         true
+    }
+
+    /// Publish the current DSP-chain state to [`Shared::dsp`] so the public
+    /// [`Player::dsp_settings`] handle can read it.
+    fn sync_dsp(&self) {
+        *self.shared.dsp.lock().unwrap() = self.dsp_state.clone();
     }
 
     fn set_paused(&mut self, paused: bool) {
@@ -1392,7 +2197,8 @@ impl Engine {
     // ---- resume persistence ---------------------------------------------
 
     /// Mirror the queue (len + contents) into `Shared` for the handle.
-    fn sync_queue(&self) {
+    fn sync_queue(&mut self) {
+        self.rebuild_play_order();
         self.shared
             .queue_len
             .store(self.queue.len(), Ordering::Relaxed);
@@ -1433,13 +2239,39 @@ impl Engine {
         }
     }
 
-    /// The index the next auto/manual transition moves to, if any.
-    fn next_index(&self, _auto: bool) -> Option<usize> {
+    /// The index the next auto/manual transition moves to, if any. Honors the
+    /// play order (shuffle), repeat mode, and a pending manual-skip target.
+    fn next_index(&self, auto: bool) -> Option<usize> {
         if let Some(t) = self.pending_manual_target {
             return Some(t);
         }
-        let n = self.index + 1;
-        (n < self.queue.len()).then_some(n)
+        // Repeat-one replays the current track on *automatic* advance only; a
+        // manual `next` still steps to the following track.
+        if auto && self.repeat == RepeatMode::One {
+            return Some(self.index);
+        }
+        next_in_order(&self.order, self.index, self.repeat, true)
+    }
+
+    /// Rebuild [`Engine::order`] to match the current queue and shuffle state.
+    /// Identity when shuffle is off; when on, the current track stays first
+    /// (so toggling shuffle never interrupts it) and the remaining indices are
+    /// Fisher-Yates shuffled with the engine RNG.
+    fn rebuild_play_order(&mut self) {
+        let len = self.queue.len();
+        self.order = if self.shuffle {
+            shuffled_order(len, self.index, &mut self.rng_state)
+        } else {
+            (0..len).collect()
+        };
+    }
+
+    /// Publish shuffle + repeat state into [`Shared`] for the handle.
+    fn sync_modes(&self) {
+        self.shared.shuffle.store(self.shuffle, Ordering::Relaxed);
+        self.shared
+            .repeat
+            .store(self.repeat.to_u8(), Ordering::Relaxed);
     }
 
     /// Move to the next track for playback. Returns false at end of queue.
@@ -1590,6 +2422,60 @@ fn rand_below(rng: &mut u64, n: usize) -> usize {
     (x % n as u64) as usize
 }
 
+/// A shuffled play order for `len` queue indices that keeps `current` first
+/// (so enabling shuffle never interrupts the playing track) and Fisher-Yates
+/// shuffles the remainder with `rng`. Returns identity order for `len <= 1`.
+/// Pure and side-effect free (aside from advancing `rng`) so it is testable.
+fn shuffled_order(len: usize, current: usize, rng: &mut u64) -> Vec<usize> {
+    if len <= 1 {
+        return (0..len).collect();
+    }
+    let mut rest: Vec<usize> = (0..len).filter(|&i| i != current).collect();
+    for i in (1..rest.len()).rev() {
+        rest.swap(i, rand_below(rng, i + 1));
+    }
+    let mut order = Vec::with_capacity(len);
+    if current < len {
+        order.push(current);
+    }
+    order.extend(rest);
+    order
+}
+
+/// Step from `current` (a queue index) to the neighbouring queue index in
+/// `order` — the next one when `forward`, the previous otherwise. Wraps around
+/// under [`RepeatMode::All`]; returns `None` at the corresponding end when
+/// repeat is off. A `current` not found in `order` is treated as position 0.
+/// Pure and side-effect free, so it can be unit-tested in isolation.
+fn next_in_order(
+    order: &[usize],
+    current: usize,
+    repeat: RepeatMode,
+    forward: bool,
+) -> Option<usize> {
+    if order.is_empty() {
+        return None;
+    }
+    let len = order.len();
+    let pos = order.iter().position(|&i| i == current).unwrap_or(0);
+    let next_pos = if forward {
+        if pos + 1 < len {
+            Some(pos + 1)
+        } else if repeat == RepeatMode::All {
+            Some(0)
+        } else {
+            None
+        }
+    } else if pos > 0 {
+        Some(pos - 1)
+    } else if repeat == RepeatMode::All {
+        Some(len - 1)
+    } else {
+        None
+    };
+    next_pos.map(|p| order[p])
+}
+
 /// Seed the shuffled-insertion PRNG. xorshift64 must not start at 0, so a
 /// non-zero fallback constant is used if the clock is unavailable.
 fn seed_rng() -> u64 {
@@ -1607,6 +2493,74 @@ fn apply_replaygain_mode(dsp: &mut rockbox_dsp::Dsp, rg: &ReplayGainConfig) {
         ReplayGainMode::Album => rockbox_dsp::REPLAYGAIN_ALBUM,
     };
     dsp.set_replaygain(mode, rg.prevent_clipping, rg.preamp_db);
+}
+
+/// Apply every DSP-chain stage (past ReplayGain) to the shared DSP
+/// singleton. Called once at engine start; individual stages are updated
+/// live by the corresponding `Command` handlers.
+fn apply_dsp_settings(dsp: &mut rockbox_dsp::Dsp, s: &DspSettings) {
+    apply_equalizer(dsp, &s.equalizer);
+    apply_tone(dsp, s.tone);
+    apply_crossfeed(dsp, s.crossfeed);
+    apply_surround(dsp, s.surround);
+    dsp.set_channel_config(s.channel_mode.to_raw());
+    dsp.set_stereo_width(s.stereo_width);
+    apply_bass_enhancement(dsp, s.bass_enhancement);
+    dsp.afr_enable(s.fatigue_reduction);
+    dsp.set_compressor(&s.compressor.to_raw());
+    dsp.dither_enable(s.dither);
+    dsp.set_pitch(s.pitch);
+}
+
+/// Update one band in a mirror `bands` vector, padding it up to
+/// [`EQ_BANDS`] flat bands (at the standard frequencies) first so the stored
+/// snapshot always has a full set once any band has been touched.
+fn upsert_eq_band(bands: &mut Vec<EqBand>, band: usize, setting: EqBand) {
+    if band >= EQ_BANDS {
+        return;
+    }
+    for i in bands.len()..EQ_BANDS {
+        bands.push(EqBand {
+            cutoff_hz: EQ_BAND_FREQUENCIES[i],
+            q: 1.0,
+            gain_db: 0.0,
+        });
+    }
+    bands[band] = setting;
+}
+
+fn apply_equalizer(dsp: &mut rockbox_dsp::Dsp, eq: &Equalizer) {
+    dsp.set_eq_precut(eq.precut_db);
+    for (i, band) in eq.bands.iter().take(EQ_BANDS).enumerate() {
+        dsp.set_eq_band(i, band.cutoff_hz, band.q, band.gain_db);
+    }
+    dsp.eq_enable(eq.enabled);
+}
+
+fn apply_tone(dsp: &mut rockbox_dsp::Dsp, t: ToneControls) {
+    // Cutoffs must be set before set_tone: its prescale step recomputes the
+    // shelf coefficients.
+    dsp.set_tone_cutoffs(t.bass_cutoff_hz, t.treble_cutoff_hz);
+    dsp.set_tone(t.bass_db, t.treble_db);
+}
+
+fn apply_surround(dsp: &mut rockbox_dsp::Dsp, s: Surround) {
+    dsp.set_surround(s.delay_ms, s.balance, s.cutoff_low_hz, s.cutoff_high_hz);
+}
+
+fn apply_crossfeed(dsp: &mut rockbox_dsp::Dsp, cf: Crossfeed) {
+    // Set the type first so the custom cross-mix params update the filter
+    // (they're a no-op unless the type is already `Custom`).
+    dsp.set_crossfeed(cf.mode.to_raw());
+    dsp.set_crossfeed_direct_gain(cf.direct_gain);
+    dsp.set_crossfeed_cross_params(cf.cross_gain, cf.high_freq_gain, cf.high_freq_cutoff);
+}
+
+fn apply_bass_enhancement(dsp: &mut rockbox_dsp::Dsp, pbe: BassEnhancement) {
+    // Pre-cut before enabling: `pbe_enable` recomputes the filter using the
+    // current precut.
+    dsp.set_pbe_precut(pbe.precut);
+    dsp.pbe_enable(pbe.strength);
 }
 
 fn apply_replaygain_track(dsp: &mut rockbox_dsp::Dsp, meta: &Metadata) {
@@ -1820,5 +2774,193 @@ mod insertion_tests {
         let (empty, ridx, _) = run("ABC", 1, None, true, "", InsertPosition::Replace);
         assert_eq!(empty, "");
         assert_eq!(ridx, 0);
+    }
+}
+
+#[cfg(test)]
+mod dsp_tests {
+    //! Pure tests for the DSP config helpers — no audio device required.
+
+    use super::*;
+
+    #[test]
+    fn preset_builds_full_enabled_equalizer() {
+        let eq = EqPreset::Rock.equalizer();
+        assert!(eq.enabled);
+        assert_eq!(eq.bands.len(), EQ_BANDS);
+        // Center frequencies come from the standard table.
+        assert_eq!(eq.bands[0].cutoff_hz, EQ_BAND_FREQUENCIES[0]);
+        assert_eq!(
+            eq.bands[EQ_BANDS - 1].cutoff_hz,
+            EQ_BAND_FREQUENCIES[EQ_BANDS - 1]
+        );
+        // Precut equals the largest positive gain so boosts don't clip.
+        let max_gain = EqPreset::Rock
+            .gains()
+            .iter()
+            .cloned()
+            .fold(0.0_f32, f32::max);
+        assert_eq!(eq.precut_db, max_gain);
+    }
+
+    #[test]
+    fn flat_preset_is_transparent_but_enabled() {
+        let eq = EqPreset::Flat.equalizer();
+        assert!(eq.enabled);
+        assert_eq!(eq.precut_db, 0.0);
+        assert!(eq.bands.iter().all(|b| b.gain_db == 0.0));
+    }
+
+    #[test]
+    fn all_presets_have_names_and_ten_gains() {
+        for p in EqPreset::ALL {
+            assert!(!p.name().is_empty());
+            assert_eq!(p.gains().len(), EQ_BANDS);
+        }
+    }
+
+    #[test]
+    fn upsert_pads_to_full_band_set() {
+        let mut bands = Vec::new();
+        upsert_eq_band(
+            &mut bands,
+            4,
+            EqBand {
+                cutoff_hz: 500,
+                q: 2.0,
+                gain_db: -3.0,
+            },
+        );
+        // Padded up to a full set, with band 4 taking the new value.
+        assert_eq!(bands.len(), EQ_BANDS);
+        assert_eq!(bands[4].gain_db, -3.0);
+        assert_eq!(bands[4].q, 2.0);
+        // Untouched bands are flat at their standard frequency.
+        assert_eq!(bands[0].gain_db, 0.0);
+        assert_eq!(bands[0].cutoff_hz, EQ_BAND_FREQUENCIES[0]);
+    }
+
+    #[test]
+    fn dsp_settings_default_is_neutral() {
+        let s = DspSettings::default();
+        assert!(!s.equalizer.enabled);
+        assert_eq!(s.stereo_width, 100);
+        assert_eq!(s.pitch, PITCH_NORMAL);
+        assert_eq!(s.channel_mode, ChannelMode::Stereo);
+        assert_eq!(s.compressor.threshold_db, 0);
+        // Crossfeed / PBE / AFR default to disabled.
+        assert_eq!(s.crossfeed.mode, CrossfeedMode::Off);
+        assert_eq!(s.bass_enhancement.strength, 0);
+        assert_eq!(s.fatigue_reduction, 0);
+    }
+
+    #[test]
+    fn crossfeed_mode_maps_to_rockbox_ids() {
+        assert_eq!(CrossfeedMode::Off.to_raw(), rockbox_dsp::CROSSFEED_OFF);
+        assert_eq!(CrossfeedMode::Meier.to_raw(), rockbox_dsp::CROSSFEED_MEIER);
+        assert_eq!(
+            CrossfeedMode::Custom.to_raw(),
+            rockbox_dsp::CROSSFEED_CUSTOM
+        );
+    }
+
+    #[test]
+    fn crossfeed_defaults_mirror_rockbox() {
+        // Rockbox's own defaults (settings_list.c).
+        let cf = Crossfeed::default();
+        assert_eq!(cf.direct_gain, -15);
+        assert_eq!(cf.cross_gain, -60);
+        assert_eq!(cf.high_freq_gain, -160);
+        assert_eq!(cf.high_freq_cutoff, 700);
+    }
+}
+
+#[cfg(test)]
+mod shuffle_repeat_tests {
+    //! Pure tests for the shuffle/repeat play-order logic — no audio device.
+
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn repeat_off_stops_at_both_ends() {
+        let order = vec![0, 1, 2];
+        assert_eq!(next_in_order(&order, 2, RepeatMode::Off, true), None); // past last
+        assert_eq!(next_in_order(&order, 0, RepeatMode::Off, false), None); // before first
+        assert_eq!(next_in_order(&order, 1, RepeatMode::Off, true), Some(2));
+        assert_eq!(next_in_order(&order, 1, RepeatMode::Off, false), Some(0));
+    }
+
+    #[test]
+    fn repeat_all_wraps_both_directions() {
+        let order = vec![0, 1, 2];
+        assert_eq!(next_in_order(&order, 2, RepeatMode::All, true), Some(0));
+        assert_eq!(next_in_order(&order, 0, RepeatMode::All, false), Some(2));
+    }
+
+    #[test]
+    fn follows_play_order_not_queue_order() {
+        // Shuffled order: play 2, then 0, then 1.
+        let order = vec![2, 0, 1];
+        assert_eq!(next_in_order(&order, 2, RepeatMode::Off, true), Some(0));
+        assert_eq!(next_in_order(&order, 0, RepeatMode::Off, true), Some(1));
+        assert_eq!(next_in_order(&order, 1, RepeatMode::Off, true), None);
+        assert_eq!(next_in_order(&order, 1, RepeatMode::All, true), Some(2)); // wrap to first
+    }
+
+    #[test]
+    fn empty_order_never_advances() {
+        assert_eq!(next_in_order(&[], 0, RepeatMode::All, true), None);
+        assert_eq!(next_in_order(&[], 5, RepeatMode::Off, false), None);
+    }
+
+    #[test]
+    fn forward_cycle_under_repeat_all_visits_each_once_then_wraps() {
+        let order = vec![3, 1, 0, 2];
+        let mut cur = order[0];
+        let mut visited = vec![cur];
+        for _ in 1..order.len() {
+            cur = next_in_order(&order, cur, RepeatMode::All, true).unwrap();
+            visited.push(cur);
+        }
+        // After the last, forward wraps back to the first.
+        assert_eq!(
+            next_in_order(&order, cur, RepeatMode::All, true),
+            Some(order[0])
+        );
+        visited.sort();
+        assert_eq!(visited, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn repeat_mode_u8_roundtrips() {
+        for m in [RepeatMode::Off, RepeatMode::One, RepeatMode::All] {
+            assert_eq!(RepeatMode::from_u8(m.to_u8()), m);
+        }
+        assert_eq!(RepeatMode::from_u8(200), RepeatMode::Off); // unknown → Off
+    }
+
+    #[test]
+    fn shuffled_order_is_a_permutation_with_current_first() {
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        for len in 1..12usize {
+            for current in 0..len {
+                let order = shuffled_order(len, current, &mut rng);
+                assert_eq!(order.len(), len, "len {len}");
+                assert_eq!(order[0], current, "current stays first (len {len})");
+                let set: HashSet<usize> = order.iter().copied().collect();
+                assert_eq!(set, (0..len).collect(), "must be a permutation (len {len})");
+            }
+        }
+    }
+
+    #[test]
+    fn shuffle_actually_reorders_for_larger_queues() {
+        // With a decent queue size, at least one shuffle must differ from
+        // identity (guards against an accidental no-op shuffle).
+        let mut rng = 42u64;
+        let reordered =
+            (0..8).any(|_| shuffled_order(10, 0, &mut rng) != (0..10).collect::<Vec<_>>());
+        assert!(reordered, "shuffle never reordered a 10-track queue");
     }
 }

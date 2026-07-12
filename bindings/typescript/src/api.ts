@@ -1,7 +1,8 @@
 // Runtime-agnostic high-level API, written once against the Raw backend.
 
 import type { Raw } from "./ffi.ts";
-import { CrossfadeMode, InsertPosition, MixMode, ReplayGainMode } from "./enums.ts";
+import { CrossfadeMode, InsertPosition, MixMode, RepeatMode, ReplayGainMode } from "./enums.ts";
+import type { RepeatMode as RepeatModeValue } from "./enums.ts";
 import type {
   M3uEntry,
   Metadata,
@@ -140,7 +141,17 @@ export function makeApi(raw: Raw) {
     }
   }
 
-  /** Queue-based player. Owns a live output device + engine thread. */
+  /**
+   * Queue-based player. Owns a live output device + engine thread.
+   *
+   * All mutating methods (setters, transport, DSP) return `this`, so calls
+   * can be fluently chained, e.g.:
+   * ```ts
+   * player.setQueue([file]).setShuffle(true).setRepeat(RepeatMode.All).play();
+   * ```
+   * Getters (`status`, `volume`, `queue`, …) and lifecycle (`close`) return
+   * their own values as usual.
+   */
   class Player {
     #h: unknown;
     constructor(config?: PlayerConfig) {
@@ -196,15 +207,28 @@ export function makeApi(raw: Raw) {
       this.close();
     }
 
-    setQueue(paths: string[]): void {
+    /**
+     * Replace the queue. Each entry may be a local file path, an
+     * `http(s)://` URL to a finite remote file, or a live-radio /
+     * streaming URL.
+     */
+    setQueue(paths: string[]): this {
       s.rb_player_set_queue_json(this.#h, raw.cstr(JSON.stringify(paths)));
+      return this;
     }
-    enqueue(path: string): void {
+    /**
+     * Append one track to the queue. `path` may be a local file path, an
+     * `http(s)://` URL to a finite remote file, or a live-radio / streaming
+     * URL.
+     */
+    enqueue(path: string): this {
       s.rb_player_enqueue(this.#h, raw.cstr(path));
+      return this;
     }
     /** Insert paths/URLs at `position` (InsertPosition); `index` used for INDEX. */
-    insert(paths: string[], position: number = InsertPosition.INSERT_LAST, index = 0): void {
+    insert(paths: string[], position: number = InsertPosition.INSERT_LAST, index = 0): this {
       s.rb_player_insert_json(this.#h, raw.cstr(JSON.stringify(paths)), position, index);
+      return this;
     }
     /** The current queue as an array of paths/URLs. */
     queue(): string[] {
@@ -212,32 +236,41 @@ export function makeApi(raw: Raw) {
       if (json === null) throw new Error("rb_player_queue_json returned NULL");
       return JSON.parse(json) as string[];
     }
-    play(): void {
+    play(): this {
       s.rb_player_play(this.#h);
+      return this;
     }
-    pause(): void {
+    pause(): this {
       s.rb_player_pause(this.#h);
+      return this;
     }
-    toggle(): void {
+    toggle(): this {
       s.rb_player_toggle(this.#h);
+      return this;
     }
-    stop(): void {
+    stop(): this {
       s.rb_player_stop(this.#h);
+      return this;
     }
-    next(): void {
+    next(): this {
       s.rb_player_next(this.#h);
+      return this;
     }
-    previous(): void {
+    previous(): this {
       s.rb_player_previous(this.#h);
+      return this;
     }
-    skipTo(index: number): void {
+    skipTo(index: number): this {
       s.rb_player_skip_to(this.#h, index);
+      return this;
     }
-    seekMs(ms: number | bigint): void {
+    seekMs(ms: number | bigint): this {
       s.rb_player_seek_ms(this.#h, BigInt(ms));
+      return this;
     }
-    setVolume(vol: number): void {
+    setVolume(vol: number): this {
       s.rb_player_set_volume(this.#h, vol);
+      return this;
     }
     volume(): number {
       return Number(s.rb_player_volume(this.#h));
@@ -248,17 +281,136 @@ export function makeApi(raw: Raw) {
     setCrossfade(
       mode: number, foDelayMs = 0, foDurMs = 2000, fiDelayMs = 0, fiDurMs = 2000,
       mixMode = MixMode.CROSSFADE,
-    ): void {
+    ): this {
       s.rb_player_set_crossfade(this.#h, mode, foDelayMs, foDurMs, fiDelayMs, fiDurMs, mixMode);
+      return this;
     }
     /** mode: ReplayGainMode (OFF=0, TRACK=1, ALBUM=2). */
-    setReplaygain(mode: number, preampDb: number, preventClipping: boolean): void {
+    setReplaygain(mode: number, preampDb: number, preventClipping: boolean): this {
       s.rb_player_set_replaygain(this.#h, mode, preampDb, preventClipping);
+      return this;
     }
     status(): PlayerStatus {
       const json = raw.takeString(s.rb_player_status_json(this.#h));
       if (json === null) throw new Error("rb_player_status_json returned NULL");
       return JSON.parse(json) as PlayerStatus;
+    }
+    /** Enable or disable the graphic EQ. */
+    setEqEnabled(enabled: boolean): this {
+      s.rb_player_set_eq_enabled(this.#h, enabled);
+      return this;
+    }
+    /** Whether the graphic EQ is currently enabled. */
+    isEqEnabled(): boolean {
+      return Boolean(s.rb_player_is_eq_enabled(this.#h));
+    }
+    /** Configure one EQ band; q and gainDb are plain (not tenths) units. */
+    setEqBand(band: number, cutoffHz: number, q: number, gainDb: number): this {
+      s.rb_player_set_eq_band(this.#h, band, cutoffHz, q, gainDb);
+      return this;
+    }
+    setEqPrecut(db: number): this {
+      s.rb_player_set_eq_precut(this.#h, db);
+      return this;
+    }
+    /** preset: EqPreset. */
+    setEqPreset(preset: number): this {
+      s.rb_player_set_eq_preset(this.#h, preset);
+      return this;
+    }
+    setTone(
+      bassDb: number, trebleDb: number, bassCutoffHz: number, trebleCutoffHz: number,
+    ): this {
+      s.rb_player_set_tone(this.#h, bassDb, trebleDb, bassCutoffHz, trebleCutoffHz);
+      return this;
+    }
+    setBass(bassDb: number): this {
+      s.rb_player_set_bass(this.#h, bassDb);
+      return this;
+    }
+    setTreble(trebleDb: number): this {
+      s.rb_player_set_treble(this.#h, trebleDb);
+      return this;
+    }
+    setBassCutoff(hz: number): this {
+      s.rb_player_set_bass_cutoff(this.#h, hz);
+      return this;
+    }
+    setTrebleCutoff(hz: number): this {
+      s.rb_player_set_treble_cutoff(this.#h, hz);
+      return this;
+    }
+    /** mode: CrossfeedMode (Off=0, Meier=1, Custom=2). */
+    setCrossfeed(
+      mode: number, directGain: number, crossGain: number, hfGain: number,
+      hfCutoff: number,
+    ): this {
+      s.rb_player_set_crossfeed(this.#h, mode, directGain, crossGain, hfGain, hfCutoff);
+      return this;
+    }
+    setBassEnhancement(strength: number, precut: number): this {
+      s.rb_player_set_bass_enhancement(this.#h, strength, precut);
+      return this;
+    }
+    setFatigueReduction(strength: number): this {
+      s.rb_player_set_fatigue_reduction(this.#h, strength);
+      return this;
+    }
+    setSurround(
+      delayMs: number, balance: number, cutoffLowHz: number, cutoffHighHz: number,
+    ): this {
+      s.rb_player_set_surround(this.#h, delayMs, balance, cutoffLowHz, cutoffHighHz);
+      return this;
+    }
+    /** mode: ChannelMode. */
+    setChannelMode(mode: number): this {
+      s.rb_player_set_channel_mode(this.#h, mode);
+      return this;
+    }
+    setStereoWidth(percent: number): this {
+      s.rb_player_set_stereo_width(this.#h, percent);
+      return this;
+    }
+    setCompressor(
+      thresholdDb: number, makeupGain: number, ratio: number, knee: number,
+      attackMs: number, releaseMs: number,
+    ): this {
+      s.rb_player_set_compressor(
+        this.#h, thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs,
+      );
+      return this;
+    }
+    setDither(enabled: boolean): this {
+      s.rb_player_set_dither(this.#h, enabled);
+      return this;
+    }
+    setPitch(ratio: number): this {
+      s.rb_player_set_pitch(this.#h, ratio);
+      return this;
+    }
+    /** The current DSP settings as a plain object (parsed from JSON). */
+    dspSettings(): Record<string, unknown> {
+      const json = raw.takeString(s.rb_player_dsp_settings_json(this.#h));
+      if (json === null) throw new Error("rb_player_dsp_settings_json returned NULL");
+      return JSON.parse(json) as Record<string, unknown>;
+    }
+    /** Enable or disable queue shuffle. */
+    setShuffle(enabled: boolean): this {
+      s.rb_player_set_shuffle(this.#h, enabled);
+      return this;
+    }
+    /** Whether queue shuffle is currently enabled. */
+    isShuffleEnabled(): boolean {
+      return Boolean(s.rb_player_is_shuffle_enabled(this.#h));
+    }
+    /** Set the repeat mode (RepeatMode: Off=0, One=1, All=2). */
+    setRepeat(mode: RepeatModeValue | number): this {
+      s.rb_player_set_repeat(this.#h, mode);
+      return this;
+    }
+    /** The current repeat mode (RepeatMode: Off=0, One=1, All=2). */
+    repeat(): RepeatModeValue {
+      return Number(s.rb_player_repeat(this.#h)) as RepeatModeValue;
     }
     /** Restore the persisted queue + position (does NOT auto-play); null if none. */
     resume(): ResumeState | null {

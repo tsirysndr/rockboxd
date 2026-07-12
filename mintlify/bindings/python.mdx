@@ -19,7 +19,10 @@ walks up to `target/release/`; override with `ROCKBOX_FFI_LIB`.
 ```python
 import rockbox_ffi as rb
 from rockbox_ffi import Dsp, Player, metadata
-from rockbox_ffi.enums import DspReplayGainMode, ReplayGainMode, CrossfadeMode
+from rockbox_ffi.enums import (
+    DspReplayGainMode, ReplayGainMode, CrossfadeMode,
+    EqPreset, RepeatMode, CrossfeedMode,
+)
 
 # --- metadata ---------------------------------------------------------
 meta = metadata.read("song.flac")
@@ -35,28 +38,65 @@ with Dsp(44_100) as dsp:
     processed = dsp.process(samples)                # array('h')
 
 # --- playback (needs an output device) --------------------------------
+# Setters return None — call them plainly, one per line (no chaining).
 with Player(volume=0.8) as player:
     player.set_replaygain(ReplayGainMode.TRACK, preamp_db=0.0, prevent_clipping=True)
     player.set_crossfade(CrossfadeMode.ALWAYS)
-    player.set_queue(["a.flac", "b.mp3", "c.opus"])
+
+    # --- live DSP chain (mirrored back by player.dsp_settings()) ------
+    player.set_eq_enabled(True)
+    player.set_eq_preset(EqPreset.BASS_BOOST)        # 21 presets: Flat, Rock, Jazz, …
+    player.set_bass(4)                                # tone: bass/treble in dB
+    player.set_treble(2)
+    player.set_crossfeed(CrossfeedMode.MEIER, 0, -60, -80, 700)
+    player.set_bass_enhancement(strength=30, precut=-30)   # PBE
+    print(player.dsp_settings())                     # -> dict of the whole chain
+
+    # --- shuffle & repeat --------------------------------------------
+    player.set_shuffle(True)
+    player.set_repeat(RepeatMode.ALL)
+
+    # --- sources: local paths, http(s):// files, live-radio URLs ------
+    player.set_queue([
+        "a.flac",
+        "https://example.com/b.mp3",
+        "https://stream.example.com/radio",          # live stream
+    ])
     player.play()
     print(player.status())     # {'state': 'playing', 'index': 0, ...}
 ```
 
 ## API
 
-| Module                 | Contents                                                              |
-| ---------------------- | --------------------------------------------------------------------- |
-| `rockbox_ffi.metadata` | `read(path) -> dict`, `probe(filename) -> str \| None`                |
-| `rockbox_ffi.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`    |
-| `rockbox_ffi.Player`   | queue + transport + crossfade + ReplayGain, `status() -> dict`        |
-| `rockbox_ffi.enums`    | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, …  |
+| Module                 | Contents                                                                                                                                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rockbox_ffi.metadata` | `read(path) -> dict`, `probe(filename) -> str \| None`                                                                                                                                                      |
+| `rockbox_ffi.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`                                                                                                                                          |
+| `rockbox_ffi.Player`   | queue + transport + crossfade + ReplayGain + shuffle/repeat + full live DSP chain (10-band EQ, tone, crossfeed, surround, PBE/AFR, compressor, dither, pitch), `dsp_settings() -> dict`, `status() -> dict` |
+| `rockbox_ffi.enums`    | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, `RepeatMode`, `EqPreset`, `ChannelMode`, `CrossfeedMode`, `InsertPosition`, …                                                            |
 
 - **Handles** are context managers — `with Dsp(...) as dsp:` frees the native
   resource on exit. A GC finalizer is the backstop.
 - **Rich values** (metadata, status) come back as plain `dict`s.
 - **Sample buffers** are `array('h')` of interleaved-stereo signed 16-bit
   samples.
+
+<Note>
+  **Player DSP chain.** Every setter applies live and is reflected back by
+  `player.dsp_settings()`. The full surface:
+  **EQ** — `set_eq_enabled` / `is_eq_enabled`, `set_eq_preset(EqPreset)`
+  (21 presets: `FLAT`, `ROCK`, `JAZZ`, `BASS_BOOST`, …), `set_eq_band`,
+  `set_eq_precut`. **Tone** — `set_tone`, `set_bass`, `set_treble`,
+  `set_bass_cutoff`, `set_treble_cutoff`. **Spatial** —
+  `set_crossfeed(CrossfeedMode)`, `set_surround`, `set_channel_mode(ChannelMode)`,
+  `set_stereo_width`. **Enhancers** — `set_bass_enhancement` (PBE),
+  `set_fatigue_reduction` (AFR), `set_compressor`, `set_dither`, `set_pitch`.
+  **Shuffle / repeat** — `set_shuffle` / `is_shuffle_enabled`,
+  `set_repeat(RepeatMode)` / `repeat()`.
+
+  For what each parameter does (and sensible ranges), see the official Rockbox
+  manual: <a href="https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html">Sound Settings</a>.
+</Note>
 
 <Warning>
   `Dsp.set_replaygain` and `Player.set_replaygain` take **different mode

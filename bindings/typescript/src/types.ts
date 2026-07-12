@@ -55,6 +55,9 @@ export interface Metadata {
   cuesheet: Cuesheet | null;
 }
 
+/** The repeat mode as emitted in `PlayerStatus` (see `RepeatMode` for ints). */
+export type RepeatName = "off" | "one" | "all";
+
 export interface PlayerStatus {
   state: "stopped" | "playing" | "paused";
   index: number | null;
@@ -62,6 +65,8 @@ export interface PlayerStatus {
   duration_ms: number;
   queue_len: number;
   metadata: Metadata | null;
+  shuffle: boolean;
+  repeat: RepeatName;
 }
 
 export interface PlayerConfig {

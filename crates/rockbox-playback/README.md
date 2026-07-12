@@ -6,28 +6,50 @@
 
 A small audio playback engine built on [Rockbox](https://www.rockbox.org)'s
 own building blocks: [`rockbox-codecs`](https://crates.io/crates/rockbox-codecs)
-for decoding, [`rockbox-dsp`](https://crates.io/crates/rockbox-dsp) for
-ReplayGain + resampling (and optional EQ), and
+for decoding, [`rockbox-dsp`](https://crates.io/crates/rockbox-dsp) for the
+full DSP chain (ReplayGain, resampling, 10-band EQ, tone controls, surround,
+channel mixing, compressor, dither and pitch), and
 [`cpal`](https://crates.io/crates/cpal) for output.
 
-It gives you a queue, transport controls, native **ReplayGain**, and a
-faithful port of Rockbox's **crossfade** — in a few lines:
+It gives you a queue, transport controls, native **ReplayGain**, the complete
+Rockbox **DSP** feature set, and a faithful port of Rockbox's **crossfade** —
+in a few lines:
 
 ```rust
-use rockbox_playback::{Player, CrossfadeSettings, ReplayGainMode};
+use rockbox_playback::{Player, CrossfadeSettings, ReplayGainMode, EqPreset};
 
 let player = Player::new()?;
 player.set_crossfade(CrossfadeSettings::always());        // 2 s crossfade
 player.set_replaygain(ReplayGainMode::Track, 0.0, true);  // track gain, no clip
+player.set_eq_preset(EqPreset::Rock);                     // ready-made EQ curve
 player.set_queue(vec!["a.flac", "b.mp3", "c.opus"]);
 player.play();
 # Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Prefer to set everything up front? Use the fluent **config builder**:
+
+```rust
+use rockbox_playback::{PlayerConfig, RepeatMode, ReplayGainMode};
+
+let player = PlayerConfig::builder()
+    .volume(0.8)
+    .replaygain(ReplayGainMode::Track, 0.0, true)
+    .shuffle(true)
+    .repeat(RepeatMode::All)
+    .open()?;                       // build the config + construct the player
+# Ok::<(), rockbox_playback::Error>(())
 ```
 
 ## Features
 
 - **Queue + transport**: `play` / `pause` / `toggle` / `stop`, `next` /
   `previous` / `skip_to`, `seek`, `set_volume`, `enqueue`.
+- **Shuffle + repeat**: `set_shuffle(bool)` plays the queue in a shuffled
+  order (current track stays put, the rest are shuffled); `set_repeat` takes
+  `RepeatMode::Off` / `One` (loop the current track) / `All` (loop the queue).
+  Both are readable back via `shuffle()` / `repeat()` and the `Status`
+  snapshot (see [Shuffle & repeat](#shuffle--repeat)).
 - **Rockbox queue insertion**: the full `playlist_insert_track` position
   set — insert next, insert last, insert (grow a block after the current
   track), shuffled, last-shuffled, prepend, replace and insert-at-index —
@@ -51,6 +73,13 @@ player.play();
   Rockbox's own settings, defaults and units.
 - **ReplayGain**: track or album mode with a preamp and optional
   clip-prevention, applied natively by `rockbox-dsp` from the file's tags.
+- **Full DSP chain**: the complete Rockbox pipeline past ReplayGain — a
+  10-band parametric **equalizer** (with 21 ready-to-use presets), bass/treble
+  **tone controls**, Haas **surround**, **channel mixing** (mono / karaoke /
+  swap / custom stereo width), a dynamic-range **compressor**, output
+  **dither** and **pitch**/speed. Configure it up front via
+  `PlayerConfig.dsp` or live through `Player::set_*`, and read the current
+  state back with `dsp_settings()` (see [DSP chain](#dsp-chain)).
 - **Mixed-rate queues**: every track is resampled by the DSP to one output
   rate, so a FLAC-at-96 kHz and an Opus-at-48 kHz queue play back to back.
 - **Click-free pause/resume**: the output callback applies Rockbox's ~⅓ s
@@ -123,6 +152,40 @@ multi-track `insert_tracks(.., InsertLastShuffled)` shuffles the new
 tracks among themselves at the tail while leaving every earlier track in
 place.
 
+## Shuffle & repeat
+
+Shuffle and repeat are independent playback modes, each a live setter on the
+`Player` (and an initial value in `PlayerConfig`, defaulting to off / `Off`):
+
+```rust
+use rockbox_playback::{Player, RepeatMode};
+
+let player = Player::new()?;
+player.set_queue(vec!["a.flac", "b.mp3", "c.opus", "d.ogg"]);
+
+player.set_shuffle(true);          // play the queue in a shuffled order
+player.set_repeat(RepeatMode::All); // loop the whole queue
+
+player.play();
+
+// Read the current modes back (also on the Status snapshot).
+assert!(player.shuffle());
+assert_eq!(player.repeat(), RepeatMode::All);
+let st = player.status();
+let _ = (st.shuffle, st.repeat);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+- **Shuffle** keeps the *current* track playing and shuffles the play order of
+  the remaining tracks (Fisher-Yates); turning it off restores natural queue
+  order from where you are. `next` / `previous` follow the shuffled order.
+- **Repeat** — `RepeatMode::Off` stops at the end of the queue; `One` replays
+  the current track on automatic advance (a manual `next` still moves on);
+  `All` wraps from the last track back to the first (and from the first back
+  to the last when stepping `previous`).
+
+The two compose: shuffle + `RepeatMode::All` reshuffles-and-loops the queue.
+
 ## Resume
 
 Like Rockbox, the player can pick up **exactly** where it left off across
@@ -160,6 +223,93 @@ plain, and the index/position ride along in `#RESUME-INDEX` /
 Position resolution mirrors `apps/playlist.c:playlist_update_resume_info`
 (`resume_index` + `resume_elapsed`); the saved elapsed is the true
 *playback* position, corrected for the decode-ahead buffer.
+
+## DSP chain
+
+Beyond ReplayGain, the player exposes Rockbox's entire DSP pipeline. Every
+stage is a live setter on `Player` and also has an initial value in
+`PlayerConfig.dsp` (a `DspSettings`, which defaults to a transparent
+pipeline). Stages are process-wide DSP state that persists across track
+changes — you set them once and they stay until changed.
+
+```rust
+use rockbox_playback::{
+    Player, EqPreset, EqBand, ToneControls, Surround, ChannelMode, Compressor,
+};
+
+let player = Player::new()?;
+
+// Equalizer — a ready-made preset, or drive the 10 bands yourself.
+player.set_eq_preset(EqPreset::Jazz);          // enables the EQ + all bands
+player.set_eq_enabled(true);                   // or toggle it directly
+player.set_eq_band(5, EqBand { cutoff_hz: 1000, q: 1.0, gain_db: -3.0 });
+player.set_eq_precut(6.0);                      // headroom against clipping
+
+// Tone controls — set both, or one axis at a time.
+player.set_tone(ToneControls { bass_db: 4, treble_db: 2, ..Default::default() });
+player.set_bass(6);                            // leaves treble & cutoffs intact
+player.set_treble(-2);
+
+// Spatial / channel.
+player.set_surround(Surround { delay_ms: 12, balance: 0, ..Default::default() });
+player.set_channel_mode(ChannelMode::Karaoke);
+player.set_stereo_width(120);                  // only with ChannelMode::Custom
+
+// Dynamics, dither, pitch.
+player.set_compressor(Compressor { threshold_db: -20, makeup_gain: 1, ratio: 2, ..Default::default() });
+player.set_dither(true);
+player.set_pitch(10500);                        // +5 % (PITCH_NORMAL = 10000)
+
+// Read the whole current configuration back.
+let dsp = player.dsp_settings();
+println!("EQ on: {}", dsp.equalizer.enabled);
+assert_eq!(player.is_eq_enabled(), dsp.equalizer.enabled);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`DspSettings` is the snapshot of the whole chain — pass it in via
+`PlayerConfig.dsp`, or read it out with `dsp_settings()`:
+
+| Field               | Setter(s)                                          | Notes                                                    |
+| ------------------- | -------------------------------------------------- | -------------------------------------------------------- |
+| `equalizer`         | `set_eq_preset` / `set_eq_band` / `set_eq_enabled` | 10 bands; `is_eq_enabled()` reads the on/off state       |
+| `tone`              | `set_tone` / `set_bass` / `set_treble`             | dB; `set_bass_cutoff` / `set_treble_cutoff` set shelf Hz |
+| `crossfeed`         | `set_crossfeed`                                    | headphone crossfeed: off / Meier / custom                |
+| `surround`          | `set_surround`                                     | Haas delay (0 = off), balance, band-split cutoffs        |
+| `channel_mode`      | `set_channel_mode`                                 | stereo / mono / custom / mono-L/R / karaoke / swap       |
+| `stereo_width`      | `set_stereo_width`                                 | percent; audible with `ChannelMode::Custom`              |
+| `bass_enhancement`  | `set_bass_enhancement`                             | perceptual bass boost; `strength` 0 = off                |
+| `fatigue_reduction` | `set_fatigue_reduction`                            | 0 off, 1 weak, 2 moderate, 3 strong                      |
+| `compressor`        | `set_compressor`                                   | `threshold_db = 0` disables the stage                    |
+| `dither`            | `set_dither`                                       | output dithering + noise shaping                         |
+| `pitch`             | `set_pitch`                                        | `PITCH_NORMAL` (10000) = normal; pitch + tempo           |
+
+> 📖 These mirror Rockbox's on-device sound menu. See the official
+> [Rockbox manual — Equalizer](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html#x11-1200006.11)
+> and [Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+> for what each does.
+
+### Equalizer presets
+
+`EqPreset` bundles 21 ready-to-use curves over the standard octave-spaced
+band frequencies (`EQ_BAND_FREQUENCIES`, 32 Hz … 16 kHz). `set_eq_preset`
+enables the EQ and configures all ten bands in one call; `EqPreset::ALL`
+lists them for a UI picker, and `EqPreset::equalizer()` gives you the
+`Equalizer` to tweak before applying.
+
+```rust
+use rockbox_playback::EqPreset;
+
+for p in EqPreset::ALL {
+    println!("{}", p.name());   // Flat, Acoustic, Bass Boost, … Vocal Boost
+}
+let mut eq = EqPreset::Rock.equalizer();
+eq.precut_db = 8.0;             // customise, then set_equalizer(eq)
+```
+
+Presets: Flat, Acoustic, Bass Boost, Bass Reducer, Classical, Dance, Deep,
+Electronic, Hip-Hop, Jazz, Latin, Loudness, Lounge, Piano, Pop, R&B, Rock,
+Small Speakers, Treble Boost, Treble Reducer, Vocal Boost.
 
 ## M3U / M3U8 playlists
 

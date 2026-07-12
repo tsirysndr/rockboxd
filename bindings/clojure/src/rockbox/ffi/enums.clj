@@ -24,6 +24,23 @@
 (def channel-config
   {:stereo 0 :mono 1 :custom 2 :mono-left 3 :mono-right 4 :karaoke 5 :swap 6})
 
+;; Values for rockbox.ffi.player/set-channel-mode.
+(def channel-mode
+  {:stereo 0 :mono 1 :custom 2 :mono-left 3 :mono-right 4 :karaoke 5 :swap 6})
+
+;; Values for rockbox.ffi.player/set-repeat.
+(def repeat-mode {:off 0 :one 1 :all 2})
+
+;; Values for rockbox.ffi.player/set-crossfeed.
+(def crossfeed-mode {:off 0 :meier 1 :custom 2})
+
+;; Values for rockbox.ffi.player/set-eq-preset (built-in EQ curve presets).
+(def eq-preset
+  {:flat 0 :acoustic 1 :bass-boost 2 :bass-reducer 3 :classical 4 :dance 5
+   :deep 6 :electronic 7 :hip-hop 8 :jazz 9 :latin 10 :loudness 11 :lounge 12
+   :piano 13 :pop 14 :rnb 15 :rock 16 :small-speakers 17 :treble-boost 18
+   :treble-reducer 19 :vocal-boost 20})
+
 (defn code
   "Resolve `v` in enum map `m`: a keyword maps through, an int passes through."
   [m v]

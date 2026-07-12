@@ -34,29 +34,52 @@ RockboxFFI::Dsp.open(44_100) do |dsp|
 end
 
 # --- playback (needs an output device) --------------------------------
+# Mutating Player setters return self, so calls chain fluently. The queue
+# accepts local file paths, http(s):// URLs, and live-radio / streaming URLs.
 RockboxFFI::Player.open(volume: 0.8) do |player|
-  player.set_replaygain(RockboxFFI::ReplayGainMode::TRACK, 0.0, true)
-  player.set_crossfade(RockboxFFI::CrossfadeMode::ALWAYS)
-  player.set_queue(["a.flac", "b.mp3", "c.opus"])
-  player.play
-  player.status   # => {state: "playing", index: 0, ...}
+  player
+    .set_queue(["a.flac", "https://example.com/b.mp3", "http://stream.example/live"])
+    .set_eq_preset(RockboxFFI::EqPreset::BASS_BOOST)
+    .set_shuffle(true)
+    .set_repeat(RockboxFFI::RepeatMode::ALL)
+    .play
+
+  # --- DSP chain (all setters chainable) ------------------------------
+  player
+    .set_eq_enabled(true)
+    .set_eq_band(0, 60, 0.7, 3.0)       # band, cutoff_hz, q, gain_db
+    .set_eq_precut(3.0)
+    .set_bass(4).set_treble(2)          # or set_tone(bass, treble, cuts…)
+    .set_crossfeed(RockboxFFI::CrossfeedMode::MEIER, 0, 0, 0, 0)
+    .set_channel_mode(RockboxFFI::ChannelMode::STEREO)
+
+  player.eq_enabled?      # => true
+  player.shuffle_enabled? # => true
+  player.repeat           # => 2 (RepeatMode::ALL)
+  player.dsp_settings     # => {eq_enabled: true, ...}
+  player.status           # => {state: "playing", index: 0, ...}
 end
 ```
 
 ## API
 
-| Namespace                | Contents                                                          |
-| ------------------------ | ---------------------------------------------------------------- |
-| `RockboxFFI::Metadata`   | `read(path) => Hash`, `probe(filename) => String \| nil`          |
-| `RockboxFFI::Dsp`        | EQ / tone / surround / compressor / ReplayGain, `process(samples)` |
-| `RockboxFFI::Player`     | queue + transport + crossfade + ReplayGain, `status => Hash`      |
-| `RockboxFFI::*Mode`      | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode` |
+| Namespace              | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RockboxFFI::Metadata` | `read(path) => Hash`, `probe(filename) => String \| nil`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `RockboxFFI::Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `RockboxFFI::Player`   | queue (`set_queue` / `enqueue` / `insert` — local paths, `http(s)://` URLs, live-radio / streaming URLs), transport, `set_shuffle` / `shuffle_enabled?`, `set_repeat` / `repeat`, crossfade, ReplayGain, full DSP chain (`set_eq_enabled` / `eq_enabled?`, `set_eq_preset`, `set_eq_band`, `set_eq_precut`, `set_tone` / `set_bass` / `set_treble` / `set_bass_cutoff` / `set_treble_cutoff`, `set_crossfeed`, `set_surround`, `set_channel_mode` / `set_stereo_width`, `set_bass_enhancement`, `set_fatigue_reduction`, `set_compressor`, `set_dither`, `set_pitch`, `dsp_settings`), m3u/resume, `status => Hash`. Mutating setters return `self` for chaining. |
+| `RockboxFFI::*Mode`    | `DspReplayGainMode`, `ReplayGainMode`, `RepeatMode`, `CrossfadeMode`, `MixMode`, `CrossfeedMode`, `ChannelMode`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `RockboxFFI::EqPreset` | 21 built-in EQ presets (`FLAT`, `BASS_BOOST`, `ROCK`, `JAZZ`, `VOCAL_BOOST`, …) for `Player#set_eq_preset`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-- Rich values (metadata, status) come back as **Hashes with symbol keys**.
+- Rich values (metadata, status, `dsp_settings`) come back as **Hashes with
+  symbol keys**.
 - Sample buffers are `Array<Integer>` of interleaved-stereo signed 16-bit
   samples.
 - `Dsp` and `Player` own native resources. Use the block form (`.open`) to
   close them automatically, or call `#close`; a GC finalizer is the backstop.
+- The `Player` DSP chain mirrors Rockbox's own sound settings — see the
+  [official Rockbox manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+  for what each control does.
 
 <Warning>
   `Dsp#set_replaygain` and `Player#set_replaygain` take **different mode

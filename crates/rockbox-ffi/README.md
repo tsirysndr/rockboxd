@@ -12,7 +12,7 @@ C FFI:
 | --------------------------------------------------------- | ------------------------------------------------------------------- |
 | [`rockbox-dsp`](../rockbox-dsp)                           | EQ, tone, crossfeed, compressor, ReplayGain, resampler DSP pipeline |
 | [`rockbox-metadata`](../rockbox-metadata)                 | Tag / duration / ReplayGain / album-art parser for 40+ formats      |
-| [`rockbox-playback`](../rockbox-playback)                 | Queue-based player with native ReplayGain and Rockbox crossfade     |
+| [`rockbox-playback`](../rockbox-playback)                 | Queue-based player with native ReplayGain, full DSP chain & crossfade |
 
 The public surface is declared in [`include/rockbox_ffi.h`](../../include/rockbox_ffi.h).
 
@@ -26,6 +26,17 @@ The public surface is declared in [`include/rockbox_ffi.h`](../../include/rockbo
 - **Rockbox queue insertion** — `rb_player_insert_json(json, position, index)`
   with the full position set (0 prepend, 1 insert, 2 insert-next,
   3 insert-last, 4 shuffled, 5 last-shuffled, 6 replace, 7 explicit index).
+- **Shuffle & repeat** — `rb_player_set_shuffle` / `rb_player_is_shuffle_enabled`
+  and `rb_player_set_repeat` / `rb_player_repeat` (0 off, 1 one, 2 all). Both
+  also appear in the status JSON (`shuffle`, `repeat`).
+- **DSP chain** — the whole Rockbox pipeline past ReplayGain:
+  `rb_player_set_eq_enabled` / `is_eq_enabled` / `set_eq_band` /
+  `set_eq_precut` / `set_eq_preset` (21 built-in presets), `set_tone` /
+  `set_bass` / `set_treble` / `set_bass_cutoff` / `set_treble_cutoff`,
+  `set_crossfeed`, `set_surround`, `set_channel_mode` / `set_stereo_width`,
+  `set_bass_enhancement`, `set_fatigue_reduction`, `set_compressor`,
+  `set_dither`, `set_pitch` — plus `rb_player_dsp_settings_json` to read the
+  whole state back. Mirrors the [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
 - **HTTP remote media** — queue `http(s)://` URLs beside local paths; finite
   files stream on demand via range requests, and unbounded **live radio**
   decodes on the fly. For live radio the status JSON's `metadata` carries the

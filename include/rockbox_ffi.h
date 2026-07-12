@@ -101,7 +101,12 @@ RbPlayer *rb_player_new_with_config_ex(uint32_t sample_rate, float buffer_second
                                        const char *resume_file,
                                        uint32_t resume_save_interval_ms);
 void  rb_player_free(RbPlayer *p);
+/* Replace the queue from a JSON array of strings. Each entry may be a local
+ * file path, an http(s):// URL to a finite remote file, or a live-radio /
+ * streaming URL. */
 void  rb_player_set_queue_json(RbPlayer *p, const char *json);
+/* Append one track (local file path, http(s):// URL, or live-radio /
+ * streaming URL) to the end of the queue. */
 void  rb_player_enqueue(RbPlayer *p, const char *path);
 /* Insert a JSON array of paths/URLs at `position` (`index` used for pos 7). */
 void  rb_player_insert_json(RbPlayer *p, const char *json, int32_t position,
@@ -122,6 +127,64 @@ void  rb_player_set_crossfade(RbPlayer *p, int32_t mode, uint32_t fo_delay_ms,
                               uint32_t fi_dur_ms, int32_t mix_mode);
 void  rb_player_set_replaygain(RbPlayer *p, int32_t mode, float preamp_db,
                                bool prevent_clipping);
+
+/* ---- shuffle / repeat ------------------------------------------------- */
+/* Enable or disable shuffle playback. */
+void  rb_player_set_shuffle(RbPlayer *p, bool enabled);
+bool  rb_player_is_shuffle_enabled(RbPlayer *p);
+/* Repeat mode: 0 off, 1 one (current track), 2 all (whole queue). */
+void  rb_player_set_repeat(RbPlayer *p, int32_t mode);
+int32_t rb_player_repeat(RbPlayer *p);
+
+/* ---- DSP chain (EQ / tone / surround / channel / compressor / …) ------ */
+/* 10-band parametric equalizer. */
+void  rb_player_set_eq_enabled(RbPlayer *p, bool enabled);
+bool  rb_player_is_eq_enabled(RbPlayer *p);
+/* One band: `band` in 0..10, `cutoff_hz` Hz, `q` a Q factor, `gain_db` dB. */
+void  rb_player_set_eq_band(RbPlayer *p, size_t band, int32_t cutoff_hz,
+                            float q, float gain_db);
+void  rb_player_set_eq_precut(RbPlayer *p, float db);
+/* Built-in preset by index (EqPreset::ALL order: 0 Flat, 1 Acoustic, …). */
+void  rb_player_set_eq_preset(RbPlayer *p, int32_t preset);
+/* Bass/treble tone controls (dB); cutoffs in Hz (0 = defaults). */
+void  rb_player_set_tone(RbPlayer *p, int32_t bass_db, int32_t treble_db,
+                         int32_t bass_cutoff_hz, int32_t treble_cutoff_hz);
+/* Set one tone axis, leaving the other and the cutoffs unchanged. */
+void  rb_player_set_bass(RbPlayer *p, int32_t bass_db);
+void  rb_player_set_treble(RbPlayer *p, int32_t treble_db);
+/* Override one tone shelf cutoff in Hz (0 = default), gains unchanged. */
+void  rb_player_set_bass_cutoff(RbPlayer *p, int32_t hz);
+void  rb_player_set_treble_cutoff(RbPlayer *p, int32_t hz);
+/* Headphone crossfeed. mode: 0 off, 1 Meier, 2 custom. direct/cross/hf gains
+ * in tenths of a dB (<= 0); hf_cutoff in Hz. cross/hf apply in custom mode. */
+void  rb_player_set_crossfeed(RbPlayer *p, int32_t mode, int32_t direct_gain,
+                              int32_t cross_gain, int32_t hf_gain,
+                              int32_t hf_cutoff);
+/* Perceptual bass enhancement: strength percent (0 = off), precut in tenths
+ * of a dB (<= 0). */
+void  rb_player_set_bass_enhancement(RbPlayer *p, int32_t strength,
+                                     int32_t precut);
+/* Auditory fatigue reduction: 0 off, 1 weak, 2 moderate, 3 strong. */
+void  rb_player_set_fatigue_reduction(RbPlayer *p, int32_t strength);
+/* Haas surround: delay_ms (0 = off), balance %, band-split cutoffs Hz. */
+void  rb_player_set_surround(RbPlayer *p, int32_t delay_ms, int32_t balance,
+                             int32_t cutoff_low_hz, int32_t cutoff_high_hz);
+/* Channel mode: 0 stereo, 1 mono, 2 custom, 3 mono-L, 4 mono-R, 5 karaoke,
+ * 6 swap. */
+void  rb_player_set_channel_mode(RbPlayer *p, int32_t mode);
+/* Custom stereo width in percent (audible with channel mode 2). */
+void  rb_player_set_stereo_width(RbPlayer *p, int32_t percent);
+/* Dynamic-range compressor (threshold_db 0 disables it). */
+void  rb_player_set_compressor(RbPlayer *p, int32_t threshold_db,
+                               int32_t makeup_gain, int32_t ratio, int32_t knee,
+                               int32_t attack_ms, int32_t release_ms);
+/* Output dithering + noise shaping. */
+void  rb_player_set_dither(RbPlayer *p, bool enabled);
+/* Pitch/speed ratio (10000 = normal); pitch and tempo shift together. */
+void  rb_player_set_pitch(RbPlayer *p, int32_t ratio);
+/* Full DSP-chain state as JSON; free with rb_string_free. */
+char *rb_player_dsp_settings_json(RbPlayer *p);
+
 float    rb_player_volume(RbPlayer *p);
 uint32_t rb_player_sample_rate(RbPlayer *p);
 char    *rb_player_status_json(RbPlayer *p);
