@@ -207,9 +207,11 @@ else
 fi
 
 echo "==> Step 4: Link rockboxd with Zig (headless)"
-ZIG_EXTRA_ARGS=""
+# Preserve any ZIG_EXTRA_ARGS from the environment (the Nix build injects
+# -Dmacos-sdk=... for hermetic framework linking) and append host tweaks.
+ZIG_EXTRA_ARGS="${ZIG_EXTRA_ARGS:-}"
 if [ "$(uname -m)" = "x86_64" ]; then
-    ZIG_EXTRA_ARGS="-Dcpu=x86_64"
+    ZIG_EXTRA_ARGS="$ZIG_EXTRA_ARGS -Dcpu=x86_64"
 fi
 (cd zig && zig build -Dheadless=true "-Doptimize=$ZIG_OPT" $ZIG_EXTRA_ARGS)
 
