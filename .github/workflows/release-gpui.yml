@@ -61,8 +61,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             zig/.zig-cache
-            target
-            gpui/target
           key: gpui-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: gpui-${{ matrix.os }}-${{ matrix.arch }}-
 
