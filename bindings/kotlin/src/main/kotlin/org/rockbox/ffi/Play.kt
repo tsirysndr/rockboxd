@@ -12,8 +12,13 @@ fun main(args: Array<String>) {
     try {
         val player = Player(Player.Config().apply { volume = 0.8f })
         player.setQueue(listOf(file))
+        // DSP: Bass Boost preset + a +3 dB bass/treble lift.
+        player.setEqPreset(EqPreset.BASS_BOOST)
+        player.setBass(3)
+        player.setTreble(3)
         player.play()
         println("▶ playing $file")
+        println("eq: BassBoost preset, bass +3 dB, treble +3 dB")
 
         while (true) {
             val st = player.status()

@@ -71,11 +71,17 @@
 
 ;; ---- queue ------------------------------------------------------------
 
-(defn set-queue [^MemorySegment p paths]
+(defn set-queue
+  "Replace the queue. Each entry may be a local file path, an http(s):// URL
+  to a finite remote file, or a live-radio / streaming URL."
+  [^MemorySegment p paths]
   (with-open [a (Arena/ofConfined)]
     (ffi/call :player-set-queue-json p (.allocateFrom a ^String (json/write-str (vec paths))))))
 
-(defn enqueue [^MemorySegment p path]
+(defn enqueue
+  "Append one track to the queue. `path` may be a local file path, an
+  http(s):// URL to a finite remote file, or a live-radio / streaming URL."
+  [^MemorySegment p path]
   (with-open [a (Arena/ofConfined)]
     (ffi/call :player-enqueue p (.allocateFrom a ^String path))))
 
@@ -132,6 +138,88 @@
   [^MemorySegment p mode preamp-db prevent-clipping?]
   (ffi/call :player-set-replaygain p (int (enums/code enums/replaygain-mode mode))
             (float preamp-db) (boolean prevent-clipping?)))
+
+;; ---- DSP --------------------------------------------------------------
+
+(defn set-eq-enabled
+  "Enable or disable the parametric EQ."
+  [^MemorySegment p enabled?]
+  (ffi/call :player-set-eq-enabled p (boolean enabled?)))
+
+(defn eq-enabled?
+  "Whether the parametric EQ is currently enabled."
+  [^MemorySegment p]
+  (boolean (ffi/call :player-is-eq-enabled p)))
+
+(defn set-eq-band
+  "Configure one EQ band. `q` and `gain-db` are plain (not tenths) values."
+  [^MemorySegment p band cutoff-hz q gain-db]
+  (ffi/call :player-set-eq-band p (long band) (int cutoff-hz) (float q) (float gain-db)))
+
+(defn set-eq-precut
+  "Set the EQ pre-cut (attenuation) in dB."
+  [^MemorySegment p db]
+  (ffi/call :player-set-eq-precut p (float db)))
+
+(defn set-eq-preset
+  "Apply a built-in EQ preset (rockbox.ffi.enums/eq-preset; e.g. :flat :rock)."
+  [^MemorySegment p preset]
+  (ffi/call :player-set-eq-preset p (int (enums/code enums/eq-preset preset))))
+
+(defn set-tone
+  "Set the tone controls: bass/treble gain (dB) and their cutoffs (Hz)."
+  [^MemorySegment p bass-db treble-db bass-cutoff-hz treble-cutoff-hz]
+  (ffi/call :player-set-tone p (int bass-db) (int treble-db)
+            (int bass-cutoff-hz) (int treble-cutoff-hz)))
+
+(defn set-bass
+  "Set the bass tone gain in dB."
+  [^MemorySegment p bass-db]
+  (ffi/call :player-set-bass p (int bass-db)))
+
+(defn set-treble
+  "Set the treble tone gain in dB."
+  [^MemorySegment p treble-db]
+  (ffi/call :player-set-treble p (int treble-db)))
+
+(defn set-surround
+  "Configure the surround effect: delay (ms), balance, and low/high cutoffs (Hz)."
+  [^MemorySegment p delay-ms balance cutoff-low-hz cutoff-high-hz]
+  (ffi/call :player-set-surround p (int delay-ms) (int balance)
+            (int cutoff-low-hz) (int cutoff-high-hz)))
+
+(defn set-channel-mode
+  "Set the channel mode (rockbox.ffi.enums/channel-mode; e.g. :stereo :mono)."
+  [^MemorySegment p mode]
+  (ffi/call :player-set-channel-mode p (int (enums/code enums/channel-mode mode))))
+
+(defn set-stereo-width
+  "Set the stereo width as a percentage."
+  [^MemorySegment p percent]
+  (ffi/call :player-set-stereo-width p (int percent)))
+
+(defn set-compressor
+  "Configure the dynamic-range compressor."
+  [^MemorySegment p threshold-db makeup-gain ratio knee attack-ms release-ms]
+  (ffi/call :player-set-compressor p (int threshold-db) (int makeup-gain)
+            (int ratio) (int knee) (int attack-ms) (int release-ms)))
+
+(defn set-dither
+  "Enable or disable dithering."
+  [^MemorySegment p enabled?]
+  (ffi/call :player-set-dither p (boolean enabled?)))
+
+(defn set-pitch
+  "Set the playback pitch ratio."
+  [^MemorySegment p ratio]
+  (ffi/call :player-set-pitch p (int ratio)))
+
+(defn dsp-settings
+  "A snapshot of the player's DSP settings as a map (keyword keys)."
+  [^MemorySegment p]
+  (let [s (ffi/take-string (ffi/call :player-dsp-settings-json p))]
+    (when-not s (throw (ex-info "rb_player_dsp_settings_json returned NULL" {})))
+    (json/read-str s :key-fn keyword)))
 
 ;; ---- status -----------------------------------------------------------
 

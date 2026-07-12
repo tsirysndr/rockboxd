@@ -196,9 +196,19 @@ export function makeApi(raw: Raw) {
       this.close();
     }
 
+    /**
+     * Replace the queue. Each entry may be a local file path, an
+     * `http(s)://` URL to a finite remote file, or a live-radio /
+     * streaming URL.
+     */
     setQueue(paths: string[]): void {
       s.rb_player_set_queue_json(this.#h, raw.cstr(JSON.stringify(paths)));
     }
+    /**
+     * Append one track to the queue. `path` may be a local file path, an
+     * `http(s)://` URL to a finite remote file, or a live-radio / streaming
+     * URL.
+     */
     enqueue(path: string): void {
       s.rb_player_enqueue(this.#h, raw.cstr(path));
     }
@@ -259,6 +269,68 @@ export function makeApi(raw: Raw) {
       const json = raw.takeString(s.rb_player_status_json(this.#h));
       if (json === null) throw new Error("rb_player_status_json returned NULL");
       return JSON.parse(json) as PlayerStatus;
+    }
+    /** Enable or disable the graphic EQ. */
+    setEqEnabled(enabled: boolean): void {
+      s.rb_player_set_eq_enabled(this.#h, enabled);
+    }
+    /** Whether the graphic EQ is currently enabled. */
+    isEqEnabled(): boolean {
+      return Boolean(s.rb_player_is_eq_enabled(this.#h));
+    }
+    /** Configure one EQ band; q and gainDb are plain (not tenths) units. */
+    setEqBand(band: number, cutoffHz: number, q: number, gainDb: number): void {
+      s.rb_player_set_eq_band(this.#h, band, cutoffHz, q, gainDb);
+    }
+    setEqPrecut(db: number): void {
+      s.rb_player_set_eq_precut(this.#h, db);
+    }
+    /** preset: EqPreset. */
+    setEqPreset(preset: number): void {
+      s.rb_player_set_eq_preset(this.#h, preset);
+    }
+    setTone(
+      bassDb: number, trebleDb: number, bassCutoffHz: number, trebleCutoffHz: number,
+    ): void {
+      s.rb_player_set_tone(this.#h, bassDb, trebleDb, bassCutoffHz, trebleCutoffHz);
+    }
+    setBass(bassDb: number): void {
+      s.rb_player_set_bass(this.#h, bassDb);
+    }
+    setTreble(trebleDb: number): void {
+      s.rb_player_set_treble(this.#h, trebleDb);
+    }
+    setSurround(
+      delayMs: number, balance: number, cutoffLowHz: number, cutoffHighHz: number,
+    ): void {
+      s.rb_player_set_surround(this.#h, delayMs, balance, cutoffLowHz, cutoffHighHz);
+    }
+    /** mode: ChannelMode. */
+    setChannelMode(mode: number): void {
+      s.rb_player_set_channel_mode(this.#h, mode);
+    }
+    setStereoWidth(percent: number): void {
+      s.rb_player_set_stereo_width(this.#h, percent);
+    }
+    setCompressor(
+      thresholdDb: number, makeupGain: number, ratio: number, knee: number,
+      attackMs: number, releaseMs: number,
+    ): void {
+      s.rb_player_set_compressor(
+        this.#h, thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs,
+      );
+    }
+    setDither(enabled: boolean): void {
+      s.rb_player_set_dither(this.#h, enabled);
+    }
+    setPitch(ratio: number): void {
+      s.rb_player_set_pitch(this.#h, ratio);
+    }
+    /** The current DSP settings as a plain object (parsed from JSON). */
+    dspSettings(): Record<string, unknown> {
+      const json = raw.takeString(s.rb_player_dsp_settings_json(this.#h));
+      if (json === null) throw new Error("rb_player_dsp_settings_json returned NULL");
+      return JSON.parse(json) as Record<string, unknown>;
     }
     /** Restore the persisted queue + position (does NOT auto-play); null if none. */
     resume(): ResumeState | null {

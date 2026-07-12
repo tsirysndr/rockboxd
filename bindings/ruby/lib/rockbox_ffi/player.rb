@@ -85,10 +85,14 @@ module RockboxFFI
     private_class_method :finalizer
 
     # -- queue ------------------------------------------------------------
+    # Replace the queue. Each entry may be a local file path, an http(s)://
+    # URL to a finite remote file, or a live-radio / streaming URL.
     def set_queue(paths)
       Lib.rb_player_set_queue_json(@ptr, JSON.generate(Array(paths).map(&:to_s)))
     end
 
+    # Append one track to the queue. +path+ may be a local file path, an
+    # http(s):// URL to a finite remote file, or a live-radio / streaming URL.
     def enqueue(path)
       Lib.rb_player_enqueue(@ptr, path.to_s)
     end
@@ -168,6 +172,96 @@ module RockboxFFI
     # mode: see ReplayGainMode (OFF=0, TRACK=1, ALBUM=2).
     def set_replaygain(mode, preamp_db, prevent_clipping)
       Lib.rb_player_set_replaygain(@ptr, Integer(mode), Float(preamp_db), RockboxFFI.b(prevent_clipping))
+    end
+
+    # -- DSP --------------------------------------------------------------
+    # Enable/disable the parametric equalizer.
+    def set_eq_enabled(enabled)
+      Lib.rb_player_set_eq_enabled(@ptr, RockboxFFI.b(enabled))
+    end
+
+    # Whether the parametric equalizer is currently enabled.
+    def eq_enabled?
+      !Lib.rb_player_is_eq_enabled(@ptr).zero?
+    end
+
+    # Configure one EQ band: +band+ index, +cutoff_hz+ center frequency,
+    # +q+ factor, +gain_db+ gain in dB.
+    def set_eq_band(band, cutoff_hz, q, gain_db)
+      Lib.rb_player_set_eq_band(@ptr, Integer(band), Integer(cutoff_hz), Float(q), Float(gain_db))
+    end
+
+    # Global EQ pre-cut in dB.
+    def set_eq_precut(db)
+      Lib.rb_player_set_eq_precut(@ptr, Float(db))
+    end
+
+    # Apply a built-in EQ preset (see EqPreset).
+    def set_eq_preset(preset)
+      Lib.rb_player_set_eq_preset(@ptr, Integer(preset))
+    end
+
+    # Bass/treble tone controls with explicit cutoff frequencies.
+    def set_tone(bass_db, treble_db, bass_cutoff_hz, treble_cutoff_hz)
+      Lib.rb_player_set_tone(
+        @ptr, Integer(bass_db), Integer(treble_db),
+        Integer(bass_cutoff_hz), Integer(treble_cutoff_hz)
+      )
+    end
+
+    # Bass gain in dB.
+    def set_bass(bass_db)
+      Lib.rb_player_set_bass(@ptr, Integer(bass_db))
+    end
+
+    # Treble gain in dB.
+    def set_treble(treble_db)
+      Lib.rb_player_set_treble(@ptr, Integer(treble_db))
+    end
+
+    # Surround effect: delay (ms), balance, low/high cutoff frequencies (Hz).
+    def set_surround(delay_ms, balance, cutoff_low_hz, cutoff_high_hz)
+      Lib.rb_player_set_surround(
+        @ptr, Integer(delay_ms), Integer(balance),
+        Integer(cutoff_low_hz), Integer(cutoff_high_hz)
+      )
+    end
+
+    # Channel mode (see ChannelMode).
+    def set_channel_mode(mode)
+      Lib.rb_player_set_channel_mode(@ptr, Integer(mode))
+    end
+
+    # Stereo width as a percentage.
+    def set_stereo_width(percent)
+      Lib.rb_player_set_stereo_width(@ptr, Integer(percent))
+    end
+
+    # Dynamic-range compressor: threshold (dB), makeup gain, ratio, knee,
+    # attack (ms), release (ms).
+    def set_compressor(threshold_db, makeup_gain, ratio, knee, attack_ms, release_ms)
+      Lib.rb_player_set_compressor(
+        @ptr, Integer(threshold_db), Integer(makeup_gain), Integer(ratio),
+        Integer(knee), Integer(attack_ms), Integer(release_ms)
+      )
+    end
+
+    # Enable/disable output dithering.
+    def set_dither(enabled)
+      Lib.rb_player_set_dither(@ptr, RockboxFFI.b(enabled))
+    end
+
+    # Pitch shift ratio.
+    def set_pitch(ratio)
+      Lib.rb_player_set_pitch(@ptr, Integer(ratio))
+    end
+
+    # A snapshot of the current DSP settings as a Hash with symbol keys.
+    def dsp_settings
+      s = RockboxFFI.take_string(Lib.rb_player_dsp_settings_json(@ptr))
+      raise "rb_player_dsp_settings_json returned NULL" if s.nil?
+
+      JSON.parse(s, symbolize_names: true)
     end
 
     # -- status -----------------------------------------------------------

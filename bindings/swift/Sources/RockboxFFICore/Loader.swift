@@ -106,6 +106,16 @@ typealias FnM3uReadJson = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutabl
 typealias FnM3uWriteJson = @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
 typealias FnIsUrl = @convention(c) (UnsafePointer<CChar>?) -> Bool
 
+// player DSP
+typealias FnPlayerBool = @convention(c) (OpaquePointer?, Bool) -> Void
+typealias FnPlayerIsBool = @convention(c) (OpaquePointer?) -> Bool
+typealias FnPlayerEqBand = @convention(c) (OpaquePointer?, Int, Int32, Float, Float) -> Void
+typealias FnPlayerF1 = @convention(c) (OpaquePointer?, Float) -> Void
+typealias FnPlayerI1 = @convention(c) (OpaquePointer?, Int32) -> Void
+typealias FnPlayerI4 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32) -> Void
+typealias FnPlayerI6 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32, Int32, Int32) -> Void
+typealias FnPlayerDspJson = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+
 /// Loaded once, shared process-wide. A missing native library is a fatal
 /// setup error (matching how the other bindings abort on load failure).
 final class Lib {
@@ -180,6 +190,23 @@ final class Lib {
     let m3uWriteJson: FnM3uWriteJson
     let isUrl: FnIsUrl
 
+    // player DSP
+    let playerSetEqEnabled: FnPlayerBool
+    let playerIsEqEnabled: FnPlayerIsBool
+    let playerSetEqBand: FnPlayerEqBand
+    let playerSetEqPrecut: FnPlayerF1
+    let playerSetEqPreset: FnPlayerI1
+    let playerSetTone: FnPlayerI4
+    let playerSetBass: FnPlayerI1
+    let playerSetTreble: FnPlayerI1
+    let playerSetSurround: FnPlayerI4
+    let playerSetChannelMode: FnPlayerI1
+    let playerSetStereoWidth: FnPlayerI1
+    let playerSetCompressor: FnPlayerI6
+    let playerSetDither: FnPlayerBool
+    let playerSetPitch: FnPlayerI1
+    let playerDspSettingsJson: FnPlayerDspJson
+
     private init() throws {
         let (h, _) = try Lib.open()
         handle = h
@@ -251,6 +278,22 @@ final class Lib {
         m3uReadJson = try sym("rb_m3u_read_json", FnM3uReadJson.self)
         m3uWriteJson = try sym("rb_m3u_write_json", FnM3uWriteJson.self)
         isUrl = try sym("rb_is_url", FnIsUrl.self)
+
+        playerSetEqEnabled = try sym("rb_player_set_eq_enabled", FnPlayerBool.self)
+        playerIsEqEnabled = try sym("rb_player_is_eq_enabled", FnPlayerIsBool.self)
+        playerSetEqBand = try sym("rb_player_set_eq_band", FnPlayerEqBand.self)
+        playerSetEqPrecut = try sym("rb_player_set_eq_precut", FnPlayerF1.self)
+        playerSetEqPreset = try sym("rb_player_set_eq_preset", FnPlayerI1.self)
+        playerSetTone = try sym("rb_player_set_tone", FnPlayerI4.self)
+        playerSetBass = try sym("rb_player_set_bass", FnPlayerI1.self)
+        playerSetTreble = try sym("rb_player_set_treble", FnPlayerI1.self)
+        playerSetSurround = try sym("rb_player_set_surround", FnPlayerI4.self)
+        playerSetChannelMode = try sym("rb_player_set_channel_mode", FnPlayerI1.self)
+        playerSetStereoWidth = try sym("rb_player_set_stereo_width", FnPlayerI1.self)
+        playerSetCompressor = try sym("rb_player_set_compressor", FnPlayerI6.self)
+        playerSetDither = try sym("rb_player_set_dither", FnPlayerBool.self)
+        playerSetPitch = try sym("rb_player_set_pitch", FnPlayerI1.self)
+        playerDspSettingsJson = try sym("rb_player_dsp_settings_json", FnPlayerDspJson.self)
     }
 
     /// Copy a heap C string returned by the ABI into a String, then free it.

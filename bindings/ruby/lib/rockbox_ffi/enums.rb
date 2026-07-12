@@ -54,4 +54,40 @@ module RockboxFFI
     KARAOKE = 5
     SWAP = 6
   end
+
+  # Built-in EQ presets for Player#set_eq_preset.
+  module EqPreset
+    FLAT = 0
+    ACOUSTIC = 1
+    BASS_BOOST = 2
+    BASS_REDUCER = 3
+    CLASSICAL = 4
+    DANCE = 5
+    DEEP = 6
+    ELECTRONIC = 7
+    HIP_HOP = 8
+    JAZZ = 9
+    LATIN = 10
+    LOUDNESS = 11
+    LOUNGE = 12
+    PIANO = 13
+    POP = 14
+    RNB = 15
+    ROCK = 16
+    SMALL_SPEAKERS = 17
+    TREBLE_BOOST = 18
+    TREBLE_REDUCER = 19
+    VOCAL_BOOST = 20
+  end
+
+  # Channel mode for Player#set_channel_mode.
+  module ChannelMode
+    STEREO = 0
+    MONO = 1
+    CUSTOM = 2
+    MONO_LEFT = 3
+    MONO_RIGHT = 4
+    KARAOKE = 5
+    SWAP = 6
+  end
 end

@@ -106,6 +106,84 @@ fn insert_position_args(position: InsertPosition) -> #(Int, Int) {
   }
 }
 
+/// A built-in graphic-EQ preset (`set_eq_preset`). Values map to the ABI's
+/// integer preset ids 0..20.
+pub type EqPreset {
+  Flat
+  Acoustic
+  BassBoost
+  BassReducer
+  Classical
+  Dance
+  Deep
+  Electronic
+  HipHop
+  Jazz
+  Latin
+  Loudness
+  Lounge
+  Piano
+  Pop
+  RnB
+  Rock
+  SmallSpeakers
+  TrebleBoost
+  TrebleReducer
+  VocalBoost
+}
+
+/// Encode an `EqPreset` as the ABI's integer id (0..20).
+pub fn eq_preset_to_int(preset: EqPreset) -> Int {
+  case preset {
+    Flat -> 0
+    Acoustic -> 1
+    BassBoost -> 2
+    BassReducer -> 3
+    Classical -> 4
+    Dance -> 5
+    Deep -> 6
+    Electronic -> 7
+    HipHop -> 8
+    Jazz -> 9
+    Latin -> 10
+    Loudness -> 11
+    Lounge -> 12
+    Piano -> 13
+    Pop -> 14
+    RnB -> 15
+    Rock -> 16
+    SmallSpeakers -> 17
+    TrebleBoost -> 18
+    TrebleReducer -> 19
+    VocalBoost -> 20
+  }
+}
+
+/// Channel-mixing mode (`set_channel_mode`). Values map to the ABI's integer
+/// mode ids 0..6.
+pub type ChannelMode {
+  Stereo
+  Mono
+  Custom
+  MonoLeft
+  MonoRight
+  Karaoke
+  Swap
+}
+
+/// Encode a `ChannelMode` as the ABI's integer id (0..6).
+pub fn channel_mode_to_int(mode: ChannelMode) -> Int {
+  case mode {
+    Stereo -> 0
+    Mono -> 1
+    Custom -> 2
+    MonoLeft -> 3
+    MonoRight -> 4
+    Karaoke -> 5
+    Swap -> 6
+  }
+}
+
 /// A snapshot of the player's status.
 pub type Status {
   Status(
@@ -114,6 +192,62 @@ pub type Status {
     position_ms: Int,
     duration_ms: Int,
     queue_len: Int,
+  )
+}
+
+/// One EQ band as reported by `dsp_settings`.
+pub type EqBand {
+  EqBand(cutoff_hz: Int, q: Float, gain_db: Float)
+}
+
+/// The graphic EQ section of `dsp_settings`.
+pub type Equalizer {
+  Equalizer(enabled: Bool, precut_db: Float, bands: List(EqBand))
+}
+
+/// The bass/treble tone controls of `dsp_settings`.
+pub type Tone {
+  Tone(
+    bass_db: Int,
+    treble_db: Int,
+    bass_cutoff_hz: Int,
+    treble_cutoff_hz: Int,
+  )
+}
+
+/// The surround section of `dsp_settings`.
+pub type Surround {
+  Surround(
+    delay_ms: Int,
+    balance: Int,
+    cutoff_low_hz: Int,
+    cutoff_high_hz: Int,
+  )
+}
+
+/// The compressor section of `dsp_settings`.
+pub type Compressor {
+  Compressor(
+    threshold_db: Int,
+    makeup_gain: Int,
+    ratio: Int,
+    knee: Int,
+    attack_ms: Int,
+    release_ms: Int,
+  )
+}
+
+/// The whole DSP chain state, as returned by `dsp_settings`.
+pub type DspSettings {
+  DspSettings(
+    equalizer: Equalizer,
+    tone: Tone,
+    surround: Surround,
+    channel_mode: String,
+    stereo_width: Int,
+    compressor: Compressor,
+    dither: Bool,
+    pitch: Int,
   )
 }
 
@@ -147,7 +281,8 @@ pub fn with_config(c: Config) -> Player {
   )
 }
 
-/// Replace the queue with a list of file paths (or http(s):// URLs).
+/// Replace the queue. Each entry may be a local file path, an `http(s)://`
+/// URL to a finite remote file, or a live-radio / streaming URL.
 pub fn set_queue(player: Player, paths: List(String)) -> Nil {
   ffi_set_queue_json(player, iolist_to_binary(json_encode(paths)))
 }
@@ -170,6 +305,8 @@ pub fn queue(player: Player) -> List(String) {
   }
 }
 
+/// Append one track to the queue. `path` may be a local file path, an
+/// `http(s)://` URL to a finite remote file, or a live-radio / streaming URL.
 @external(erlang, "rockbox_ffi_nif", "player_enqueue")
 pub fn enqueue(player: Player, path: String) -> Nil
 
@@ -230,6 +367,99 @@ pub fn status(player: Player) -> Status {
   let assert Ok(status) =
     decode.run(json_decode(ffi_status_json(player)), status_decoder())
   status
+}
+
+// -- DSP chain ----------------------------------------------------------
+
+/// Enable or disable the graphic equalizer.
+@external(erlang, "rockbox_ffi_nif", "player_set_eq_enabled")
+pub fn set_eq_enabled(player: Player, enabled: Bool) -> Nil
+
+/// Whether the graphic equalizer is currently enabled.
+@external(erlang, "rockbox_ffi_nif", "player_is_eq_enabled")
+pub fn is_eq_enabled(player: Player) -> Bool
+
+/// Configure one EQ band: `cutoff_hz` in Hz, `q` factor, `gain_db` in dB.
+@external(erlang, "rockbox_ffi_nif", "player_set_eq_band")
+pub fn set_eq_band(
+  player: Player,
+  band: Int,
+  cutoff_hz: Int,
+  q: Float,
+  gain_db: Float,
+) -> Nil
+
+/// Set the EQ pre-cut (headroom), in dB.
+@external(erlang, "rockbox_ffi_nif", "player_set_eq_precut")
+pub fn set_eq_precut(player: Player, db: Float) -> Nil
+
+/// Apply a built-in EQ preset.
+pub fn set_eq_preset(player: Player, preset: EqPreset) -> Nil {
+  ffi_set_eq_preset(player, eq_preset_to_int(preset))
+}
+
+/// Set the bass/treble tone controls (gains in dB, cutoffs in Hz).
+@external(erlang, "rockbox_ffi_nif", "player_set_tone")
+pub fn set_tone(
+  player: Player,
+  bass_db: Int,
+  treble_db: Int,
+  bass_cutoff_hz: Int,
+  treble_cutoff_hz: Int,
+) -> Nil
+
+/// Set the bass tone gain, in dB.
+@external(erlang, "rockbox_ffi_nif", "player_set_bass")
+pub fn set_bass(player: Player, bass_db: Int) -> Nil
+
+/// Set the treble tone gain, in dB.
+@external(erlang, "rockbox_ffi_nif", "player_set_treble")
+pub fn set_treble(player: Player, treble_db: Int) -> Nil
+
+/// Configure the surround effect (delay in ms, balance, cutoffs in Hz).
+@external(erlang, "rockbox_ffi_nif", "player_set_surround")
+pub fn set_surround(
+  player: Player,
+  delay_ms: Int,
+  balance: Int,
+  cutoff_low_hz: Int,
+  cutoff_high_hz: Int,
+) -> Nil
+
+/// Set the channel-mixing mode.
+pub fn set_channel_mode(player: Player, mode: ChannelMode) -> Nil {
+  ffi_set_channel_mode(player, channel_mode_to_int(mode))
+}
+
+/// Set the stereo width, as a percentage.
+@external(erlang, "rockbox_ffi_nif", "player_set_stereo_width")
+pub fn set_stereo_width(player: Player, percent: Int) -> Nil
+
+/// Configure the dynamic-range compressor.
+@external(erlang, "rockbox_ffi_nif", "player_set_compressor")
+pub fn set_compressor(
+  player: Player,
+  threshold_db: Int,
+  makeup_gain: Int,
+  ratio: Int,
+  knee: Int,
+  attack_ms: Int,
+  release_ms: Int,
+) -> Nil
+
+/// Enable or disable output dithering.
+@external(erlang, "rockbox_ffi_nif", "player_set_dither")
+pub fn set_dither(player: Player, enabled: Bool) -> Nil
+
+/// Set the pitch ratio (Rockbox's fixed-point pitch value).
+@external(erlang, "rockbox_ffi_nif", "player_set_pitch")
+pub fn set_pitch(player: Player, ratio: Int) -> Nil
+
+/// Read back the whole DSP chain state.
+pub fn dsp_settings(player: Player) -> DspSettings {
+  let assert Ok(settings) =
+    decode.run(json_decode(ffi_dsp_settings_json(player)), dsp_settings_decoder())
+  settings
 }
 
 // -- resume -------------------------------------------------------------
@@ -368,6 +598,76 @@ fn status_decoder() -> Decoder(Status) {
   decode.success(Status(state:, index:, position_ms:, duration_ms:, queue_len:))
 }
 
+// -- dsp settings decoder -----------------------------------------------
+
+fn eq_band_decoder() -> Decoder(EqBand) {
+  use cutoff_hz <- decode.field("cutoff_hz", decode.int)
+  use q <- decode.field("q", decode.float)
+  use gain_db <- decode.field("gain_db", decode.float)
+  decode.success(EqBand(cutoff_hz:, q:, gain_db:))
+}
+
+fn equalizer_decoder() -> Decoder(Equalizer) {
+  use enabled <- decode.field("enabled", decode.bool)
+  use precut_db <- decode.field("precut_db", decode.float)
+  use bands <- decode.field("bands", decode.list(eq_band_decoder()))
+  decode.success(Equalizer(enabled:, precut_db:, bands:))
+}
+
+fn tone_decoder() -> Decoder(Tone) {
+  use bass_db <- decode.field("bass_db", decode.int)
+  use treble_db <- decode.field("treble_db", decode.int)
+  use bass_cutoff_hz <- decode.field("bass_cutoff_hz", decode.int)
+  use treble_cutoff_hz <- decode.field("treble_cutoff_hz", decode.int)
+  decode.success(Tone(bass_db:, treble_db:, bass_cutoff_hz:, treble_cutoff_hz:))
+}
+
+fn surround_decoder() -> Decoder(Surround) {
+  use delay_ms <- decode.field("delay_ms", decode.int)
+  use balance <- decode.field("balance", decode.int)
+  use cutoff_low_hz <- decode.field("cutoff_low_hz", decode.int)
+  use cutoff_high_hz <- decode.field("cutoff_high_hz", decode.int)
+  decode.success(Surround(delay_ms:, balance:, cutoff_low_hz:, cutoff_high_hz:))
+}
+
+fn compressor_decoder() -> Decoder(Compressor) {
+  use threshold_db <- decode.field("threshold_db", decode.int)
+  use makeup_gain <- decode.field("makeup_gain", decode.int)
+  use ratio <- decode.field("ratio", decode.int)
+  use knee <- decode.field("knee", decode.int)
+  use attack_ms <- decode.field("attack_ms", decode.int)
+  use release_ms <- decode.field("release_ms", decode.int)
+  decode.success(Compressor(
+    threshold_db:,
+    makeup_gain:,
+    ratio:,
+    knee:,
+    attack_ms:,
+    release_ms:,
+  ))
+}
+
+fn dsp_settings_decoder() -> Decoder(DspSettings) {
+  use equalizer <- decode.field("equalizer", equalizer_decoder())
+  use tone <- decode.field("tone", tone_decoder())
+  use surround <- decode.field("surround", surround_decoder())
+  use channel_mode <- decode.field("channel_mode", decode.string)
+  use stereo_width <- decode.field("stereo_width", decode.int)
+  use compressor <- decode.field("compressor", compressor_decoder())
+  use dither <- decode.field("dither", decode.bool)
+  use pitch <- decode.field("pitch", decode.int)
+  decode.success(DspSettings(
+    equalizer:,
+    tone:,
+    surround:,
+    channel_mode:,
+    stereo_width:,
+    compressor:,
+    dither:,
+    pitch:,
+  ))
+}
+
 // -- FFI ----------------------------------------------------------------
 
 @external(erlang, "rockbox_ffi_nif", "player_new_with_config_ex")
@@ -405,6 +705,15 @@ fn ffi_queue_json(player: Player) -> String
 
 @external(erlang, "rockbox_ffi_nif", "player_status_json")
 fn ffi_status_json(player: Player) -> String
+
+@external(erlang, "rockbox_ffi_nif", "player_set_eq_preset")
+fn ffi_set_eq_preset(player: Player, preset: Int) -> Nil
+
+@external(erlang, "rockbox_ffi_nif", "player_set_channel_mode")
+fn ffi_set_channel_mode(player: Player, mode: Int) -> Nil
+
+@external(erlang, "rockbox_ffi_nif", "player_dsp_settings_json")
+fn ffi_dsp_settings_json(player: Player) -> String
 
 // Returns a JSON binary, or the atom `nil` (typed Dynamic so we classify it).
 @external(erlang, "rockbox_ffi_nif", "player_resume")

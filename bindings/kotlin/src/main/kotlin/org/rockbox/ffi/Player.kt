@@ -141,6 +141,11 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
 
     // ---- queue --------------------------------------------------------
 
+    /**
+     * Replace the queue. Each entry may be a local file path, an
+     * `http(s)://` URL to a finite remote file, or a live-radio /
+     * streaming URL.
+     */
     fun setQueue(paths: List<String>) {
         val json = JSONArray(paths).toString()
         Arena.ofConfined().use { arena ->
@@ -148,6 +153,11 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
         }
     }
 
+    /**
+     * Append one track to the queue. [path] may be a local file path, an
+     * `http(s)://` URL to a finite remote file, or a live-radio / streaming
+     * URL.
+     */
     fun enqueue(path: String) {
         Arena.ofConfined().use { arena ->
             Native.playerEnqueue.invokeWithArguments(handle(), arena.allocateFrom(path))
@@ -215,6 +225,62 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
     fun status(): Map<String, Any?> {
         val json = Native.takeString(Native.playerStatusJson.invokeWithArguments(handle()) as MemorySegment)
             ?: throw RockboxException("rb_player_status_json returned NULL")
+        return JSONObject(json).toMap()
+    }
+
+    // ---- DSP ----------------------------------------------------------
+
+    /** Enable or disable the parametric equalizer. */
+    fun setEqEnabled(enabled: Boolean) =
+        Native.playerSetEqEnabled.invokeWithArguments(handle(), enabled).let { }
+
+    /** Whether the parametric equalizer is currently enabled. */
+    fun isEqEnabled(): Boolean = Native.playerIsEqEnabled.invokeWithArguments(handle()) as Boolean
+
+    /** Configure one EQ band. Band 0 is a low shelf, the top band a high shelf. */
+    fun setEqBand(band: Long, cutoffHz: Int, q: Float, gainDb: Float) =
+        Native.playerSetEqBand.invokeWithArguments(handle(), band, cutoffHz, q, gainDb).let { }
+
+    fun setEqPrecut(db: Float) = Native.playerSetEqPrecut.invokeWithArguments(handle(), db).let { }
+
+    /** Apply a built-in EQ preset ([EqPreset]). */
+    fun setEqPreset(preset: EqPreset) =
+        Native.playerSetEqPreset.invokeWithArguments(handle(), preset.value).let { }
+
+    fun setTone(bassDb: Int, trebleDb: Int, bassCutoffHz: Int, trebleCutoffHz: Int) =
+        Native.playerSetTone.invokeWithArguments(handle(), bassDb, trebleDb, bassCutoffHz, trebleCutoffHz).let { }
+
+    fun setBass(bassDb: Int) = Native.playerSetBass.invokeWithArguments(handle(), bassDb).let { }
+    fun setTreble(trebleDb: Int) = Native.playerSetTreble.invokeWithArguments(handle(), trebleDb).let { }
+
+    fun setSurround(delayMs: Int, balance: Int, cutoffLowHz: Int, cutoffHighHz: Int) =
+        Native.playerSetSurround.invokeWithArguments(handle(), delayMs, balance, cutoffLowHz, cutoffHighHz).let { }
+
+    /** Set the channel mixing mode ([ChannelMode]). */
+    fun setChannelMode(mode: ChannelMode) =
+        Native.playerSetChannelMode.invokeWithArguments(handle(), mode.value).let { }
+
+    fun setStereoWidth(percent: Int) =
+        Native.playerSetStereoWidth.invokeWithArguments(handle(), percent).let { }
+
+    fun setCompressor(
+        thresholdDb: Int,
+        makeupGain: Int,
+        ratio: Int,
+        knee: Int,
+        attackMs: Int,
+        releaseMs: Int,
+    ) = Native.playerSetCompressor.invokeWithArguments(
+        handle(), thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs,
+    ).let { }
+
+    fun setDither(enabled: Boolean) = Native.playerSetDither.invokeWithArguments(handle(), enabled).let { }
+    fun setPitch(ratio: Int) = Native.playerSetPitch.invokeWithArguments(handle(), ratio).let { }
+
+    /** A snapshot of the current DSP settings as a map. */
+    fun dspSettings(): Map<String, Any?> {
+        val json = Native.takeString(Native.playerDspSettingsJson.invokeWithArguments(handle()) as MemorySegment)
+            ?: throw RockboxException("rb_player_dsp_settings_json returned NULL")
         return JSONObject(json).toMap()
     }
 

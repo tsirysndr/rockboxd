@@ -110,6 +110,24 @@ internal object Native {
     val playerSampleRate = h("rb_player_sample_rate", FunctionDescriptor.of(I32, PTR))
     val playerStatusJson = h("rb_player_status_json", FunctionDescriptor.of(PTR, PTR))
 
+    // ---- player DSP ---------------------------------------------------
+    val playerSetEqEnabled = h("rb_player_set_eq_enabled", FunctionDescriptor.ofVoid(PTR, BOOL))
+    val playerIsEqEnabled = h("rb_player_is_eq_enabled", FunctionDescriptor.of(BOOL, PTR))
+    val playerSetEqBand = h("rb_player_set_eq_band", FunctionDescriptor.ofVoid(PTR, I64, I32, F32, F32))
+    val playerSetEqPrecut = h("rb_player_set_eq_precut", FunctionDescriptor.ofVoid(PTR, F32))
+    val playerSetEqPreset = h("rb_player_set_eq_preset", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetTone = h("rb_player_set_tone", FunctionDescriptor.ofVoid(PTR, I32, I32, I32, I32))
+    val playerSetBass = h("rb_player_set_bass", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetTreble = h("rb_player_set_treble", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetSurround = h("rb_player_set_surround", FunctionDescriptor.ofVoid(PTR, I32, I32, I32, I32))
+    val playerSetChannelMode = h("rb_player_set_channel_mode", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetStereoWidth = h("rb_player_set_stereo_width", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetCompressor =
+        h("rb_player_set_compressor", FunctionDescriptor.ofVoid(PTR, I32, I32, I32, I32, I32, I32))
+    val playerSetDither = h("rb_player_set_dither", FunctionDescriptor.ofVoid(PTR, BOOL))
+    val playerSetPitch = h("rb_player_set_pitch", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerDspSettingsJson = h("rb_player_dsp_settings_json", FunctionDescriptor.of(PTR, PTR))
+
     // ---- resume -------------------------------------------------------
     val playerResume = h("rb_player_resume", FunctionDescriptor.of(PTR, PTR))
     val playerSaveResume = h("rb_player_save_resume", FunctionDescriptor.ofVoid(PTR))
