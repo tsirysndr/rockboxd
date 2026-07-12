@@ -9,6 +9,10 @@ Go bindings for the Rockbox **DSP**, **metadata**, and **playback** engine, via
 `librockbox_ffi` shared library. **No cgo and no C toolchain** — the package
 `dlopen`s the shared library at process start.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 ## Setup
 
 Build the shared library once (from the repo root):

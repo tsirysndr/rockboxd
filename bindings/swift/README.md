@@ -3,6 +3,10 @@
 Swift bindings for the Rockbox **DSP**, **metadata**, and **playback** engine,
 over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 The public API (`Dsp`, `Player`, `Metadata`, enums) and the `dlsym` loader live
 in the `RockboxFFICore` module and are shared by **two products** — pick one:
 
