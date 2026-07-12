@@ -15,8 +15,14 @@ on:
 
 jobs:
   install:
-    name: nix profile add (${{ inputs.ref }})
-    runs-on: ubuntu-latest
+    name: nix profile add (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
     steps:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
