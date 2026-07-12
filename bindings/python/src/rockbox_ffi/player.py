@@ -84,9 +84,15 @@ class Player:
 
     # -- queue ------------------------------------------------------------
     def set_queue(self, paths: List[str]) -> None:
+        """Replace the queue. Each entry may be a local file path, an
+        ``http(s)://`` URL to a finite remote file, or a live-radio /
+        streaming URL."""
         lib.rb_player_set_queue_json(self._p, json.dumps(list(paths)).encode("utf-8"))
 
     def enqueue(self, path: str) -> None:
+        """Append one track to the queue. ``path`` may be a local file path,
+        an ``http(s)://`` URL to a finite remote file, or a live-radio /
+        streaming URL."""
         lib.rb_player_enqueue(self._p, path.encode("utf-8"))
 
     def insert(self, paths: List[str], position: int, index: int = 0) -> None:
@@ -159,6 +165,90 @@ class Player:
     def set_replaygain(self, mode: int, preamp_db: float, prevent_clipping: bool) -> None:
         """mode: :class:`rockbox_ffi.enums.ReplayGainMode` (OFF=0, TRACK=1, ALBUM=2)."""
         lib.rb_player_set_replaygain(self._p, int(mode), float(preamp_db), bool(prevent_clipping))
+
+    # -- dsp / eq ---------------------------------------------------------
+    def set_eq_enabled(self, enabled: bool) -> None:
+        lib.rb_player_set_eq_enabled(self._p, bool(enabled))
+
+    def is_eq_enabled(self) -> bool:
+        return bool(lib.rb_player_is_eq_enabled(self._p))
+
+    def set_eq_band(
+        self, band: int, cutoff_hz: int, q: float, gain_db: float
+    ) -> None:
+        lib.rb_player_set_eq_band(
+            self._p, int(band), int(cutoff_hz), float(q), float(gain_db)
+        )
+
+    def set_eq_precut(self, db: float) -> None:
+        lib.rb_player_set_eq_precut(self._p, float(db))
+
+    def set_eq_preset(self, preset: int) -> None:
+        """preset: :class:`rockbox_ffi.enums.EqPreset`."""
+        lib.rb_player_set_eq_preset(self._p, int(preset))
+
+    def set_tone(
+        self,
+        bass_db: int,
+        treble_db: int,
+        bass_cutoff_hz: int,
+        treble_cutoff_hz: int,
+    ) -> None:
+        lib.rb_player_set_tone(
+            self._p, int(bass_db), int(treble_db),
+            int(bass_cutoff_hz), int(treble_cutoff_hz),
+        )
+
+    def set_bass(self, bass_db: int) -> None:
+        lib.rb_player_set_bass(self._p, int(bass_db))
+
+    def set_treble(self, treble_db: int) -> None:
+        lib.rb_player_set_treble(self._p, int(treble_db))
+
+    def set_surround(
+        self,
+        delay_ms: int,
+        balance: int,
+        cutoff_low_hz: int,
+        cutoff_high_hz: int,
+    ) -> None:
+        lib.rb_player_set_surround(
+            self._p, int(delay_ms), int(balance),
+            int(cutoff_low_hz), int(cutoff_high_hz),
+        )
+
+    def set_channel_mode(self, mode: int) -> None:
+        """mode: :class:`rockbox_ffi.enums.ChannelMode`."""
+        lib.rb_player_set_channel_mode(self._p, int(mode))
+
+    def set_stereo_width(self, percent: int) -> None:
+        lib.rb_player_set_stereo_width(self._p, int(percent))
+
+    def set_compressor(
+        self,
+        threshold_db: int,
+        makeup_gain: int,
+        ratio: int,
+        knee: int,
+        attack_ms: int,
+        release_ms: int,
+    ) -> None:
+        lib.rb_player_set_compressor(
+            self._p, int(threshold_db), int(makeup_gain), int(ratio),
+            int(knee), int(attack_ms), int(release_ms),
+        )
+
+    def set_dither(self, enabled: bool) -> None:
+        lib.rb_player_set_dither(self._p, bool(enabled))
+
+    def set_pitch(self, ratio: int) -> None:
+        lib.rb_player_set_pitch(self._p, int(ratio))
+
+    def dsp_settings(self) -> dict:
+        s = take_string(lib.rb_player_dsp_settings_json(self._p))
+        if s is None:
+            raise RuntimeError("rb_player_dsp_settings_json returned NULL")
+        return json.loads(s)
 
     # -- status -----------------------------------------------------------
     def status(self) -> dict:

@@ -17,6 +17,7 @@ Rockbox's audio processing into any Rust player (symphonia, cpal, rodio, …).
 - [How it's built](#how-its-built)
 - [Units — everything is tenths](#units--everything-is-tenths)
 - [Replaygain](#replaygain)
+- [Pitch & dither](#pitch--dither)
 - [Examples](#examples)
 - [Settings read by the `play` example](#settings-read-by-the-play-example)
   - [EQ band format](#eq-band-format)
@@ -107,6 +108,30 @@ full scale — this works even on gainless tracks if a peak is tagged.
 `set_replaygain_gains_raw` takes native Q7.24 linear factors instead —
 the exact values Rockbox's metadata parser stores in `mp3entry`
 (`get_replaygain_int` output, also re-exported by this crate).
+
+## Pitch & dither
+
+Two more one-liners on the safe wrapper:
+
+```rust
+use rockbox_dsp::{Dsp, PITCH_SPEED_100};
+
+let mut dsp = Dsp::new(44100);
+
+// Pitch/speed: a raw ratio where PITCH_SPEED_100 (10000) is normal.
+dsp.set_pitch(PITCH_SPEED_100 + 500);   // +5 % — pitch and tempo shift together
+let cur = dsp.pitch();                   // read it back
+
+// Output dithering + noise shaping (usually left off; matters mainly when
+// reducing bit depth).
+dsp.dither_enable(true);
+```
+
+`set_pitch` drives the resampler, so pitch and tempo move together — use the
+timestretch stage to change tempo without pitch. The full safe-wrapper
+surface also covers `eq_enable` / `set_eq_band` / `set_eq_precut`, `set_tone`
+/ `set_tone_cutoffs`, `set_surround`, `set_channel_config` / `set_stereo_width`
+and `set_compressor`.
 
 ## Examples
 

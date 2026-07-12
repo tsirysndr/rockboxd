@@ -8,8 +8,9 @@
 use crate::meta::MetadataJson;
 use crate::util::{cstr, into_cstring};
 use rockbox_playback::{
-    m3u, CrossfadeMode, CrossfadeSettings, InsertPosition, MixMode, PlaybackState, Player,
-    PlayerConfig, ReplayGainMode, ResumeState, Status,
+    m3u, ChannelMode, Compressor, CrossfadeMode, CrossfadeSettings, DspSettings, EqBand, EqPreset,
+    InsertPosition, MixMode, PlaybackState, Player, PlayerConfig, ReplayGainMode, ResumeState,
+    Status, Surround, ToneControls,
 };
 use serde::Serialize;
 use std::os::raw::c_char;
@@ -120,6 +121,7 @@ pub extern "C" fn rb_player_new_with_config(
         replaygain_mode: rg_mode(rg_mode_v),
         replaygain_preamp_db: rg_preamp_db,
         replaygain_prevent_clipping: rg_prevent_clipping,
+        dsp: DspSettings::default(),
         volume,
         resume_file: None,
         resume_save_interval: Duration::from_secs(5),
@@ -175,6 +177,7 @@ pub extern "C" fn rb_player_new_with_config_ex(
         replaygain_mode: rg_mode(rg_mode_v),
         replaygain_preamp_db: rg_preamp_db,
         replaygain_prevent_clipping: rg_prevent_clipping,
+        dsp: DspSettings::default(),
         volume,
         resume_file,
         resume_save_interval: interval,
@@ -214,8 +217,10 @@ macro_rules! player_or {
     }};
 }
 
-/// Replace the queue from a JSON array of path strings, e.g.
-/// `["a.flac","b.mp3"]`. Invalid JSON is ignored.
+/// Replace the queue from a JSON array of strings, e.g.
+/// `["a.flac","https://host/song.mp3"]`. Each entry may be a local file
+/// path, an `http(s)://` URL to a finite remote file, or a live-radio /
+/// streaming URL. Invalid JSON is ignored.
 #[no_mangle]
 pub extern "C" fn rb_player_set_queue_json(p: *mut Player, json: *const c_char) {
     let player = player!(p);
@@ -225,7 +230,9 @@ pub extern "C" fn rb_player_set_queue_json(p: *mut Player, json: *const c_char) 
     }
 }
 
-/// Append one track to the end of the queue.
+/// Append one track to the end of the queue. `path` may be a local file
+/// path, an `http(s)://` URL to a finite remote file, or a live-radio /
+/// streaming URL.
 #[no_mangle]
 pub extern "C" fn rb_player_enqueue(p: *mut Player, path: *const c_char) {
     let player = player!(p);
@@ -338,6 +345,292 @@ pub extern "C" fn rb_player_set_replaygain(
     prevent_clipping: bool,
 ) {
     player!(p).set_replaygain(rg_mode(mode), preamp_db, prevent_clipping);
+}
+
+fn channel_mode(v: i32) -> ChannelMode {
+    match v {
+        1 => ChannelMode::Mono,
+        2 => ChannelMode::Custom,
+        3 => ChannelMode::MonoLeft,
+        4 => ChannelMode::MonoRight,
+        5 => ChannelMode::Karaoke,
+        6 => ChannelMode::Swap,
+        _ => ChannelMode::Stereo,
+    }
+}
+
+/// Map a preset index (matching `EqPreset::ALL` order) to a preset;
+/// out-of-range values fall back to `Flat`.
+fn eq_preset(v: i32) -> EqPreset {
+    EqPreset::ALL
+        .get(v as usize)
+        .copied()
+        .unwrap_or(EqPreset::Flat)
+}
+
+/// Enable or disable the 10-band parametric equalizer.
+#[no_mangle]
+pub extern "C" fn rb_player_set_eq_enabled(p: *mut Player, enabled: bool) {
+    player!(p).set_eq_enabled(enabled);
+}
+
+/// Whether the 10-band parametric equalizer is currently enabled
+/// (false on a null handle).
+#[no_mangle]
+pub extern "C" fn rb_player_is_eq_enabled(p: *mut Player) -> bool {
+    player_or!(p, false).is_eq_enabled()
+}
+
+/// Configure one EQ band: `band` in `0..EQ_BANDS` (10), `cutoff_hz` in Hz,
+/// `q` a Q factor, `gain_db` in dB. Out-of-range bands are ignored.
+#[no_mangle]
+pub extern "C" fn rb_player_set_eq_band(
+    p: *mut Player,
+    band: usize,
+    cutoff_hz: i32,
+    q: f32,
+    gain_db: f32,
+) {
+    player!(p).set_eq_band(
+        band,
+        EqBand {
+            cutoff_hz,
+            q,
+            gain_db,
+        },
+    );
+}
+
+/// EQ pre-gain (headroom) in dB.
+#[no_mangle]
+pub extern "C" fn rb_player_set_eq_precut(p: *mut Player, db: f32) {
+    player!(p).set_eq_precut(db);
+}
+
+/// Apply a built-in EQ preset by index (see `EqPreset::ALL`: 0 = Flat,
+/// 1 = Acoustic, 2 = Bass Boost, …). Enables the EQ and sets all ten bands.
+#[no_mangle]
+pub extern "C" fn rb_player_set_eq_preset(p: *mut Player, preset: i32) {
+    player!(p).set_eq_preset(eq_preset(preset));
+}
+
+/// Bass/treble tone controls (dB); cutoffs in Hz (0 = Rockbox defaults).
+#[no_mangle]
+pub extern "C" fn rb_player_set_tone(
+    p: *mut Player,
+    bass_db: i32,
+    treble_db: i32,
+    bass_cutoff_hz: i32,
+    treble_cutoff_hz: i32,
+) {
+    player!(p).set_tone(ToneControls {
+        bass_db,
+        treble_db,
+        bass_cutoff_hz,
+        treble_cutoff_hz,
+    });
+}
+
+/// Set the bass shelf gain in dB (treble and cutoffs unchanged; 0 = flat).
+#[no_mangle]
+pub extern "C" fn rb_player_set_bass(p: *mut Player, bass_db: i32) {
+    player!(p).set_bass(bass_db);
+}
+
+/// Set the treble shelf gain in dB (bass and cutoffs unchanged; 0 = flat).
+#[no_mangle]
+pub extern "C" fn rb_player_set_treble(p: *mut Player, treble_db: i32) {
+    player!(p).set_treble(treble_db);
+}
+
+/// Haas surround: `delay_ms` (0 = off), `balance` in percent, band-split
+/// cutoffs in Hz (0/0 = defaults).
+#[no_mangle]
+pub extern "C" fn rb_player_set_surround(
+    p: *mut Player,
+    delay_ms: i32,
+    balance: i32,
+    cutoff_low_hz: i32,
+    cutoff_high_hz: i32,
+) {
+    player!(p).set_surround(Surround {
+        delay_ms,
+        balance,
+        cutoff_low_hz,
+        cutoff_high_hz,
+    });
+}
+
+/// Channel-mixing mode: 0 stereo, 1 mono, 2 custom, 3 mono-left,
+/// 4 mono-right, 5 karaoke, 6 swap.
+#[no_mangle]
+pub extern "C" fn rb_player_set_channel_mode(p: *mut Player, mode: i32) {
+    player!(p).set_channel_mode(channel_mode(mode));
+}
+
+/// Custom stereo width in percent (only audible with channel mode 2).
+#[no_mangle]
+pub extern "C" fn rb_player_set_stereo_width(p: *mut Player, percent: i32) {
+    player!(p).set_stereo_width(percent);
+}
+
+/// Dynamic-range compressor (`threshold_db` of 0 disables it). `ratio` and
+/// `knee` are indices; times in ms. See `rockbox_playback::Compressor`.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn rb_player_set_compressor(
+    p: *mut Player,
+    threshold_db: i32,
+    makeup_gain: i32,
+    ratio: i32,
+    knee: i32,
+    attack_ms: i32,
+    release_ms: i32,
+) {
+    player!(p).set_compressor(Compressor {
+        threshold_db,
+        makeup_gain,
+        ratio,
+        knee,
+        attack_ms,
+        release_ms,
+    });
+}
+
+/// Enable output dithering + noise shaping.
+#[no_mangle]
+pub extern "C" fn rb_player_set_dither(p: *mut Player, enabled: bool) {
+    player!(p).set_dither(enabled);
+}
+
+/// Pitch/speed ratio (10000 = normal); pitch and tempo shift together.
+#[no_mangle]
+pub extern "C" fn rb_player_set_pitch(p: *mut Player, ratio: i32) {
+    player!(p).set_pitch(ratio);
+}
+
+#[derive(Serialize)]
+struct EqBandJson {
+    cutoff_hz: i32,
+    q: f32,
+    gain_db: f32,
+}
+
+#[derive(Serialize)]
+struct EqualizerJson {
+    enabled: bool,
+    precut_db: f32,
+    bands: Vec<EqBandJson>,
+}
+
+#[derive(Serialize)]
+struct ToneJson {
+    bass_db: i32,
+    treble_db: i32,
+    bass_cutoff_hz: i32,
+    treble_cutoff_hz: i32,
+}
+
+#[derive(Serialize)]
+struct SurroundJson {
+    delay_ms: i32,
+    balance: i32,
+    cutoff_low_hz: i32,
+    cutoff_high_hz: i32,
+}
+
+#[derive(Serialize)]
+struct CompressorJson {
+    threshold_db: i32,
+    makeup_gain: i32,
+    ratio: i32,
+    knee: i32,
+    attack_ms: i32,
+    release_ms: i32,
+}
+
+#[derive(Serialize)]
+struct DspSettingsJson {
+    equalizer: EqualizerJson,
+    tone: ToneJson,
+    surround: SurroundJson,
+    channel_mode: &'static str,
+    stereo_width: i32,
+    compressor: CompressorJson,
+    dither: bool,
+    pitch: i32,
+}
+
+fn channel_mode_name(mode: ChannelMode) -> &'static str {
+    match mode {
+        ChannelMode::Stereo => "stereo",
+        ChannelMode::Mono => "mono",
+        ChannelMode::Custom => "custom",
+        ChannelMode::MonoLeft => "mono_left",
+        ChannelMode::MonoRight => "mono_right",
+        ChannelMode::Karaoke => "karaoke",
+        ChannelMode::Swap => "swap",
+    }
+}
+
+impl From<&rockbox_playback::DspSettings> for DspSettingsJson {
+    fn from(s: &rockbox_playback::DspSettings) -> Self {
+        DspSettingsJson {
+            equalizer: EqualizerJson {
+                enabled: s.equalizer.enabled,
+                precut_db: s.equalizer.precut_db,
+                bands: s
+                    .equalizer
+                    .bands
+                    .iter()
+                    .map(|b| EqBandJson {
+                        cutoff_hz: b.cutoff_hz,
+                        q: b.q,
+                        gain_db: b.gain_db,
+                    })
+                    .collect(),
+            },
+            tone: ToneJson {
+                bass_db: s.tone.bass_db,
+                treble_db: s.tone.treble_db,
+                bass_cutoff_hz: s.tone.bass_cutoff_hz,
+                treble_cutoff_hz: s.tone.treble_cutoff_hz,
+            },
+            surround: SurroundJson {
+                delay_ms: s.surround.delay_ms,
+                balance: s.surround.balance,
+                cutoff_low_hz: s.surround.cutoff_low_hz,
+                cutoff_high_hz: s.surround.cutoff_high_hz,
+            },
+            channel_mode: channel_mode_name(s.channel_mode),
+            stereo_width: s.stereo_width,
+            compressor: CompressorJson {
+                threshold_db: s.compressor.threshold_db,
+                makeup_gain: s.compressor.makeup_gain,
+                ratio: s.compressor.ratio,
+                knee: s.compressor.knee,
+                attack_ms: s.compressor.attack_ms,
+                release_ms: s.compressor.release_ms,
+            },
+            dither: s.dither,
+            pitch: s.pitch,
+        }
+    }
+}
+
+/// A JSON snapshot of the full DSP-chain configuration (EQ, tone, surround,
+/// channel mixing, stereo width, compressor, dither, pitch). Free with
+/// `rb_string_free`. Returns null on a null handle.
+#[no_mangle]
+pub extern "C" fn rb_player_dsp_settings_json(p: *mut Player) -> *mut c_char {
+    if p.is_null() {
+        return std::ptr::null_mut();
+    }
+    let settings = unsafe { &*p }.dsp_settings();
+    match serde_json::to_string(&DspSettingsJson::from(&settings)) {
+        Ok(s) => into_cstring(s),
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 /// Current volume, 0.0..=1.0 (0.0 on a null handle).

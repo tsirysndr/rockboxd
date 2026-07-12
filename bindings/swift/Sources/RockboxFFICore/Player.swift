@@ -84,11 +84,17 @@ public final class Player {
 
     // MARK: - queue
 
+    /// Replace the queue. Each entry may be a local file path, an
+    /// `http(s)://` URL to a finite remote file, or a live-radio /
+    /// streaming URL.
     public func setQueue(_ paths: [String]) throws {
         let json = String(data: try JSONSerialization.data(withJSONObject: paths), encoding: .utf8)!
         json.withCString { lib.playerSetQueueJson(ptr, $0) }
     }
 
+    /// Append one track to the queue. `path` may be a local file path, an
+    /// `http(s)://` URL to a finite remote file, or a live-radio / streaming
+    /// URL.
     public func enqueue(_ path: String) {
         path.withCString { lib.playerEnqueue(ptr, $0) }
     }
@@ -145,6 +151,67 @@ public final class Player {
             throw RockboxError.nullReturn("rb_player_status_json")
         }
         return try parseObject(json, context: "player status")
+    }
+
+    // MARK: - DSP
+
+    /// Enable or disable the parametric EQ.
+    public func setEqEnabled(_ enabled: Bool) { lib.playerSetEqEnabled(ptr, enabled) }
+
+    /// Whether the parametric EQ is currently enabled.
+    public func isEqEnabled() -> Bool { lib.playerIsEqEnabled(ptr) }
+
+    /// Configure one EQ band. `gainDb` is plain dB, `q` a plain Q factor.
+    public func setEqBand(_ band: Int, cutoffHz: Int32, q: Float, gainDb: Float) {
+        lib.playerSetEqBand(ptr, band, cutoffHz, q, gainDb)
+    }
+
+    /// EQ pre-cut (headroom) in plain dB.
+    public func setEqPrecut(_ db: Float) { lib.playerSetEqPrecut(ptr, db) }
+
+    /// Apply a built-in EQ preset.
+    public func setEqPreset(_ preset: EqPreset) { lib.playerSetEqPreset(ptr, preset.rawValue) }
+
+    /// Bass/treble tone control with explicit cutoffs (all in dB / Hz).
+    public func setTone(bassDb: Int32, trebleDb: Int32, bassCutoffHz: Int32, trebleCutoffHz: Int32) {
+        lib.playerSetTone(ptr, bassDb, trebleDb, bassCutoffHz, trebleCutoffHz)
+    }
+
+    /// Bass gain in dB.
+    public func setBass(_ bassDb: Int32) { lib.playerSetBass(ptr, bassDb) }
+
+    /// Treble gain in dB.
+    public func setTreble(_ trebleDb: Int32) { lib.playerSetTreble(ptr, trebleDb) }
+
+    /// Surround effect (delay in ms, balance, and low/high cutoffs in Hz).
+    public func setSurround(delayMs: Int32, balance: Int32, cutoffLowHz: Int32, cutoffHighHz: Int32) {
+        lib.playerSetSurround(ptr, delayMs, balance, cutoffLowHz, cutoffHighHz)
+    }
+
+    /// Channel mixing mode.
+    public func setChannelMode(_ mode: ChannelMode) { lib.playerSetChannelMode(ptr, mode.rawValue) }
+
+    /// Stereo width as a percentage.
+    public func setStereoWidth(_ percent: Int32) { lib.playerSetStereoWidth(ptr, percent) }
+
+    /// Dynamic-range compressor (threshold/makeup in dB, times in ms).
+    public func setCompressor(thresholdDb: Int32, makeupGain: Int32, ratio: Int32,
+                              knee: Int32, attackMs: Int32, releaseMs: Int32) {
+        lib.playerSetCompressor(ptr, thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs)
+    }
+
+    /// Enable or disable output dithering.
+    public func setDither(_ enabled: Bool) { lib.playerSetDither(ptr, enabled) }
+
+    /// Playback pitch as a ratio (native Rockbox units).
+    public func setPitch(_ ratio: Int32) { lib.playerSetPitch(ptr, ratio) }
+
+    /// A snapshot of the current DSP settings as a dictionary.
+    public func dspSettings() throws -> [String: Any] {
+        guard let json = lib.takeString(lib.playerDspSettingsJson(ptr)) else {
+            throw RockboxError.nullReturn("rb_player_dsp_settings_json")
+        }
+        return try parseObject(json, context: "player dsp settings")
     }
 
     // MARK: - resume

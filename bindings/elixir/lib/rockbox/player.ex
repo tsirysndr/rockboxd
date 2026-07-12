@@ -94,13 +94,20 @@ defmodule Rockbox.Player do
     end
   end
 
-  @doc "Replace the queue with a list of file paths."
+  @doc """
+  Replace the queue. Each entry may be a local file path, an `http(s)://`
+  URL to a finite remote file, or a live-radio / streaming URL.
+  """
   @spec set_queue(t(), [Path.t()]) :: :ok
   def set_queue(p, paths) do
     json = :json.encode(Enum.map(paths, &IO.iodata_to_binary([&1])))
     nilok(:rockbox_ffi_nif.player_set_queue_json(p, IO.iodata_to_binary(json)))
   end
 
+  @doc """
+  Append one track to the queue. `path` may be a local file path, an
+  `http(s)://` URL to a finite remote file, or a live-radio / streaming URL.
+  """
   @spec enqueue(t(), Path.t()) :: :ok
   def enqueue(p, path), do: nilok(:rockbox_ffi_nif.player_enqueue(p, IO.iodata_to_binary([path])))
 
@@ -238,6 +245,110 @@ defmodule Rockbox.Player do
       _ -> {:error, :export_failed}
     end
   end
+
+  # ---- DSP chain ------------------------------------------------------
+
+  @doc "Enable or disable the 10-band parametric equalizer."
+  @spec set_eq_enabled(t(), boolean()) :: :ok
+  def set_eq_enabled(p, enabled),
+    do: nilok(:rockbox_ffi_nif.player_set_eq_enabled(p, enabled))
+
+  @doc "Whether the equalizer is currently enabled."
+  @spec eq_enabled?(t()) :: boolean()
+  def eq_enabled?(p), do: :rockbox_ffi_nif.player_is_eq_enabled(p)
+
+  @doc """
+  Configure one EQ band (0..10). `cutoff_hz` in Hz, `q` a Q factor, `gain_db`
+  in dB.
+  """
+  @spec set_eq_band(t(), 0..10, integer(), number(), number()) :: :ok
+  def set_eq_band(p, band, cutoff_hz, q, gain_db),
+    do: nilok(:rockbox_ffi_nif.player_set_eq_band(p, band, cutoff_hz, q / 1, gain_db / 1))
+
+  @doc "Global EQ pre-cut in dB (attenuation applied before the bands)."
+  @spec set_eq_precut(t(), number()) :: :ok
+  def set_eq_precut(p, db), do: nilok(:rockbox_ffi_nif.player_set_eq_precut(p, db / 1))
+
+  @doc """
+  Apply a built-in EQ preset. Accepts a `Rockbox.EqPreset` atom (e.g. `:rock`)
+  or its integer code.
+  """
+  @spec set_eq_preset(t(), Rockbox.EqPreset.t() | 0..20) :: :ok
+  def set_eq_preset(p, preset),
+    do: nilok(:rockbox_ffi_nif.player_set_eq_preset(p, Rockbox.EqPreset.to_int(preset)))
+
+  @doc """
+  Bass/treble tone controls in dB, with band-split cutoffs in Hz (`0` = the
+  native defaults).
+  """
+  @spec set_tone(t(), integer(), integer(), integer(), integer()) :: :ok
+  def set_tone(p, bass_db, treble_db, bass_cutoff_hz, treble_cutoff_hz),
+    do:
+      nilok(
+        :rockbox_ffi_nif.player_set_tone(
+          p, bass_db, treble_db, bass_cutoff_hz, treble_cutoff_hz
+        )
+      )
+
+  @doc "Set the bass tone axis in dB, leaving treble and cutoffs unchanged."
+  @spec set_bass(t(), integer()) :: :ok
+  def set_bass(p, bass_db), do: nilok(:rockbox_ffi_nif.player_set_bass(p, bass_db))
+
+  @doc "Set the treble tone axis in dB, leaving bass and cutoffs unchanged."
+  @spec set_treble(t(), integer()) :: :ok
+  def set_treble(p, treble_db), do: nilok(:rockbox_ffi_nif.player_set_treble(p, treble_db))
+
+  @doc """
+  Haas surround effect: `delay_ms` (`0` = off), `balance` %, and the band-split
+  cutoffs in Hz.
+  """
+  @spec set_surround(t(), integer(), integer(), integer(), integer()) :: :ok
+  def set_surround(p, delay_ms, balance, cutoff_low_hz, cutoff_high_hz),
+    do:
+      nilok(
+        :rockbox_ffi_nif.player_set_surround(
+          p, delay_ms, balance, cutoff_low_hz, cutoff_high_hz
+        )
+      )
+
+  @doc """
+  Channel mixing mode. Accepts a `Rockbox.ChannelMode` atom (e.g. `:mono`) or
+  its integer code.
+  """
+  @spec set_channel_mode(t(), Rockbox.ChannelMode.t() | 0..6) :: :ok
+  def set_channel_mode(p, mode),
+    do: nilok(:rockbox_ffi_nif.player_set_channel_mode(p, Rockbox.ChannelMode.to_int(mode)))
+
+  @doc "Custom stereo width in percent (audible with channel mode `:custom`)."
+  @spec set_stereo_width(t(), integer()) :: :ok
+  def set_stereo_width(p, percent),
+    do: nilok(:rockbox_ffi_nif.player_set_stereo_width(p, percent))
+
+  @doc """
+  Dynamic-range compressor. `threshold_db` `0` disables it; the remaining
+  arguments are makeup gain, ratio, knee, attack (ms) and release (ms).
+  """
+  @spec set_compressor(t(), integer(), integer(), integer(), integer(), integer(), integer()) ::
+          :ok
+  def set_compressor(p, threshold_db, makeup_gain, ratio, knee, attack_ms, release_ms),
+    do:
+      nilok(
+        :rockbox_ffi_nif.player_set_compressor(
+          p, threshold_db, makeup_gain, ratio, knee, attack_ms, release_ms
+        )
+      )
+
+  @doc "Enable or disable output dithering + noise shaping."
+  @spec set_dither(t(), boolean()) :: :ok
+  def set_dither(p, enabled), do: nilok(:rockbox_ffi_nif.player_set_dither(p, enabled))
+
+  @doc "Pitch/speed ratio (`10000` = normal); pitch and tempo shift together."
+  @spec set_pitch(t(), integer()) :: :ok
+  def set_pitch(p, ratio), do: nilok(:rockbox_ffi_nif.player_set_pitch(p, ratio))
+
+  @doc "The full DSP-chain state as an atom-keyed map."
+  @spec dsp_settings(t()) :: map()
+  def dsp_settings(p), do: Rockbox.decode_json(:rockbox_ffi_nif.player_dsp_settings_json(p))
 
   defp nilok(nil), do: :ok
   defp nilok(other), do: other

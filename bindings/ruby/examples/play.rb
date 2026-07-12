@@ -14,8 +14,13 @@ file = ARGV[0] || FIXTURE
 
 player = RockboxFFI::Player.new(volume: 0.8)
 player.set_queue([file])
+# DSP: Bass Boost preset + a +3 dB bass/treble lift.
+player.set_eq_preset(RockboxFFI::EqPreset::BASS_BOOST)
+player.set_bass(3)
+player.set_treble(3)
 player.play
 puts "▶ playing #{file}"
+puts "eq: BassBoost preset, bass +3 dB, treble +3 dB"
 
 # Reinstall a SIGINT handler AFTER the player boots: the native audio engine
 # installs its own signal handler while starting the output device, which

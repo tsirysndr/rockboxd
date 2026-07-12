@@ -10,8 +10,13 @@
     (if path
       (do
         (player/set-queue p [path])
+        ;; DSP: Bass Boost preset + a +3 dB bass/treble lift.
+        (player/set-eq-preset p :bass-boost)
+        (player/set-bass p 3)
+        (player/set-treble p 3)
         (player/play p)
         (println "playing" path)
+        (println "eq: BassBoost preset, bass +3 dB, treble +3 dB")
         (dotimes [_ 5]
           (Thread/sleep 1000)
           (let [s (player/status p)]

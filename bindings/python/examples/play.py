@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from rockbox_ffi import Player
+from rockbox_ffi import EqPreset, Player
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURE = REPO / "crates" / "rocksky" / "fixtures" / "08 - Internet Money - Speak(Explicit).m4a"
@@ -22,8 +22,13 @@ def main() -> None:
 
     player = Player(volume=0.8)
     player.set_queue([file])
+    # DSP: Bass Boost preset + a +3 dB bass/treble lift.
+    player.set_eq_preset(EqPreset.BASS_BOOST)
+    player.set_bass(3)
+    player.set_treble(3)
     player.play()
     print(f"▶ playing {file}")
+    print("eq: BassBoost preset, bass +3 dB, treble +3 dB")
 
     # Reinstall a SIGINT handler AFTER the player boots: the native audio
     # engine installs its own signal handler while starting the output

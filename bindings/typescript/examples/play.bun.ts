@@ -15,9 +15,14 @@ const file = process.argv[2] ?? fixture;
 
 const player = new api.Player({ volume: 0.8 });
 player.setQueue([file]);
+// DSP: Bass Boost preset + a +3 dB bass/treble lift.
+player.setEqPreset(api.EqPreset.BassBoost);
+player.setBass(3);
+player.setTreble(3);
 player.play();
 
 console.log(`▶ playing ${file}`);
+console.log("eq: BassBoost preset, bass +3 dB, treble +3 dB");
 
 // Poll status until playback finishes (state returns to "stopped").
 const timer = setInterval(() => {

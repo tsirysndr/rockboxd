@@ -52,3 +52,39 @@ enum class ChannelConfig(val value: Int) {
     KARAOKE(5),
     SWAP(6),
 }
+
+/** Built-in EQ presets for [Player.setEqPreset] (`rb_player_set_eq_preset`). */
+enum class EqPreset(val value: Int) {
+    FLAT(0),
+    ACOUSTIC(1),
+    BASS_BOOST(2),
+    BASS_REDUCER(3),
+    CLASSICAL(4),
+    DANCE(5),
+    DEEP(6),
+    ELECTRONIC(7),
+    HIP_HOP(8),
+    JAZZ(9),
+    LATIN(10),
+    LOUDNESS(11),
+    LOUNGE(12),
+    PIANO(13),
+    POP(14),
+    RNB(15),
+    ROCK(16),
+    SMALL_SPEAKERS(17),
+    TREBLE_BOOST(18),
+    TREBLE_REDUCER(19),
+    VOCAL_BOOST(20),
+}
+
+/** Channel mixing modes for [Player.setChannelMode] (`rb_player_set_channel_mode`). */
+enum class ChannelMode(val value: Int) {
+    STEREO(0),
+    MONO(1),
+    CUSTOM(2),
+    MONO_LEFT(3),
+    MONO_RIGHT(4),
+    KARAOKE(5),
+    SWAP(6),
+}

@@ -505,6 +505,168 @@ static ERL_NIF_TERM nif_player_status_json(ErlNifEnv *env, int argc,
   return take_cstr(env, rb_player_status_json(p));
 }
 
+/* ---- player DSP chain ----------------------------------------------- */
+static ERL_NIF_TERM nif_player_set_eq_enabled(ErlNifEnv *env, int argc,
+                                              const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  bool en;
+  if (!p || !get_bool(env, argv[1], &en)) return enif_make_badarg(env);
+  rb_player_set_eq_enabled(p, en);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_is_eq_enabled(ErlNifEnv *env, int argc,
+                                             const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return rb_player_is_eq_enabled(p) ? am_true : am_false;
+}
+
+static ERL_NIF_TERM nif_player_set_eq_band(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  unsigned int band; int cutoff; double q, gain;
+  if (!p || !enif_get_uint(env, argv[1], &band) ||
+      !enif_get_int(env, argv[2], &cutoff) ||
+      !get_double_any(env, argv[3], &q) ||
+      !get_double_any(env, argv[4], &gain))
+    return enif_make_badarg(env);
+  rb_player_set_eq_band(p, band, cutoff, (float)q, (float)gain);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_eq_precut(ErlNifEnv *env, int argc,
+                                             const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  double db;
+  if (!p || !get_double_any(env, argv[1], &db)) return enif_make_badarg(env);
+  rb_player_set_eq_precut(p, (float)db);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_eq_preset(ErlNifEnv *env, int argc,
+                                             const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int preset;
+  if (!p || !enif_get_int(env, argv[1], &preset)) return enif_make_badarg(env);
+  rb_player_set_eq_preset(p, preset);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_tone(ErlNifEnv *env, int argc,
+                                        const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int bass, treble, bass_cut, treble_cut;
+  if (!p || !enif_get_int(env, argv[1], &bass) ||
+      !enif_get_int(env, argv[2], &treble) ||
+      !enif_get_int(env, argv[3], &bass_cut) ||
+      !enif_get_int(env, argv[4], &treble_cut))
+    return enif_make_badarg(env);
+  rb_player_set_tone(p, bass, treble, bass_cut, treble_cut);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_bass(ErlNifEnv *env, int argc,
+                                        const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int bass;
+  if (!p || !enif_get_int(env, argv[1], &bass)) return enif_make_badarg(env);
+  rb_player_set_bass(p, bass);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_treble(ErlNifEnv *env, int argc,
+                                          const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int treble;
+  if (!p || !enif_get_int(env, argv[1], &treble)) return enif_make_badarg(env);
+  rb_player_set_treble(p, treble);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_surround(ErlNifEnv *env, int argc,
+                                            const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int delay, balance, low, high;
+  if (!p || !enif_get_int(env, argv[1], &delay) ||
+      !enif_get_int(env, argv[2], &balance) ||
+      !enif_get_int(env, argv[3], &low) || !enif_get_int(env, argv[4], &high))
+    return enif_make_badarg(env);
+  rb_player_set_surround(p, delay, balance, low, high);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_channel_mode(ErlNifEnv *env, int argc,
+                                                const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int mode;
+  if (!p || !enif_get_int(env, argv[1], &mode)) return enif_make_badarg(env);
+  rb_player_set_channel_mode(p, mode);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_stereo_width(ErlNifEnv *env, int argc,
+                                                const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int pct;
+  if (!p || !enif_get_int(env, argv[1], &pct)) return enif_make_badarg(env);
+  rb_player_set_stereo_width(p, pct);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_compressor(ErlNifEnv *env, int argc,
+                                              const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int th, mk, ratio, knee, atk, rel;
+  if (!p || !enif_get_int(env, argv[1], &th) ||
+      !enif_get_int(env, argv[2], &mk) || !enif_get_int(env, argv[3], &ratio) ||
+      !enif_get_int(env, argv[4], &knee) || !enif_get_int(env, argv[5], &atk) ||
+      !enif_get_int(env, argv[6], &rel))
+    return enif_make_badarg(env);
+  rb_player_set_compressor(p, th, mk, ratio, knee, atk, rel);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_dither(ErlNifEnv *env, int argc,
+                                          const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  bool en;
+  if (!p || !get_bool(env, argv[1], &en)) return enif_make_badarg(env);
+  rb_player_set_dither(p, en);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_pitch(ErlNifEnv *env, int argc,
+                                         const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int ratio;
+  if (!p || !enif_get_int(env, argv[1], &ratio)) return enif_make_badarg(env);
+  rb_player_set_pitch(p, ratio);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_dsp_settings_json(ErlNifEnv *env, int argc,
+                                                 const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return take_cstr(env, rb_player_dsp_settings_json(p));
+}
+
 static ERL_NIF_TERM nif_player_new_with_config_ex(ErlNifEnv *env, int argc,
                                                   const ERL_NIF_TERM argv[]) {
   (void)argc;
@@ -714,6 +876,21 @@ static ErlNifFunc funcs[] = {
     {"player_set_crossfade", 7, nif_player_set_crossfade, 0},
     {"player_set_replaygain", 4, nif_player_set_replaygain, 0},
     {"player_status_json", 1, nif_player_status_json, 0},
+    {"player_set_eq_enabled", 2, nif_player_set_eq_enabled, 0},
+    {"player_is_eq_enabled", 1, nif_player_is_eq_enabled, 0},
+    {"player_set_eq_band", 5, nif_player_set_eq_band, 0},
+    {"player_set_eq_precut", 2, nif_player_set_eq_precut, 0},
+    {"player_set_eq_preset", 2, nif_player_set_eq_preset, 0},
+    {"player_set_tone", 5, nif_player_set_tone, 0},
+    {"player_set_bass", 2, nif_player_set_bass, 0},
+    {"player_set_treble", 2, nif_player_set_treble, 0},
+    {"player_set_surround", 5, nif_player_set_surround, 0},
+    {"player_set_channel_mode", 2, nif_player_set_channel_mode, 0},
+    {"player_set_stereo_width", 2, nif_player_set_stereo_width, 0},
+    {"player_set_compressor", 7, nif_player_set_compressor, 0},
+    {"player_set_dither", 2, nif_player_set_dither, 0},
+    {"player_set_pitch", 2, nif_player_set_pitch, 0},
+    {"player_dsp_settings_json", 1, nif_player_dsp_settings_json, 0},
     {"player_new_with_config_ex", 14, nif_player_new_with_config_ex,
      ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"player_insert_json", 4, nif_player_insert_json, 0},

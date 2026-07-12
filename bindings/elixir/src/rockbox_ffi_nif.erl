@@ -20,6 +20,12 @@
          player_seek_ms/2, player_set_volume/2, player_volume/1,
          player_sample_rate/1, player_set_crossfade/7, player_set_replaygain/4,
          player_status_json/1,
+         player_set_eq_enabled/2, player_is_eq_enabled/1, player_set_eq_band/5,
+         player_set_eq_precut/2, player_set_eq_preset/2, player_set_tone/5,
+         player_set_bass/2, player_set_treble/2, player_set_surround/5,
+         player_set_channel_mode/2, player_set_stereo_width/2,
+         player_set_compressor/7, player_set_dither/2, player_set_pitch/2,
+         player_dsp_settings_json/1,
          player_new_with_config_ex/14, player_insert_json/4, player_queue_json/1,
          player_resume/1, player_save_resume/1, player_clear_resume/1,
          load_resume_json/1, player_import_m3u/4, player_load_m3u/2,
@@ -88,6 +94,21 @@ player_sample_rate(_P) -> ?NOT_LOADED.
 player_set_crossfade(_P, _Mode, _FoDel, _FoDur, _FiDel, _FiDur, _Mix) -> ?NOT_LOADED.
 player_set_replaygain(_P, _Mode, _Preamp, _Clip) -> ?NOT_LOADED.
 player_status_json(_P) -> ?NOT_LOADED.
+player_set_eq_enabled(_P, _En) -> ?NOT_LOADED.
+player_is_eq_enabled(_P) -> ?NOT_LOADED.
+player_set_eq_band(_P, _Band, _Cutoff, _Q, _Gain) -> ?NOT_LOADED.
+player_set_eq_precut(_P, _Db) -> ?NOT_LOADED.
+player_set_eq_preset(_P, _Preset) -> ?NOT_LOADED.
+player_set_tone(_P, _Bass, _Treble, _BassCut, _TrebleCut) -> ?NOT_LOADED.
+player_set_bass(_P, _Bass) -> ?NOT_LOADED.
+player_set_treble(_P, _Treble) -> ?NOT_LOADED.
+player_set_surround(_P, _Delay, _Balance, _Low, _High) -> ?NOT_LOADED.
+player_set_channel_mode(_P, _Mode) -> ?NOT_LOADED.
+player_set_stereo_width(_P, _Pct) -> ?NOT_LOADED.
+player_set_compressor(_P, _Th, _Mk, _Ratio, _Knee, _Atk, _Rel) -> ?NOT_LOADED.
+player_set_dither(_P, _En) -> ?NOT_LOADED.
+player_set_pitch(_P, _Ratio) -> ?NOT_LOADED.
+player_dsp_settings_json(_P) -> ?NOT_LOADED.
 player_new_with_config_ex(_Rate, _Buf, _Vol, _RgMode, _RgPre, _RgClip, _Xf,
                           _FoDel, _FoDur, _FiDel, _FiDur, _Mix, _ResumeFile,
                           _ResumeInt) -> ?NOT_LOADED.

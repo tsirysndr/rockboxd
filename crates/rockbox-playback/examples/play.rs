@@ -23,7 +23,7 @@
 use std::time::Duration;
 
 use rockbox_playback::{
-    is_url, CrossfadeMode, CrossfadeSettings, PlaybackState, Player, ReplayGainMode,
+    is_url, CrossfadeMode, CrossfadeSettings, EqPreset, PlaybackState, Player, ReplayGainMode,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -84,6 +84,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         player.set_replaygain(replaygain, 0.0, true);
         println!("replaygain: {replaygain:?}");
     }
+
+    // DSP: apply the Bass Boost equalizer preset and a +3 dB bass/treble lift.
+    player.set_eq_preset(EqPreset::BassBoost);
+    player.set_bass(3);
+    player.set_treble(3);
+    println!("eq: BassBoost preset, bass +3 dB, treble +3 dB");
 
     for t in &tracks {
         println!("{}: {t}", if is_url(t) { "url" } else { "file" });

@@ -52,6 +52,42 @@ public enum ChannelConfig: Int32 {
     case swap = 6
 }
 
+/// Built-in EQ presets for `Player.setEqPreset`.
+public enum EqPreset: Int32 {
+    case flat = 0
+    case acoustic = 1
+    case bassBoost = 2
+    case bassReducer = 3
+    case classical = 4
+    case dance = 5
+    case deep = 6
+    case electronic = 7
+    case hipHop = 8
+    case jazz = 9
+    case latin = 10
+    case loudness = 11
+    case lounge = 12
+    case piano = 13
+    case pop = 14
+    case rnb = 15
+    case rock = 16
+    case smallSpeakers = 17
+    case trebleBoost = 18
+    case trebleReducer = 19
+    case vocalBoost = 20
+}
+
+/// Channel mixing modes for `Player.setChannelMode`.
+public enum ChannelMode: Int32 {
+    case stereo = 0
+    case mono = 1
+    case custom = 2
+    case monoLeft = 3
+    case monoRight = 4
+    case karaoke = 5
+    case swap = 6
+}
+
 /// ABI major version of the loaded library (bumped on breaking changes).
 public func abiVersion() -> UInt32 {
     Lib.shared.abiVersion()

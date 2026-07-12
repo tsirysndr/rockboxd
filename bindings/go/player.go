@@ -98,7 +98,8 @@ func (p *Player) Close() {
 	p.ptr = 0
 }
 
-// SetQueue replaces the queue with the given file paths.
+// SetQueue replaces the queue. Each entry may be a local file path, an
+// http(s):// URL to a finite remote file, or a live-radio / streaming URL.
 func (p *Player) SetQueue(paths []string) error {
 	b, err := json.Marshal(paths)
 	if err != nil {
@@ -108,7 +109,9 @@ func (p *Player) SetQueue(paths []string) error {
 	return nil
 }
 
-// Enqueue appends a single file path to the queue.
+// Enqueue appends a single track to the queue. path may be a local file
+// path, an http(s):// URL to a finite remote file, or a live-radio /
+// streaming URL.
 func (p *Player) Enqueue(path string) { rbPlayerEnqueue(p.ptr, path) }
 
 // Insert adds paths (local files or URLs) to the queue at position. index is
@@ -177,6 +180,73 @@ func (p *Player) SetCrossfade(mode CrossfadeMode, fadeOutDelayMs, fadeOutDuratio
 // Album=2), pre-amp in dB, and clipping prevention.
 func (p *Player) SetReplaygain(mode ReplayGainMode, preampDb float32, preventClipping bool) {
 	rbPlayerSetReplaygain(p.ptr, int32(mode), preampDb, preventClipping)
+}
+
+// SetEqEnabled turns the parametric equalizer on or off.
+func (p *Player) SetEqEnabled(enabled bool) { rbPlayerSetEqEnabled(p.ptr, enabled) }
+
+// IsEqEnabled reports whether the parametric equalizer is currently enabled.
+func (p *Player) IsEqEnabled() bool { return rbPlayerIsEqEnabled(p.ptr) }
+
+// SetEqBand configures a single EQ band: its cutoff/center frequency in Hz, Q
+// factor, and gain in dB.
+func (p *Player) SetEqBand(band int, cutoffHz int32, q, gainDb float32) {
+	rbPlayerSetEqBand(p.ptr, uint64(band), cutoffHz, q, gainDb)
+}
+
+// SetEqPrecut sets the EQ pre-cut (headroom) in dB.
+func (p *Player) SetEqPrecut(db float32) { rbPlayerSetEqPrecut(p.ptr, db) }
+
+// SetEqPreset applies a built-in EQ preset (see [EqPreset]).
+func (p *Player) SetEqPreset(preset EqPreset) { rbPlayerSetEqPreset(p.ptr, int32(preset)) }
+
+// SetTone configures the bass/treble tone controls: bass and treble gain in dB
+// and their respective cutoff frequencies in Hz.
+func (p *Player) SetTone(bassDb, trebleDb, bassCutoffHz, trebleCutoffHz int32) {
+	rbPlayerSetTone(p.ptr, bassDb, trebleDb, bassCutoffHz, trebleCutoffHz)
+}
+
+// SetBass sets the bass tone gain in dB.
+func (p *Player) SetBass(bassDb int32) { rbPlayerSetBass(p.ptr, bassDb) }
+
+// SetTreble sets the treble tone gain in dB.
+func (p *Player) SetTreble(trebleDb int32) { rbPlayerSetTreble(p.ptr, trebleDb) }
+
+// SetSurround configures surround processing: delay in ms, balance, and the low
+// and high cutoff frequencies in Hz.
+func (p *Player) SetSurround(delayMs, balance, cutoffLowHz, cutoffHighHz int32) {
+	rbPlayerSetSurround(p.ptr, delayMs, balance, cutoffLowHz, cutoffHighHz)
+}
+
+// SetChannelMode selects the channel routing (see [ChannelMode]).
+func (p *Player) SetChannelMode(mode ChannelMode) { rbPlayerSetChannelMode(p.ptr, int32(mode)) }
+
+// SetStereoWidth sets the stereo width as a percentage.
+func (p *Player) SetStereoWidth(percent int32) { rbPlayerSetStereoWidth(p.ptr, percent) }
+
+// SetCompressor configures the dynamic-range compressor: threshold in dB,
+// make-up gain, ratio, knee, attack in ms, and release in ms.
+func (p *Player) SetCompressor(thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs int32) {
+	rbPlayerSetCompressor(p.ptr, thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs)
+}
+
+// SetDither turns output dithering on or off.
+func (p *Player) SetDither(enabled bool) { rbPlayerSetDither(p.ptr, enabled) }
+
+// SetPitch sets the playback pitch ratio.
+func (p *Player) SetPitch(ratio int32) { rbPlayerSetPitch(p.ptr, ratio) }
+
+// DSPSettings returns a snapshot of the current DSP settings as a decoded map.
+func (p *Player) DSPSettings() (map[string]any, error) {
+	s, ok := takeString(rbPlayerDspSettingsJSON(p.ptr))
+	if !ok {
+		return nil, errors.New("rockbox: rb_player_dsp_settings_json returned NULL")
+	}
+	var settings map[string]any
+	if err := json.Unmarshal([]byte(s), &settings); err != nil {
+		return nil, fmt.Errorf("rockbox: decoding dsp settings json: %w", err)
+	}
+	return settings, nil
 }
 
 // ResumeState is a saved queue plus the exact playback position, as persisted

@@ -39,6 +39,11 @@ pub const STEREO_MONO: isize = 2;
 
 pub const EQ_NUM_BANDS: usize = 10;
 
+/// Pitch/speed ratio for "normal" playback (`PITCH_SPEED_100` in
+/// `tdspeed.h`): the value is a percentage ×100, so 10000 = 100 %,
+/// 10500 = +5 %. Pitch and tempo shift together (resampling).
+pub const PITCH_SPEED_100: c_int = 10000;
+
 /* enum replaygain_types (dsp_misc.h) */
 pub const REPLAYGAIN_TRACK: c_int = 0;
 pub const REPLAYGAIN_ALBUM: c_int = 1;
@@ -373,6 +378,25 @@ impl Dsp {
     /// EQ precut in dB (applied as negative pre-gain to avoid clipping).
     pub fn set_eq_precut(&mut self, db: f32) {
         unsafe { dsp_set_eq_precut((db * 10.0).round() as c_int) };
+    }
+
+    /// Enable/disable output dithering + noise shaping. Only matters when
+    /// reducing bit depth (e.g. 24→16 bit); it trades a touch of hiss for
+    /// lower quantization distortion and is usually left off.
+    pub fn dither_enable(&mut self, enable: bool) {
+        unsafe { dsp_dither_enable(enable) };
+    }
+
+    /// Pitch/speed as a raw Rockbox ratio where [`PITCH_SPEED_100`] (10000)
+    /// is normal; e.g. 10500 = +5 %. Shifts pitch and tempo together via the
+    /// resampler — use the timestretch stage to change tempo without pitch.
+    pub fn set_pitch(&mut self, ratio: i32) {
+        unsafe { dsp_set_pitch(ratio) };
+    }
+
+    /// The current pitch/speed ratio (see [`Dsp::set_pitch`]).
+    pub fn pitch(&self) -> i32 {
+        unsafe { dsp_get_pitch() }
     }
 
     /// Run interleaved stereo S16 frames through the pipeline, appending

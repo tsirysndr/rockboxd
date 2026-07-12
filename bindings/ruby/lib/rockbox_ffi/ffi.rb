@@ -122,6 +122,23 @@ module RockboxFFI
     extern "uint32_t rb_player_sample_rate(void*)"
     extern "void* rb_player_status_json(void*)"
 
+    # ---- player DSP ---------------------------------------------------
+    extern "void rb_player_set_eq_enabled(void*, bool)"
+    extern "bool rb_player_is_eq_enabled(void*)"
+    extern "void rb_player_set_eq_band(void*, size_t, int32_t, float, float)"
+    extern "void rb_player_set_eq_precut(void*, float)"
+    extern "void rb_player_set_eq_preset(void*, int32_t)"
+    extern "void rb_player_set_tone(void*, int32_t, int32_t, int32_t, int32_t)"
+    extern "void rb_player_set_bass(void*, int32_t)"
+    extern "void rb_player_set_treble(void*, int32_t)"
+    extern "void rb_player_set_surround(void*, int32_t, int32_t, int32_t, int32_t)"
+    extern "void rb_player_set_channel_mode(void*, int32_t)"
+    extern "void rb_player_set_stereo_width(void*, int32_t)"
+    extern "void rb_player_set_compressor(void*, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t)"
+    extern "void rb_player_set_dither(void*, bool)"
+    extern "void rb_player_set_pitch(void*, int32_t)"
+    extern "void* rb_player_dsp_settings_json(void*)"
+
     # ---- resume -------------------------------------------------------
     extern "void* rb_player_resume(void*)"
     extern "void rb_player_save_resume(void*)"

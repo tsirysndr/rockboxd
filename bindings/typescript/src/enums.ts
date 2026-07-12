@@ -54,3 +54,39 @@ export const ChannelConfig = {
   KARAOKE: 5,
   SWAP: 6,
 } as const;
+
+/** For `Player.setEqPreset`. */
+export const EqPreset = {
+  Flat: 0,
+  Acoustic: 1,
+  BassBoost: 2,
+  BassReducer: 3,
+  Classical: 4,
+  Dance: 5,
+  Deep: 6,
+  Electronic: 7,
+  HipHop: 8,
+  Jazz: 9,
+  Latin: 10,
+  Loudness: 11,
+  Lounge: 12,
+  Piano: 13,
+  Pop: 14,
+  RnB: 15,
+  Rock: 16,
+  SmallSpeakers: 17,
+  TrebleBoost: 18,
+  TrebleReducer: 19,
+  VocalBoost: 20,
+} as const;
+
+/** For `Player.setChannelMode`. */
+export const ChannelMode = {
+  Stereo: 0,
+  Mono: 1,
+  Custom: 2,
+  MonoLeft: 3,
+  MonoRight: 4,
+  Karaoke: 5,
+  Swap: 6,
+} as const;
