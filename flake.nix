@@ -204,6 +204,8 @@
             cmake
             perl       # tools/configure is a Perl script
             python3
+            zip        # firmware build packages voice/lang zips (tools/buildzip.pl)
+            unzip
             protobuf   # protoc for Rust codegen
             # Wires up offline Cargo registry from cargoDeps.
             rustPlatform.cargoSetupHook
