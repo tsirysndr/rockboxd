@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.07.12]
+
+### Added
+- `bindings`: multi-language FFI bindings for **9 languages** — Python, TypeScript, Elixir, Gleam, Ruby, Swift, Kotlin, Clojure, and Go — all layered on a single shared `rockbox-ffi` C ABI (`cdylib` + `staticlib`); Python via cffi, TS via Bun/Deno/Node koffi, Ruby via fiddle, Go via purego, Elixir + Gleam through a shared `erl_nif` NIF, Swift/Kotlin/Clojure via their native FFIs; each ships an interactive console (Python IPython, Ruby IRB) and a playback example, and queue-insertion / resume / m3u8 are exposed uniformly across all nine
+- `bindings`: per-platform prebuilt native libraries bundled into each package with a dedicated `bindings-v*` release CI pipeline that uploads artifacts to the GitHub Release; Swift gains a static-linked product plus a macOS/iOS `xcframework`, Kotlin publishes to Maven Central and Clojure to Clojars (`clojure-ffi-v*` tag), and Python wheels are tagged `py3-none-<platform>` per-arch
+- `dsp`: new standalone **`rockbox-dsp`** crate (v0.2.0) — the Rockbox DSP chain (parametric EQ, tone controls, surround, channel mode, compressor, and replaygain) extracted as a reusable Rust library that compiles `lib/rbcodec/dsp` via `cc`; honours `settings.toml` EQ values (already in tenths) with local-settings precedence, and builds standalone from vendored C sources
+- `metadata`: new standalone **`rockbox-metadata`** crate — Rockbox tag/metadata extraction exposed as a library (phase 1 of the rbcodec extraction), with a flat `rbmeta_tags` bridge over the firmware parsers
+- `codecs`: new standalone **`rockbox-codecs`** crate (v0.1.1) — Rockbox decoders as a Rust library (phase 2), using a warble-style shim and `-D` symbol renames; HE-AAC (SBR + PS) decoding included
+- `playback`: Rockbox-style **queue insertion** API (insert / insert-next / insert-last), **resume** with playback-position restore, and first-class **`.m3u8` playlist** handling — all surfaced through the FFI and bindings
+- `playback`: **HTTP(S) remote media** playback via a `MediaSource` abstraction (byte-range requests + MIME sniffing), **lazy range-buffered** remote files, **live-radio** streaming, and **ICY metadata** parsing (`StreamTitle`, station name, bitrate)
+- `player`: the full **Rockbox DSP chain + EQ presets** (e.g. BassBoost), **crossfeed / PBE / AFR** and tone cutoffs, and **shuffle / repeat** modes are now driveable through the high-level player API, with builder and pipe/fluent DX ergonomics
+- `build`/`ci`: **FreeBSD / NetBSD / OpenBSD** support — headless-host firmware build, a direct `libasound` sink on FreeBSD/NetBSD and a new `libsndio` sink on OpenBSD, `statvfs`-based filesystem code, FTS5 search on the BSDs, and a dedicated `bsd-release` CI job that builds `rockboxd` in FreeBSD/NetBSD VMs via `cross-platform-actions`
+- `nix`: Nix flake packaging — a hermetic `.#rockbox` build with bundled Typesense and prefetched V8, Rust staticlibs split into a separately-cached derivation, FlakeHub publishing, a Cachix binary cache, and a `nix-consume` smoke-test workflow; `nix run` starts the daemon
+- `tools`: `tools/console` — a Clojure/babashka REPL (with a `./console` launcher) that centralizes the monorepo's build/dev/ops commands
+- `cli`: FreeBSD/NetBSD `rc.d` service examples plus a service README
+
+### Fixed
+- `ci`: macOS gpui and embeddable-library builds no longer fail intermittently at link time with `Undefined symbols for architecture arm64: _rb_daemon_start` — the Cargo/Zig caches in `release-gpui`, `macos-build`, and `release-embed-lib` are now keyed on `${{ matrix.arch }}` so a same-OS/different-arch runner (or a drifting `*-latest` label that silently switches CPU arch) can never restore an incompatible `target/` or `zig/.zig-cache`; the embed step also force-removes `librockbox_embed.a` before `cargo build` and asserts `rb_daemon_start` is present in both `librockbox_embed.a` and the flattened `librockboxd.a` via `nm`, so a stale or mislinked archive aborts the job at its source instead of deep inside the rust-lld output
+- `playback`: fixed a shutdown deadlock exposed by the new queue-insertion path
+- firmware: synced with upstream Rockbox master — brings the Sansa Clip Zip LCD flip / display-init fixes, RTL on-screen-keyboard corrections, numerous `FS#` bug fixes, and a large sweep of `rbutil` / tools build-warning cleanups
+
 ## [2026.07.02]
 
 ### Added
