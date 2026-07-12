@@ -14,16 +14,16 @@ const fixture = "../../crates/rocksky/fixtures/08 - Internet Money - Speak(Expli
 
 pub fn main() {
   let p = player.with_config(player.Config(..player.default_config(), volume: 0.8))
-  // DSP: Bass Boost preset + a +3 dB bass/treble lift.
+  // DSP: Bass Boost preset + a +7 dB bass / +4 dB treble lift.
   let p =
     p
     |> player.set_queue([fixture])
     |> player.set_eq_preset(player.BassBoost)
-    |> player.set_bass(3)
-    |> player.set_treble(3)
+    |> player.set_bass(7)
+    |> player.set_treble(4)
     |> player.play
   io.println("▶ playing " <> fixture)
-  io.println("eq: BassBoost preset, bass +3 dB, treble +3 dB")
+  io.println("eq: BassBoost preset, bass +7 dB, treble +4 dB")
 
   poll(p)
 }

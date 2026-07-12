@@ -10,15 +10,15 @@
     (if path
       (do
         ;; Thread the setup through `p`: queue, DSP (Bass Boost preset + a
-        ;; +3 dB bass/treble lift), then play — every mutator returns `p`.
+        ;; +7 dB bass / +4 dB treble lift), then play — every mutator returns `p`.
         (-> p
             (player/set-queue [path])
             (player/set-eq-preset :bass-boost)
-            (player/set-bass 3)
-            (player/set-treble 3)
+            (player/set-bass 7)
+            (player/set-treble 4)
             (player/play))
         (println "playing" path)
-        (println "eq: BassBoost preset, bass +3 dB, treble +3 dB")
+        (println "eq: BassBoost preset, bass +7 dB, treble +4 dB")
         (dotimes [_ 5]
           (Thread/sleep 1000)
           (let [s (player/status p)]

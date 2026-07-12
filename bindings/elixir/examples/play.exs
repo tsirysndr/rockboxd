@@ -17,15 +17,15 @@ file =
 p = Rockbox.Player.new(volume: 0.8)
 
 # Mutating Player functions return the handle, so setup pipes cleanly.
-# DSP: Bass Boost preset + a +3 dB bass/treble lift.
+# DSP: Bass Boost preset + a +7 dB bass / +4 dB treble lift.
 p
 |> Rockbox.Player.set_queue([file])
 |> Rockbox.Player.set_eq_preset(:bass_boost)
-|> Rockbox.Player.set_bass(3)
-|> Rockbox.Player.set_treble(3)
+|> Rockbox.Player.set_bass(7)
+|> Rockbox.Player.set_treble(4)
 |> Rockbox.Player.play()
 IO.puts("▶ playing #{file}")
-IO.puts("eq: BassBoost preset, bass +3 dB, treble +3 dB")
+IO.puts("eq: BassBoost preset, bass +7 dB, treble +4 dB")
 
 # Poll status until playback finishes (state returns to "stopped").
 #
