@@ -24,8 +24,8 @@ surface is declared in [`include/rockbox_ffi.h`](../include/rockbox_ffi.h).
                  crates/rockbox-ffi  (cdylib + staticlib)
              rb_dsp_* / rb_meta_* / rb_player_*   ← include/rockbox_ffi.h
                                      │
-   ┌──────┬──────┬──────────┬────────┬───────┬───────┬───────┬────────┬────────┐
- Python  Go  TypeScript  Elixir   Gleam  Ruby   Swift  Kotlin  Clojure
+   ┌──────┬──────┬──────────┬────────┬───────┬───────┬───────┬─────────┐
+ Python   Go  TypeScript  Elixir    Gleam   Ruby   Swift   Kotlin  Clojure
  (cffi)(purego)(Bun/Deno/ (erl_nif)─(erl_nif)(fiddle)(dlopen)(Java FFM)(Java FFM)
                 Node)        └─ shared rockbox_ffi_nif.{c,erl} ─┘
 ```
