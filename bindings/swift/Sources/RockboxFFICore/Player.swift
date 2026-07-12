@@ -254,6 +254,38 @@ public final class Player {
     @discardableResult
     public func setPitch(_ ratio: Int32) -> Self { lib.playerSetPitch(ptr, ratio); return self }
 
+    /// Bass tone-control cutoff frequency in Hz.
+    @discardableResult
+    public func setBassCutoff(_ hz: Int32) -> Self { lib.playerSetBassCutoff(ptr, hz); return self }
+
+    /// Treble tone-control cutoff frequency in Hz.
+    @discardableResult
+    public func setTrebleCutoff(_ hz: Int32) -> Self { lib.playerSetTrebleCutoff(ptr, hz); return self }
+
+    /// Crossfeed (headphone stereo narrowing). Gains and cutoff use native
+    /// Rockbox units; `directGain` / `crossGain` / `hfGain` / `hfCutoff` are
+    /// only consulted in `.custom` mode.
+    @discardableResult
+    public func setCrossfeed(_ mode: CrossfeedMode, directGain: Int32, crossGain: Int32,
+                             hfGain: Int32, hfCutoff: Int32) -> Self {
+        lib.playerSetCrossfeed(ptr, mode.rawValue, directGain, crossGain, hfGain, hfCutoff)
+        return self
+    }
+
+    /// Bass enhancement (strength and precut, in native Rockbox units).
+    @discardableResult
+    public func setBassEnhancement(strength: Int32, precut: Int32) -> Self {
+        lib.playerSetBassEnhancement(ptr, strength, precut)
+        return self
+    }
+
+    /// Listening-fatigue reduction (treble roll-off) strength.
+    @discardableResult
+    public func setFatigueReduction(_ strength: Int32) -> Self {
+        lib.playerSetFatigueReduction(ptr, strength)
+        return self
+    }
+
     /// A snapshot of the current DSP settings as a dictionary.
     public func dspSettings() throws -> [String: Any] {
         guard let json = lib.takeString(lib.playerDspSettingsJson(ptr)) else {

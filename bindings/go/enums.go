@@ -109,6 +109,16 @@ const (
 	EqPresetVocalBoost    EqPreset = 20
 )
 
+// CrossfeedMode selects the crossfeed processing mode for
+// [Player.SetCrossfeed].
+type CrossfeedMode int32
+
+const (
+	CrossfeedOff    CrossfeedMode = 0
+	CrossfeedMeier  CrossfeedMode = 1
+	CrossfeedCustom CrossfeedMode = 2
+)
+
 // ChannelMode selects the channel routing for [Player.SetChannelMode].
 type ChannelMode int32
 

@@ -267,6 +267,41 @@ module RockboxFFI
       self
     end
 
+    # Bass tone-control cutoff frequency in Hz.
+    def set_bass_cutoff(hz)
+      Lib.rb_player_set_bass_cutoff(@ptr, Integer(hz))
+      self
+    end
+
+    # Treble tone-control cutoff frequency in Hz.
+    def set_treble_cutoff(hz)
+      Lib.rb_player_set_treble_cutoff(@ptr, Integer(hz))
+      self
+    end
+
+    # Crossfeed for headphone listening. +mode+ (see CrossfeedMode: OFF=0,
+    # MEIER=1, CUSTOM=2), plus direct/cross/high-frequency gains and the
+    # high-frequency cutoff (Hz) used in CUSTOM mode.
+    def set_crossfeed(mode, direct_gain, cross_gain, hf_gain, hf_cutoff)
+      Lib.rb_player_set_crossfeed(
+        @ptr, Integer(mode), Integer(direct_gain), Integer(cross_gain),
+        Integer(hf_gain), Integer(hf_cutoff)
+      )
+      self
+    end
+
+    # Bass enhancement: +strength+ and +precut+ (in dB).
+    def set_bass_enhancement(strength, precut)
+      Lib.rb_player_set_bass_enhancement(@ptr, Integer(strength), Integer(precut))
+      self
+    end
+
+    # Listening-fatigue reduction (treble roll-off): +strength+.
+    def set_fatigue_reduction(strength)
+      Lib.rb_player_set_fatigue_reduction(@ptr, Integer(strength))
+      self
+    end
+
     # Surround effect: delay (ms), balance, low/high cutoff frequencies (Hz).
     def set_surround(delay_ms, balance, cutoff_low_hz, cutoff_high_hz)
       Lib.rb_player_set_surround(

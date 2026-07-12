@@ -112,7 +112,9 @@ typealias FnPlayerIsBool = @convention(c) (OpaquePointer?) -> Bool
 typealias FnPlayerEqBand = @convention(c) (OpaquePointer?, Int, Int32, Float, Float) -> Void
 typealias FnPlayerF1 = @convention(c) (OpaquePointer?, Float) -> Void
 typealias FnPlayerI1 = @convention(c) (OpaquePointer?, Int32) -> Void
+typealias FnPlayerI2 = @convention(c) (OpaquePointer?, Int32, Int32) -> Void
 typealias FnPlayerI4 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32) -> Void
+typealias FnPlayerI5 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32, Int32) -> Void
 typealias FnPlayerI6 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32, Int32, Int32) -> Void
 typealias FnPlayerReturnsI1 = @convention(c) (OpaquePointer?) -> Int32
 typealias FnPlayerDspJson = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
@@ -206,6 +208,11 @@ final class Lib {
     let playerSetCompressor: FnPlayerI6
     let playerSetDither: FnPlayerBool
     let playerSetPitch: FnPlayerI1
+    let playerSetBassCutoff: FnPlayerI1
+    let playerSetTrebleCutoff: FnPlayerI1
+    let playerSetCrossfeed: FnPlayerI5
+    let playerSetBassEnhancement: FnPlayerI2
+    let playerSetFatigueReduction: FnPlayerI1
     let playerDspSettingsJson: FnPlayerDspJson
 
     // player shuffle / repeat
@@ -300,6 +307,11 @@ final class Lib {
         playerSetCompressor = try sym("rb_player_set_compressor", FnPlayerI6.self)
         playerSetDither = try sym("rb_player_set_dither", FnPlayerBool.self)
         playerSetPitch = try sym("rb_player_set_pitch", FnPlayerI1.self)
+        playerSetBassCutoff = try sym("rb_player_set_bass_cutoff", FnPlayerI1.self)
+        playerSetTrebleCutoff = try sym("rb_player_set_treble_cutoff", FnPlayerI1.self)
+        playerSetCrossfeed = try sym("rb_player_set_crossfeed", FnPlayerI5.self)
+        playerSetBassEnhancement = try sym("rb_player_set_bass_enhancement", FnPlayerI2.self)
+        playerSetFatigueReduction = try sym("rb_player_set_fatigue_reduction", FnPlayerI1.self)
         playerDspSettingsJson = try sym("rb_player_dsp_settings_json", FnPlayerDspJson.self)
 
         playerSetShuffle = try sym("rb_player_set_shuffle", FnPlayerBool.self)

@@ -220,6 +220,43 @@ class Player:
     def set_treble(self, treble_db: int) -> None:
         lib.rb_player_set_treble(self._p, int(treble_db))
 
+    def set_bass_cutoff(self, hz: int) -> None:
+        """Bass shelf cutoff in Hz; ``0`` restores the 200 Hz default."""
+        lib.rb_player_set_bass_cutoff(self._p, int(hz))
+
+    def set_treble_cutoff(self, hz: int) -> None:
+        """Treble shelf cutoff in Hz; ``0`` restores the 3.5 kHz default."""
+        lib.rb_player_set_treble_cutoff(self._p, int(hz))
+
+    def set_crossfeed(
+        self,
+        mode: int,
+        direct_gain: int,
+        cross_gain: int,
+        hf_gain: int,
+        hf_cutoff: int,
+    ) -> None:
+        """Crossfeed (headphone stereo narrowing).
+
+        ``mode``: :class:`rockbox_ffi.enums.CrossfeedMode` (OFF=0, MEIER=1,
+        CUSTOM=2). ``direct_gain``/``cross_gain``/``hf_gain`` are in tenths of a
+        dB (``<= 0``); ``hf_cutoff`` is in Hz.
+        """
+        lib.rb_player_set_crossfeed(
+            self._p, int(mode), int(direct_gain), int(cross_gain),
+            int(hf_gain), int(hf_cutoff),
+        )
+
+    def set_bass_enhancement(self, strength: int, precut: int) -> None:
+        """Perceptual bass enhancement. ``strength`` is a percent (``0`` = off);
+        ``precut`` is in tenths of a dB (``<= 0``)."""
+        lib.rb_player_set_bass_enhancement(self._p, int(strength), int(precut))
+
+    def set_fatigue_reduction(self, strength: int) -> None:
+        """Auditory fatigue reduction. ``strength``: 0 off, 1 weak, 2 moderate,
+        3 strong."""
+        lib.rb_player_set_fatigue_reduction(self._p, int(strength))
+
     def set_surround(
         self,
         delay_ms: int,

@@ -274,6 +274,26 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
     fun setBass(bassDb: Int) = Native.playerSetBass.invokeWithArguments(handle(), bassDb).let { }
     fun setTreble(trebleDb: Int) = Native.playerSetTreble.invokeWithArguments(handle(), trebleDb).let { }
 
+    fun setBassCutoff(hz: Int) = Native.playerSetBassCutoff.invokeWithArguments(handle(), hz).let { }
+    fun setTrebleCutoff(hz: Int) = Native.playerSetTrebleCutoff.invokeWithArguments(handle(), hz).let { }
+
+    /** Configure crossfeed. [mode]: [CrossfeedMode]; gains/cutoff apply to CUSTOM. */
+    fun setCrossfeed(
+        mode: CrossfeedMode,
+        directGain: Int,
+        crossGain: Int,
+        hfGain: Int,
+        hfCutoff: Int,
+    ) = Native.playerSetCrossfeed.invokeWithArguments(
+        handle(), mode.value, directGain, crossGain, hfGain, hfCutoff,
+    ).let { }
+
+    fun setBassEnhancement(strength: Int, precut: Int) =
+        Native.playerSetBassEnhancement.invokeWithArguments(handle(), strength, precut).let { }
+
+    fun setFatigueReduction(strength: Int) =
+        Native.playerSetFatigueReduction.invokeWithArguments(handle(), strength).let { }
+
     fun setSurround(delayMs: Int, balance: Int, cutoffLowHz: Int, cutoffHighHz: Int) =
         Native.playerSetSurround.invokeWithArguments(handle(), delayMs, balance, cutoffLowHz, cutoffHighHz).let { }
 

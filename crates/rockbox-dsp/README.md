@@ -82,6 +82,35 @@ The safe wrapper's `set_eq_band(band, hz, q, gain_db)` takes plain units
 and applies the ×10 internally; `set_eq_band_raw` takes native units
 (e.g. straight from rockboxd's `[[eq_band_settings]]`).
 
+> 📖 **Reference** — these are the same controls as Rockbox's on-device sound
+> menu. See the official
+> [Rockbox manual — Equalizer](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html#x11-1200006.11)
+> (and the surrounding [Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+> chapter) for what each setting does.
+
+## Crossfeed, bass enhancement & fatigue reduction
+
+Three more headphone-oriented stages, exposed on the safe wrapper (all values
+are Rockbox-native — gains in **tenths of a dB**, ≤ 0):
+
+```rust
+use rockbox_dsp::{Dsp, CROSSFEED_MEIER, CROSSFEED_CUSTOM};
+
+let mut dsp = Dsp::new(44100);
+
+// Crossfeed: 0 off, or CROSSFEED_MEIER (fixed) / CROSSFEED_CUSTOM (tunable).
+dsp.set_crossfeed(CROSSFEED_MEIER);
+dsp.set_crossfeed_direct_gain(-15);                 // −1.5 dB dry mix
+dsp.set_crossfeed_cross_params(-60, -160, 700);     // custom mode only
+
+// Perceptual Bass Enhancement — strength %, precut in tenths of a dB.
+dsp.set_pbe_precut(-30);
+dsp.pbe_enable(50);
+
+// Auditory Fatigue Reduction — 0 off, 1 weak, 2 moderate, 3 strong.
+dsp.afr_enable(2);
+```
+
 ## Replaygain
 
 Replaygain is applied by the pre-gain (PGA) stage. Two calls, both

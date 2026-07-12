@@ -270,16 +270,24 @@ assert_eq!(player.is_eq_enabled(), dsp.equalizer.enabled);
 `DspSettings` is the snapshot of the whole chain — pass it in via
 `PlayerConfig.dsp`, or read it out with `dsp_settings()`:
 
-| Field          | Setter(s)                                          | Notes                                              |
-| -------------- | -------------------------------------------------- | -------------------------------------------------- |
-| `equalizer`    | `set_eq_preset` / `set_eq_band` / `set_eq_enabled` | 10 bands; `is_eq_enabled()` reads the on/off state |
-| `tone`         | `set_tone` / `set_bass` / `set_treble`             | bass/treble in dB, optional shelf cutoffs in Hz    |
-| `surround`     | `set_surround`                                     | Haas delay (0 = off), balance, band-split cutoffs  |
-| `channel_mode` | `set_channel_mode`                                 | stereo / mono / custom / mono-L/R / karaoke / swap |
-| `stereo_width` | `set_stereo_width`                                 | percent; audible with `ChannelMode::Custom`        |
-| `compressor`   | `set_compressor`                                   | `threshold_db = 0` disables the stage              |
-| `dither`       | `set_dither`                                       | output dithering + noise shaping                   |
-| `pitch`        | `set_pitch`                                        | `PITCH_NORMAL` (10000) = normal; pitch + tempo     |
+| Field               | Setter(s)                                          | Notes                                                    |
+| ------------------- | -------------------------------------------------- | -------------------------------------------------------- |
+| `equalizer`         | `set_eq_preset` / `set_eq_band` / `set_eq_enabled` | 10 bands; `is_eq_enabled()` reads the on/off state       |
+| `tone`              | `set_tone` / `set_bass` / `set_treble`             | dB; `set_bass_cutoff` / `set_treble_cutoff` set shelf Hz |
+| `crossfeed`         | `set_crossfeed`                                    | headphone crossfeed: off / Meier / custom                |
+| `surround`          | `set_surround`                                     | Haas delay (0 = off), balance, band-split cutoffs        |
+| `channel_mode`      | `set_channel_mode`                                 | stereo / mono / custom / mono-L/R / karaoke / swap       |
+| `stereo_width`      | `set_stereo_width`                                 | percent; audible with `ChannelMode::Custom`              |
+| `bass_enhancement`  | `set_bass_enhancement`                             | perceptual bass boost; `strength` 0 = off                |
+| `fatigue_reduction` | `set_fatigue_reduction`                            | 0 off, 1 weak, 2 moderate, 3 strong                      |
+| `compressor`        | `set_compressor`                                   | `threshold_db = 0` disables the stage                    |
+| `dither`            | `set_dither`                                       | output dithering + noise shaping                         |
+| `pitch`             | `set_pitch`                                        | `PITCH_NORMAL` (10000) = normal; pitch + tempo           |
+
+> 📖 These mirror Rockbox's on-device sound menu. See the official
+> [Rockbox manual — Equalizer](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html#x11-1200006.11)
+> and [Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+> for what each does.
 
 ### Equalizer presets
 

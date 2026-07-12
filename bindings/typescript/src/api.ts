@@ -332,6 +332,30 @@ export function makeApi(raw: Raw) {
       s.rb_player_set_treble(this.#h, trebleDb);
       return this;
     }
+    setBassCutoff(hz: number): this {
+      s.rb_player_set_bass_cutoff(this.#h, hz);
+      return this;
+    }
+    setTrebleCutoff(hz: number): this {
+      s.rb_player_set_treble_cutoff(this.#h, hz);
+      return this;
+    }
+    /** mode: CrossfeedMode (Off=0, Meier=1, Custom=2). */
+    setCrossfeed(
+      mode: number, directGain: number, crossGain: number, hfGain: number,
+      hfCutoff: number,
+    ): this {
+      s.rb_player_set_crossfeed(this.#h, mode, directGain, crossGain, hfGain, hfCutoff);
+      return this;
+    }
+    setBassEnhancement(strength: number, precut: number): this {
+      s.rb_player_set_bass_enhancement(this.#h, strength, precut);
+      return this;
+    }
+    setFatigueReduction(strength: number): this {
+      s.rb_player_set_fatigue_reduction(this.#h, strength);
+      return this;
+    }
     setSurround(
       delayMs: number, balance: number, cutoffLowHz: number, cutoffHighHz: number,
     ): this {

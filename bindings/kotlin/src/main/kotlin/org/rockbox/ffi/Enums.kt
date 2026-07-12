@@ -85,6 +85,13 @@ enum class EqPreset(val value: Int) {
     VOCAL_BOOST(20),
 }
 
+/** Crossfeed modes for [Player.setCrossfeed] (`rb_player_set_crossfeed`). */
+enum class CrossfeedMode(val value: Int) {
+    OFF(0),
+    MEIER(1),
+    CUSTOM(2),
+}
+
 /** Channel mixing modes for [Player.setChannelMode] (`rb_player_set_channel_mode`). */
 enum class ChannelMode(val value: Int) {
     STEREO(0),

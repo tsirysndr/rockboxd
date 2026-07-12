@@ -192,6 +192,23 @@ pub fn channel_mode_to_int(mode: ChannelMode) -> Int {
   }
 }
 
+/// Crossfeed mode (`set_crossfeed`). Values map to the ABI's integer mode
+/// ids: 0 off, 1 Meier, 2 custom.
+pub type CrossfeedMode {
+  CrossfeedOff
+  Meier
+  CrossfeedCustom
+}
+
+/// Encode a `CrossfeedMode` as the ABI's integer id (0/1/2).
+pub fn crossfeed_mode_to_int(mode: CrossfeedMode) -> Int {
+  case mode {
+    CrossfeedOff -> 0
+    Meier -> 1
+    CrossfeedCustom -> 2
+  }
+}
+
 /// Repeat mode (`set_repeat` / `repeat`). Values map to the ABI's integer
 /// mode ids: 0 off, 1 one, 2 all.
 pub type RepeatMode {
@@ -273,6 +290,22 @@ pub type Compressor {
   )
 }
 
+/// The crossfeed (headphone) section of `dsp_settings`.
+pub type Crossfeed {
+  Crossfeed(
+    mode: String,
+    direct_gain: Int,
+    cross_gain: Int,
+    high_freq_gain: Int,
+    high_freq_cutoff: Int,
+  )
+}
+
+/// The bass-enhancement section of `dsp_settings`.
+pub type BassEnhancement {
+  BassEnhancement(strength: Int, precut: Int)
+}
+
 /// The whole DSP chain state, as returned by `dsp_settings`.
 pub type DspSettings {
   DspSettings(
@@ -284,6 +317,9 @@ pub type DspSettings {
     compressor: Compressor,
     dither: Bool,
     pitch: Int,
+    crossfeed: Crossfeed,
+    bass_enhancement: BassEnhancement,
+    fatigue_reduction: Int,
   )
 }
 
@@ -702,6 +738,78 @@ pub fn set_pitch(player: Player, ratio: Int) -> Player {
 @external(erlang, "rockbox_ffi_nif", "player_set_pitch")
 fn ffi_set_pitch(player: Player, ratio: Int) -> Nil
 
+/// Set the bass tone cutoff frequency, in Hz.
+pub fn set_bass_cutoff(player: Player, hz: Int) -> Player {
+  ffi_set_bass_cutoff(player, hz)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_bass_cutoff")
+fn ffi_set_bass_cutoff(player: Player, hz: Int) -> Nil
+
+/// Set the treble tone cutoff frequency, in Hz.
+pub fn set_treble_cutoff(player: Player, hz: Int) -> Player {
+  ffi_set_treble_cutoff(player, hz)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_treble_cutoff")
+fn ffi_set_treble_cutoff(player: Player, hz: Int) -> Nil
+
+/// Configure the crossfeed (headphone) effect. `direct_gain`, `cross_gain`
+/// and `high_freq_gain` are gains; `high_freq_cutoff` is in Hz. The gain
+/// values only take effect in `CrossfeedCustom` mode.
+pub fn set_crossfeed(
+  player: Player,
+  mode: CrossfeedMode,
+  direct_gain: Int,
+  cross_gain: Int,
+  high_freq_gain: Int,
+  high_freq_cutoff: Int,
+) -> Player {
+  ffi_set_crossfeed(
+    player,
+    crossfeed_mode_to_int(mode),
+    direct_gain,
+    cross_gain,
+    high_freq_gain,
+    high_freq_cutoff,
+  )
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_crossfeed")
+fn ffi_set_crossfeed(
+  player: Player,
+  mode: Int,
+  direct_gain: Int,
+  cross_gain: Int,
+  high_freq_gain: Int,
+  high_freq_cutoff: Int,
+) -> Nil
+
+/// Configure bass enhancement (`strength` and `precut`).
+pub fn set_bass_enhancement(
+  player: Player,
+  strength: Int,
+  precut: Int,
+) -> Player {
+  ffi_set_bass_enhancement(player, strength, precut)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_bass_enhancement")
+fn ffi_set_bass_enhancement(player: Player, strength: Int, precut: Int) -> Nil
+
+/// Set the listening-fatigue reduction strength.
+pub fn set_fatigue_reduction(player: Player, strength: Int) -> Player {
+  ffi_set_fatigue_reduction(player, strength)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_fatigue_reduction")
+fn ffi_set_fatigue_reduction(player: Player, strength: Int) -> Nil
+
 /// Read back the whole DSP chain state.
 pub fn dsp_settings(player: Player) -> DspSettings {
   let assert Ok(settings) =
@@ -914,6 +1022,27 @@ fn compressor_decoder() -> Decoder(Compressor) {
   ))
 }
 
+fn crossfeed_decoder() -> Decoder(Crossfeed) {
+  use mode <- decode.field("mode", decode.string)
+  use direct_gain <- decode.field("direct_gain", decode.int)
+  use cross_gain <- decode.field("cross_gain", decode.int)
+  use high_freq_gain <- decode.field("high_freq_gain", decode.int)
+  use high_freq_cutoff <- decode.field("high_freq_cutoff", decode.int)
+  decode.success(Crossfeed(
+    mode:,
+    direct_gain:,
+    cross_gain:,
+    high_freq_gain:,
+    high_freq_cutoff:,
+  ))
+}
+
+fn bass_enhancement_decoder() -> Decoder(BassEnhancement) {
+  use strength <- decode.field("strength", decode.int)
+  use precut <- decode.field("precut", decode.int)
+  decode.success(BassEnhancement(strength:, precut:))
+}
+
 fn dsp_settings_decoder() -> Decoder(DspSettings) {
   use equalizer <- decode.field("equalizer", equalizer_decoder())
   use tone <- decode.field("tone", tone_decoder())
@@ -923,6 +1052,12 @@ fn dsp_settings_decoder() -> Decoder(DspSettings) {
   use compressor <- decode.field("compressor", compressor_decoder())
   use dither <- decode.field("dither", decode.bool)
   use pitch <- decode.field("pitch", decode.int)
+  use crossfeed <- decode.field("crossfeed", crossfeed_decoder())
+  use bass_enhancement <- decode.field(
+    "bass_enhancement",
+    bass_enhancement_decoder(),
+  )
+  use fatigue_reduction <- decode.field("fatigue_reduction", decode.int)
   decode.success(DspSettings(
     equalizer:,
     tone:,
@@ -932,6 +1067,9 @@ fn dsp_settings_decoder() -> Decoder(DspSettings) {
     compressor:,
     dither:,
     pitch:,
+    crossfeed:,
+    bass_enhancement:,
+    fatigue_reduction:,
   ))
 }
 

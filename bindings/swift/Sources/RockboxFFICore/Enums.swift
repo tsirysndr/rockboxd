@@ -95,6 +95,13 @@ public enum ChannelMode: Int32 {
     case swap = 6
 }
 
+/// Crossfeed modes for `Player.setCrossfeed`.
+public enum CrossfeedMode: Int32 {
+    case off = 0
+    case meier = 1
+    case custom = 2
+}
+
 /// ABI major version of the loaded library (bumped on breaking changes).
 public func abiVersion() -> UInt32 {
     Lib.shared.abiVersion()

@@ -33,6 +33,13 @@ export const MixMode = {
   MIX: 1,
 } as const;
 
+/** For `Player.setCrossfeed` (0 off, 1 Meier, 2 custom). */
+export const CrossfeedMode = {
+  Off: 0,
+  Meier: 1,
+  Custom: 2,
+} as const;
+
 /** For `Player.insert` / `Player.importM3u` (queue insert position). */
 export const InsertPosition = {
   PREPEND: 0,
