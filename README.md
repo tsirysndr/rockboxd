@@ -604,8 +604,8 @@ curl -fsSL https://raw.githubusercontent.com/tsirysndr/rockboxd/HEAD/install.sh 
 
 ### Nix (flake)
 
-With [Nix](https://nixos.org/download) (flakes enabled) you can run or install
-rockboxd straight from the repo:
+With [Determinate Nix](https://determinate.systems/nix) (flakes enabled) you
+can run or install rockboxd straight from the repo:
 
 ```sh
 # Run the daemon without installing
