@@ -3,6 +3,10 @@
 Kotlin/JVM bindings for the Rockbox **DSP**, **metadata**, and **playback**
 engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 No JNI, no native glue to compile: the binding uses the Java **Foreign Function
 & Memory API** (JEP 454, stable since JDK 22) to locate `librockbox_ffi` at
 runtime and bind every function to a `MethodHandle` downcall. Keep
