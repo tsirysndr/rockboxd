@@ -87,6 +87,13 @@ module RockboxFFI
     VOCAL_BOOST = 20
   end
 
+  # Crossfeed mode for Player#set_crossfeed.
+  module CrossfeedMode
+    OFF = 0
+    MEIER = 1
+    CUSTOM = 2
+  end
+
   # Channel mode for Player#set_channel_mode.
   module ChannelMode
     STEREO = 0

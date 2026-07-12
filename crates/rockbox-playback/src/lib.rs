@@ -374,6 +374,66 @@ impl Compressor {
     }
 }
 
+/// Headphone **crossfeed** mode (`crossfeed_type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CrossfeedMode {
+    /// Crossfeed disabled.
+    #[default]
+    Off,
+    /// Meier crossfeed — a fixed, natural-sounding profile.
+    Meier,
+    /// Custom crossfeed, driven by the [`Crossfeed`] gain/cutoff fields.
+    Custom,
+}
+
+impl CrossfeedMode {
+    fn to_raw(self) -> i32 {
+        match self {
+            CrossfeedMode::Off => rockbox_dsp::CROSSFEED_OFF,
+            CrossfeedMode::Meier => rockbox_dsp::CROSSFEED_MEIER,
+            CrossfeedMode::Custom => rockbox_dsp::CROSSFEED_CUSTOM,
+        }
+    }
+}
+
+/// Headphone crossfeed — bleeds some of each channel into the other to ease
+/// the hard L/R separation of headphones. The `*_cross_*` fields only apply
+/// in [`CrossfeedMode::Custom`]. All gains are in **tenths of a dB** (≤ 0).
+/// Defaults mirror Rockbox's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Crossfeed {
+    pub mode: CrossfeedMode,
+    /// Dry-mix (direct) gain in tenths of a dB (≤ 0; -15 = −1.5 dB).
+    pub direct_gain: i32,
+    /// Custom cross-mix low-frequency gain in tenths of a dB (≤ 0).
+    pub cross_gain: i32,
+    /// Custom cross-mix high-frequency attenuation in tenths of a dB (≤ 0).
+    pub high_freq_gain: i32,
+    /// Custom cross-mix high-frequency cutoff in Hz.
+    pub high_freq_cutoff: i32,
+}
+
+impl Default for Crossfeed {
+    fn default() -> Self {
+        Crossfeed {
+            mode: CrossfeedMode::Off,
+            direct_gain: -15,
+            cross_gain: -60,
+            high_freq_gain: -160,
+            high_freq_cutoff: 700,
+        }
+    }
+}
+
+/// **Perceptual Bass Enhancement** (PBE). `strength == 0` disables the stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BassEnhancement {
+    /// Strength as a percent (0 = off … 100).
+    pub strength: i32,
+    /// Pre-cut headroom in tenths of a dB (≤ 0), applied ahead of the boost.
+    pub precut: i32,
+}
+
 /// Initial configuration for the full DSP chain (everything past
 /// ReplayGain). Every stage defaults to neutral, so
 /// `DspSettings::default()` is a transparent pipeline; each stage can also
@@ -382,11 +442,17 @@ impl Compressor {
 pub struct DspSettings {
     pub equalizer: Equalizer,
     pub tone: ToneControls,
+    /// Headphone crossfeed.
+    pub crossfeed: Crossfeed,
     pub surround: Surround,
     pub channel_mode: ChannelMode,
     /// Custom stereo width in percent (100 = unchanged); only audible with
     /// [`ChannelMode::Custom`].
     pub stereo_width: i32,
+    /// Perceptual Bass Enhancement.
+    pub bass_enhancement: BassEnhancement,
+    /// Auditory Fatigue Reduction level: 0 off, 1 weak, 2 moderate, 3 strong.
+    pub fatigue_reduction: i32,
     pub compressor: Compressor,
     /// Output dithering + noise shaping.
     pub dither: bool,
@@ -400,9 +466,12 @@ impl Default for DspSettings {
         DspSettings {
             equalizer: Equalizer::default(),
             tone: ToneControls::default(),
+            crossfeed: Crossfeed::default(),
             surround: Surround::default(),
             channel_mode: ChannelMode::default(),
             stereo_width: 100,
+            bass_enhancement: BassEnhancement::default(),
+            fatigue_reduction: 0,
             compressor: Compressor::default(),
             dither: false,
             pitch: PITCH_NORMAL,
@@ -657,9 +726,14 @@ enum Command {
     SetTone(ToneControls),
     SetBass(i32),
     SetTreble(i32),
+    SetBassCutoff(i32),
+    SetTrebleCutoff(i32),
+    SetCrossfeed(Crossfeed),
     SetSurround(Surround),
     SetChannelMode(ChannelMode),
     SetStereoWidth(i32),
+    SetBassEnhancement(BassEnhancement),
+    SetFatigueReduction(i32),
     SetCompressor(Compressor),
     SetDither(bool),
     SetPitch(i32),
@@ -1076,6 +1150,20 @@ impl Player {
     pub fn set_treble(&self, treble_db: i32) {
         let _ = self.tx.send(Command::SetTreble(treble_db));
     }
+    /// Override the bass shelf cutoff in Hz (0 = the Rockbox default of
+    /// 200 Hz), leaving the gains and the treble cutoff unchanged.
+    pub fn set_bass_cutoff(&self, hz: i32) {
+        let _ = self.tx.send(Command::SetBassCutoff(hz));
+    }
+    /// Override the treble shelf cutoff in Hz (0 = the Rockbox default of
+    /// 3.5 kHz), leaving the gains and the bass cutoff unchanged.
+    pub fn set_treble_cutoff(&self, hz: i32) {
+        let _ = self.tx.send(Command::SetTrebleCutoff(hz));
+    }
+    /// Headphone crossfeed (see [`Crossfeed`] / [`CrossfeedMode`]).
+    pub fn set_crossfeed(&self, crossfeed: Crossfeed) {
+        let _ = self.tx.send(Command::SetCrossfeed(crossfeed));
+    }
     /// Haas-effect surround widening.
     pub fn set_surround(&self, surround: Surround) {
         let _ = self.tx.send(Command::SetSurround(surround));
@@ -1088,6 +1176,15 @@ impl Player {
     /// wider); only audible with [`ChannelMode::Custom`].
     pub fn set_stereo_width(&self, percent: i32) {
         let _ = self.tx.send(Command::SetStereoWidth(percent));
+    }
+    /// Perceptual Bass Enhancement (see [`BassEnhancement`]; a `strength` of
+    /// 0 disables it).
+    pub fn set_bass_enhancement(&self, bass_enhancement: BassEnhancement) {
+        let _ = self.tx.send(Command::SetBassEnhancement(bass_enhancement));
+    }
+    /// Auditory Fatigue Reduction level: 0 off, 1 weak, 2 moderate, 3 strong.
+    pub fn set_fatigue_reduction(&self, strength: i32) {
+        let _ = self.tx.send(Command::SetFatigueReduction(strength));
     }
     /// Dynamic-range compressor (a `threshold_db` of 0 disables it).
     pub fn set_compressor(&self, compressor: Compressor) {
@@ -1743,6 +1840,21 @@ impl Engine {
                 apply_tone(&mut self.dsp, self.dsp_state.tone);
                 self.sync_dsp();
             }
+            Command::SetBassCutoff(hz) => {
+                self.dsp_state.tone.bass_cutoff_hz = hz;
+                apply_tone(&mut self.dsp, self.dsp_state.tone);
+                self.sync_dsp();
+            }
+            Command::SetTrebleCutoff(hz) => {
+                self.dsp_state.tone.treble_cutoff_hz = hz;
+                apply_tone(&mut self.dsp, self.dsp_state.tone);
+                self.sync_dsp();
+            }
+            Command::SetCrossfeed(cf) => {
+                self.dsp_state.crossfeed = cf;
+                apply_crossfeed(&mut self.dsp, cf);
+                self.sync_dsp();
+            }
             Command::SetSurround(s) => {
                 self.dsp_state.surround = s;
                 apply_surround(&mut self.dsp, s);
@@ -1756,6 +1868,16 @@ impl Engine {
             Command::SetStereoWidth(pct) => {
                 self.dsp_state.stereo_width = pct;
                 self.dsp.set_stereo_width(pct);
+                self.sync_dsp();
+            }
+            Command::SetBassEnhancement(pbe) => {
+                self.dsp_state.bass_enhancement = pbe;
+                apply_bass_enhancement(&mut self.dsp, pbe);
+                self.sync_dsp();
+            }
+            Command::SetFatigueReduction(strength) => {
+                self.dsp_state.fatigue_reduction = strength;
+                self.dsp.afr_enable(strength);
                 self.sync_dsp();
             }
             Command::SetCompressor(c) => {
@@ -2379,9 +2501,12 @@ fn apply_replaygain_mode(dsp: &mut rockbox_dsp::Dsp, rg: &ReplayGainConfig) {
 fn apply_dsp_settings(dsp: &mut rockbox_dsp::Dsp, s: &DspSettings) {
     apply_equalizer(dsp, &s.equalizer);
     apply_tone(dsp, s.tone);
+    apply_crossfeed(dsp, s.crossfeed);
     apply_surround(dsp, s.surround);
     dsp.set_channel_config(s.channel_mode.to_raw());
     dsp.set_stereo_width(s.stereo_width);
+    apply_bass_enhancement(dsp, s.bass_enhancement);
+    dsp.afr_enable(s.fatigue_reduction);
     dsp.set_compressor(&s.compressor.to_raw());
     dsp.dither_enable(s.dither);
     dsp.set_pitch(s.pitch);
@@ -2421,6 +2546,21 @@ fn apply_tone(dsp: &mut rockbox_dsp::Dsp, t: ToneControls) {
 
 fn apply_surround(dsp: &mut rockbox_dsp::Dsp, s: Surround) {
     dsp.set_surround(s.delay_ms, s.balance, s.cutoff_low_hz, s.cutoff_high_hz);
+}
+
+fn apply_crossfeed(dsp: &mut rockbox_dsp::Dsp, cf: Crossfeed) {
+    // Set the type first so the custom cross-mix params update the filter
+    // (they're a no-op unless the type is already `Custom`).
+    dsp.set_crossfeed(cf.mode.to_raw());
+    dsp.set_crossfeed_direct_gain(cf.direct_gain);
+    dsp.set_crossfeed_cross_params(cf.cross_gain, cf.high_freq_gain, cf.high_freq_cutoff);
+}
+
+fn apply_bass_enhancement(dsp: &mut rockbox_dsp::Dsp, pbe: BassEnhancement) {
+    // Pre-cut before enabling: `pbe_enable` recomputes the filter using the
+    // current precut.
+    dsp.set_pbe_precut(pbe.precut);
+    dsp.pbe_enable(pbe.strength);
 }
 
 fn apply_replaygain_track(dsp: &mut rockbox_dsp::Dsp, meta: &Metadata) {
@@ -2708,6 +2848,30 @@ mod dsp_tests {
         assert_eq!(s.pitch, PITCH_NORMAL);
         assert_eq!(s.channel_mode, ChannelMode::Stereo);
         assert_eq!(s.compressor.threshold_db, 0);
+        // Crossfeed / PBE / AFR default to disabled.
+        assert_eq!(s.crossfeed.mode, CrossfeedMode::Off);
+        assert_eq!(s.bass_enhancement.strength, 0);
+        assert_eq!(s.fatigue_reduction, 0);
+    }
+
+    #[test]
+    fn crossfeed_mode_maps_to_rockbox_ids() {
+        assert_eq!(CrossfeedMode::Off.to_raw(), rockbox_dsp::CROSSFEED_OFF);
+        assert_eq!(CrossfeedMode::Meier.to_raw(), rockbox_dsp::CROSSFEED_MEIER);
+        assert_eq!(
+            CrossfeedMode::Custom.to_raw(),
+            rockbox_dsp::CROSSFEED_CUSTOM
+        );
+    }
+
+    #[test]
+    fn crossfeed_defaults_mirror_rockbox() {
+        // Rockbox's own defaults (settings_list.c).
+        let cf = Crossfeed::default();
+        assert_eq!(cf.direct_gain, -15);
+        assert_eq!(cf.cross_gain, -60);
+        assert_eq!(cf.high_freq_gain, -160);
+        assert_eq!(cf.high_freq_cutoff, 700);
     }
 }
 

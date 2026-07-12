@@ -628,6 +628,63 @@ static ERL_NIF_TERM nif_player_set_treble(ErlNifEnv *env, int argc,
   return am_nil;
 }
 
+static ERL_NIF_TERM nif_player_set_bass_cutoff(ErlNifEnv *env, int argc,
+                                               const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int hz;
+  if (!p || !enif_get_int(env, argv[1], &hz)) return enif_make_badarg(env);
+  rb_player_set_bass_cutoff(p, hz);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_treble_cutoff(ErlNifEnv *env, int argc,
+                                                 const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int hz;
+  if (!p || !enif_get_int(env, argv[1], &hz)) return enif_make_badarg(env);
+  rb_player_set_treble_cutoff(p, hz);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_crossfeed(ErlNifEnv *env, int argc,
+                                             const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int mode, direct_gain, cross_gain, hf_gain, hf_cutoff;
+  if (!p || !enif_get_int(env, argv[1], &mode) ||
+      !enif_get_int(env, argv[2], &direct_gain) ||
+      !enif_get_int(env, argv[3], &cross_gain) ||
+      !enif_get_int(env, argv[4], &hf_gain) ||
+      !enif_get_int(env, argv[5], &hf_cutoff))
+    return enif_make_badarg(env);
+  rb_player_set_crossfeed(p, mode, direct_gain, cross_gain, hf_gain, hf_cutoff);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_bass_enhancement(ErlNifEnv *env, int argc,
+                                                    const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int strength, precut;
+  if (!p || !enif_get_int(env, argv[1], &strength) ||
+      !enif_get_int(env, argv[2], &precut))
+    return enif_make_badarg(env);
+  rb_player_set_bass_enhancement(p, strength, precut);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_set_fatigue_reduction(ErlNifEnv *env, int argc,
+                                                     const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int strength;
+  if (!p || !enif_get_int(env, argv[1], &strength)) return enif_make_badarg(env);
+  rb_player_set_fatigue_reduction(p, strength);
+  return am_nil;
+}
+
 static ERL_NIF_TERM nif_player_set_surround(ErlNifEnv *env, int argc,
                                             const ERL_NIF_TERM argv[]) {
   (void)argc;
@@ -924,6 +981,11 @@ static ErlNifFunc funcs[] = {
     {"player_set_tone", 5, nif_player_set_tone, 0},
     {"player_set_bass", 2, nif_player_set_bass, 0},
     {"player_set_treble", 2, nif_player_set_treble, 0},
+    {"player_set_bass_cutoff", 2, nif_player_set_bass_cutoff, 0},
+    {"player_set_treble_cutoff", 2, nif_player_set_treble_cutoff, 0},
+    {"player_set_crossfeed", 6, nif_player_set_crossfeed, 0},
+    {"player_set_bass_enhancement", 3, nif_player_set_bass_enhancement, 0},
+    {"player_set_fatigue_reduction", 2, nif_player_set_fatigue_reduction, 0},
     {"player_set_surround", 5, nif_player_set_surround, 0},
     {"player_set_channel_mode", 2, nif_player_set_channel_mode, 0},
     {"player_set_stereo_width", 2, nif_player_set_stereo_width, 0},

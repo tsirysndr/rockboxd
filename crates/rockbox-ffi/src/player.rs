@@ -8,9 +8,9 @@
 use crate::meta::MetadataJson;
 use crate::util::{cstr, into_cstring};
 use rockbox_playback::{
-    m3u, ChannelMode, Compressor, CrossfadeMode, CrossfadeSettings, DspSettings, EqBand, EqPreset,
-    InsertPosition, MixMode, PlaybackState, Player, PlayerConfig, RepeatMode, ReplayGainMode,
-    ResumeState, Status, Surround, ToneControls,
+    m3u, BassEnhancement, ChannelMode, Compressor, CrossfadeMode, CrossfadeSettings, Crossfeed,
+    CrossfeedMode, DspSettings, EqBand, EqPreset, InsertPosition, MixMode, PlaybackState, Player,
+    PlayerConfig, RepeatMode, ReplayGainMode, ResumeState, Status, Surround, ToneControls,
 };
 use serde::Serialize;
 use std::os::raw::c_char;
@@ -484,6 +484,62 @@ pub extern "C" fn rb_player_set_treble(p: *mut Player, treble_db: i32) {
     player!(p).set_treble(treble_db);
 }
 
+/// Override the bass shelf cutoff in Hz (0 = default 200 Hz); gains and the
+/// treble cutoff unchanged.
+#[no_mangle]
+pub extern "C" fn rb_player_set_bass_cutoff(p: *mut Player, hz: i32) {
+    player!(p).set_bass_cutoff(hz);
+}
+
+/// Override the treble shelf cutoff in Hz (0 = default 3.5 kHz); gains and the
+/// bass cutoff unchanged.
+#[no_mangle]
+pub extern "C" fn rb_player_set_treble_cutoff(p: *mut Player, hz: i32) {
+    player!(p).set_treble_cutoff(hz);
+}
+
+fn crossfeed_mode(v: i32) -> CrossfeedMode {
+    match v {
+        1 => CrossfeedMode::Meier,
+        2 => CrossfeedMode::Custom,
+        _ => CrossfeedMode::Off,
+    }
+}
+
+/// Headphone crossfeed. `mode`: 0 off, 1 Meier, 2 custom. `direct_gain`,
+/// `cross_gain`, `hf_gain` are in tenths of a dB (≤ 0); `hf_cutoff` in Hz.
+/// The `cross_*`/`hf_*` params only apply in custom mode.
+#[no_mangle]
+pub extern "C" fn rb_player_set_crossfeed(
+    p: *mut Player,
+    mode: i32,
+    direct_gain: i32,
+    cross_gain: i32,
+    hf_gain: i32,
+    hf_cutoff: i32,
+) {
+    player!(p).set_crossfeed(Crossfeed {
+        mode: crossfeed_mode(mode),
+        direct_gain,
+        cross_gain,
+        high_freq_gain: hf_gain,
+        high_freq_cutoff: hf_cutoff,
+    });
+}
+
+/// Perceptual Bass Enhancement: `strength` percent (0 = off … 100),
+/// `precut` headroom in tenths of a dB (≤ 0).
+#[no_mangle]
+pub extern "C" fn rb_player_set_bass_enhancement(p: *mut Player, strength: i32, precut: i32) {
+    player!(p).set_bass_enhancement(BassEnhancement { strength, precut });
+}
+
+/// Auditory Fatigue Reduction: 0 off, 1 weak, 2 moderate, 3 strong.
+#[no_mangle]
+pub extern "C" fn rb_player_set_fatigue_reduction(p: *mut Player, strength: i32) {
+    player!(p).set_fatigue_reduction(strength);
+}
+
 /// Haas surround: `delay_ms` (0 = off), `balance` in percent, band-split
 /// cutoffs in Hz (0/0 = defaults).
 #[no_mangle]
@@ -591,15 +647,42 @@ struct CompressorJson {
 }
 
 #[derive(Serialize)]
+struct CrossfeedJson {
+    /// "off" | "meier" | "custom"
+    mode: &'static str,
+    direct_gain: i32,
+    cross_gain: i32,
+    high_freq_gain: i32,
+    high_freq_cutoff: i32,
+}
+
+#[derive(Serialize)]
+struct BassEnhancementJson {
+    strength: i32,
+    precut: i32,
+}
+
+#[derive(Serialize)]
 struct DspSettingsJson {
     equalizer: EqualizerJson,
     tone: ToneJson,
+    crossfeed: CrossfeedJson,
     surround: SurroundJson,
     channel_mode: &'static str,
     stereo_width: i32,
+    bass_enhancement: BassEnhancementJson,
+    fatigue_reduction: i32,
     compressor: CompressorJson,
     dither: bool,
     pitch: i32,
+}
+
+fn crossfeed_mode_name(mode: CrossfeedMode) -> &'static str {
+    match mode {
+        CrossfeedMode::Off => "off",
+        CrossfeedMode::Meier => "meier",
+        CrossfeedMode::Custom => "custom",
+    }
 }
 
 fn channel_mode_name(mode: ChannelMode) -> &'static str {
@@ -637,6 +720,13 @@ impl From<&rockbox_playback::DspSettings> for DspSettingsJson {
                 bass_cutoff_hz: s.tone.bass_cutoff_hz,
                 treble_cutoff_hz: s.tone.treble_cutoff_hz,
             },
+            crossfeed: CrossfeedJson {
+                mode: crossfeed_mode_name(s.crossfeed.mode),
+                direct_gain: s.crossfeed.direct_gain,
+                cross_gain: s.crossfeed.cross_gain,
+                high_freq_gain: s.crossfeed.high_freq_gain,
+                high_freq_cutoff: s.crossfeed.high_freq_cutoff,
+            },
             surround: SurroundJson {
                 delay_ms: s.surround.delay_ms,
                 balance: s.surround.balance,
@@ -645,6 +735,11 @@ impl From<&rockbox_playback::DspSettings> for DspSettingsJson {
             },
             channel_mode: channel_mode_name(s.channel_mode),
             stereo_width: s.stereo_width,
+            bass_enhancement: BassEnhancementJson {
+                strength: s.bass_enhancement.strength,
+                precut: s.bass_enhancement.precut,
+            },
+            fatigue_reduction: s.fatigue_reduction,
             compressor: CompressorJson {
                 threshold_db: s.compressor.threshold_db,
                 makeup_gain: s.compressor.makeup_gain,

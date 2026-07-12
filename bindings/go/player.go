@@ -329,6 +329,31 @@ func (p *Player) SetDither(enabled bool) { rbPlayerSetDither(p.ptr, enabled) }
 // SetPitch sets the playback pitch ratio.
 func (p *Player) SetPitch(ratio int32) { rbPlayerSetPitch(p.ptr, ratio) }
 
+// SetBassCutoff sets the bass tone-control cutoff frequency in Hz.
+func (p *Player) SetBassCutoff(hz int32) { rbPlayerSetBassCutoff(p.ptr, hz) }
+
+// SetTrebleCutoff sets the treble tone-control cutoff frequency in Hz.
+func (p *Player) SetTrebleCutoff(hz int32) { rbPlayerSetTrebleCutoff(p.ptr, hz) }
+
+// SetCrossfeed configures crossfeed (headphone spatialization): the mode (see
+// [CrossfeedMode]), the direct-signal gain, the cross-feed gain, the
+// high-frequency gain, and the high-frequency cutoff in Hz. Gains are in the
+// native Rockbox encoding.
+func (p *Player) SetCrossfeed(mode CrossfeedMode, directGain, crossGain, hfGain, hfCutoff int32) {
+	rbPlayerSetCrossfeed(p.ptr, int32(mode), directGain, crossGain, hfGain, hfCutoff)
+}
+
+// SetBassEnhancement configures the bass-enhancement effect: its strength and
+// the pre-cut (headroom) applied to avoid clipping.
+func (p *Player) SetBassEnhancement(strength, precut int32) {
+	rbPlayerSetBassEnhancement(p.ptr, strength, precut)
+}
+
+// SetFatigueReduction sets the listening-fatigue-reduction strength.
+func (p *Player) SetFatigueReduction(strength int32) {
+	rbPlayerSetFatigueReduction(p.ptr, strength)
+}
+
 // DSPSettings returns a snapshot of the current DSP settings as a decoded map.
 func (p *Player) DSPSettings() (map[string]any, error) {
 	s, ok := takeString(rbPlayerDspSettingsJSON(p.ptr))

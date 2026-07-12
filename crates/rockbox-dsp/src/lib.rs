@@ -44,6 +44,11 @@ pub const EQ_NUM_BANDS: usize = 10;
 /// 10500 = +5 %. Pitch and tempo shift together (resampling).
 pub const PITCH_SPEED_100: c_int = 10000;
 
+/* enum crossfeed_type (crossfeed.h) */
+pub const CROSSFEED_OFF: c_int = 0;
+pub const CROSSFEED_MEIER: c_int = 1;
+pub const CROSSFEED_CUSTOM: c_int = 2;
+
 /* enum replaygain_types (dsp_misc.h) */
 pub const REPLAYGAIN_TRACK: c_int = 0;
 pub const REPLAYGAIN_ALBUM: c_int = 1;
@@ -173,6 +178,21 @@ extern "C" {
     /* channel_mode.c — SOUND_CHAN_* config + custom stereo width in % */
     pub fn channel_mode_set_config(value: c_int);
     pub fn channel_mode_custom_set_width(value: c_int);
+
+    /* crossfeed.c — headphone crossfeed. type: 0 off, 1 Meier, 2 custom.
+     * Gains are in tenths of a dB (≤ 0); cutoff in Hz. Cross params only
+     * take effect in custom mode. */
+    pub fn dsp_set_crossfeed_type(type_: c_int);
+    pub fn dsp_set_crossfeed_direct_gain(gain: c_int);
+    pub fn dsp_set_crossfeed_cross_params(lf_gain: c_long, hf_gain: c_long, cutoff: c_long);
+
+    /* pbe.c — perceptual bass enhancement. `strength` is a percent
+     * (0 = off … 100); `precut` is headroom in tenths of a dB (≤ 0). */
+    pub fn dsp_pbe_enable(strength: c_int);
+    pub fn dsp_pbe_precut(precut: c_int);
+
+    /* afr.c — auditory fatigue reduction: 0 off, 1 weak, 2 moderate, 3 strong. */
+    pub fn dsp_afr_enable(strength: c_int);
 
     /* compressor.c */
     pub fn dsp_set_compressor(settings: *const compressor_settings);
@@ -397,6 +417,55 @@ impl Dsp {
     /// The current pitch/speed ratio (see [`Dsp::set_pitch`]).
     pub fn pitch(&self) -> i32 {
         unsafe { dsp_get_pitch() }
+    }
+
+    /// Headphone **crossfeed** mode: [`CROSSFEED_OFF`], [`CROSSFEED_MEIER`]
+    /// (a fixed, natural-sounding profile), or [`CROSSFEED_CUSTOM`] (driven by
+    /// [`Dsp::set_crossfeed_direct_gain`] + [`Dsp::set_crossfeed_cross_params`]).
+    pub fn set_crossfeed(&mut self, mode: i32) {
+        unsafe { dsp_set_crossfeed_type(mode) };
+    }
+
+    /// Crossfeed dry-mix (direct) gain in tenths of a dB (≤ 0; e.g. -15 =
+    /// −1.5 dB — the Rockbox default).
+    pub fn set_crossfeed_direct_gain(&mut self, gain_tenth_db: i32) {
+        unsafe { dsp_set_crossfeed_direct_gain(gain_tenth_db) };
+    }
+
+    /// Custom-crossfeed cross-mix parameters (only audible with
+    /// [`CROSSFEED_CUSTOM`]): the low- and high-frequency gains in tenths of a
+    /// dB (both ≤ 0) and the high-frequency cutoff in Hz.
+    pub fn set_crossfeed_cross_params(
+        &mut self,
+        lf_gain_tenth_db: i32,
+        hf_gain_tenth_db: i32,
+        cutoff_hz: i32,
+    ) {
+        unsafe {
+            dsp_set_crossfeed_cross_params(
+                lf_gain_tenth_db as c_long,
+                hf_gain_tenth_db as c_long,
+                cutoff_hz as c_long,
+            )
+        };
+    }
+
+    /// **Perceptual Bass Enhancement** strength as a percent (0 = off … 100).
+    /// Pair with [`Dsp::set_pbe_precut`] for headroom.
+    pub fn pbe_enable(&mut self, strength: i32) {
+        unsafe { dsp_pbe_enable(strength) };
+    }
+
+    /// PBE pre-cut (headroom) in tenths of a dB (≤ 0), applied before the
+    /// bass boost to avoid clipping.
+    pub fn set_pbe_precut(&mut self, precut_tenth_db: i32) {
+        unsafe { dsp_pbe_precut(precut_tenth_db) };
+    }
+
+    /// **Auditory Fatigue Reduction** level: 0 off, 1 weak, 2 moderate,
+    /// 3 strong (a gentle high-frequency roll-off for long listening).
+    pub fn afr_enable(&mut self, strength: i32) {
+        unsafe { dsp_afr_enable(strength) };
     }
 
     /// Run interleaved stereo S16 frames through the pipeline, appending

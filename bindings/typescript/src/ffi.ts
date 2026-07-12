@@ -105,6 +105,14 @@ export const SPEC: Record<string, SymSpec> = {
   },
   rb_player_set_bass: { args: ["ptr", "i32"], ret: "void" },
   rb_player_set_treble: { args: ["ptr", "i32"], ret: "void" },
+  rb_player_set_bass_cutoff: { args: ["ptr", "i32"], ret: "void" },
+  rb_player_set_treble_cutoff: { args: ["ptr", "i32"], ret: "void" },
+  rb_player_set_crossfeed: {
+    args: ["ptr", "i32", "i32", "i32", "i32", "i32"],
+    ret: "void",
+  },
+  rb_player_set_bass_enhancement: { args: ["ptr", "i32", "i32"], ret: "void" },
+  rb_player_set_fatigue_reduction: { args: ["ptr", "i32"], ret: "void" },
   rb_player_set_surround: {
     args: ["ptr", "i32", "i32", "i32", "i32"],
     ret: "void",

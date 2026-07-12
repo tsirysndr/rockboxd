@@ -152,6 +152,20 @@ void  rb_player_set_tone(RbPlayer *p, int32_t bass_db, int32_t treble_db,
 /* Set one tone axis, leaving the other and the cutoffs unchanged. */
 void  rb_player_set_bass(RbPlayer *p, int32_t bass_db);
 void  rb_player_set_treble(RbPlayer *p, int32_t treble_db);
+/* Override one tone shelf cutoff in Hz (0 = default), gains unchanged. */
+void  rb_player_set_bass_cutoff(RbPlayer *p, int32_t hz);
+void  rb_player_set_treble_cutoff(RbPlayer *p, int32_t hz);
+/* Headphone crossfeed. mode: 0 off, 1 Meier, 2 custom. direct/cross/hf gains
+ * in tenths of a dB (<= 0); hf_cutoff in Hz. cross/hf apply in custom mode. */
+void  rb_player_set_crossfeed(RbPlayer *p, int32_t mode, int32_t direct_gain,
+                              int32_t cross_gain, int32_t hf_gain,
+                              int32_t hf_cutoff);
+/* Perceptual bass enhancement: strength percent (0 = off), precut in tenths
+ * of a dB (<= 0). */
+void  rb_player_set_bass_enhancement(RbPlayer *p, int32_t strength,
+                                     int32_t precut);
+/* Auditory fatigue reduction: 0 off, 1 weak, 2 moderate, 3 strong. */
+void  rb_player_set_fatigue_reduction(RbPlayer *p, int32_t strength);
 /* Haas surround: delay_ms (0 = off), balance %, band-split cutoffs Hz. */
 void  rb_player_set_surround(RbPlayer *p, int32_t delay_ms, int32_t balance,
                              int32_t cutoff_low_hz, int32_t cutoff_high_hz);

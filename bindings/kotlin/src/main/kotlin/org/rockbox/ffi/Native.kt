@@ -130,6 +130,14 @@ internal object Native {
         h("rb_player_set_compressor", FunctionDescriptor.ofVoid(PTR, I32, I32, I32, I32, I32, I32))
     val playerSetDither = h("rb_player_set_dither", FunctionDescriptor.ofVoid(PTR, BOOL))
     val playerSetPitch = h("rb_player_set_pitch", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetBassCutoff = h("rb_player_set_bass_cutoff", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetTrebleCutoff = h("rb_player_set_treble_cutoff", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerSetCrossfeed =
+        h("rb_player_set_crossfeed", FunctionDescriptor.ofVoid(PTR, I32, I32, I32, I32, I32))
+    val playerSetBassEnhancement =
+        h("rb_player_set_bass_enhancement", FunctionDescriptor.ofVoid(PTR, I32, I32))
+    val playerSetFatigueReduction =
+        h("rb_player_set_fatigue_reduction", FunctionDescriptor.ofVoid(PTR, I32))
     val playerDspSettingsJson = h("rb_player_dsp_settings_json", FunctionDescriptor.of(PTR, PTR))
 
     // ---- resume -------------------------------------------------------

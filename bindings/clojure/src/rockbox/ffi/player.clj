@@ -235,6 +235,42 @@
   (ffi/call :player-set-treble p (int treble-db))
   p)
 
+(defn set-bass-cutoff
+  "Set the bass tone-control cutoff frequency in Hz. Returns `p` for threading."
+  [^MemorySegment p hz]
+  (ffi/call :player-set-bass-cutoff p (int hz))
+  p)
+
+(defn set-treble-cutoff
+  "Set the treble tone-control cutoff frequency in Hz. Returns `p` for threading."
+  [^MemorySegment p hz]
+  (ffi/call :player-set-treble-cutoff p (int hz))
+  p)
+
+(defn set-crossfeed
+  "Configure the crossfeed effect (headphone spatialization).
+
+  `mode` is rockbox.ffi.enums/crossfeed-mode (:off :meier :custom). The gains
+  (`direct-gain`, `cross-gain`, `hf-gain`) and `hf-cutoff` (Hz) are only used in
+  :custom mode. Returns `p` for threading."
+  [^MemorySegment p mode direct-gain cross-gain hf-gain hf-cutoff]
+  (ffi/call :player-set-crossfeed p (int (enums/code enums/crossfeed-mode mode))
+            (int direct-gain) (int cross-gain) (int hf-gain) (int hf-cutoff))
+  p)
+
+(defn set-bass-enhancement
+  "Configure bass enhancement: `strength` and `precut`. Returns `p` for
+  threading."
+  [^MemorySegment p strength precut]
+  (ffi/call :player-set-bass-enhancement p (int strength) (int precut))
+  p)
+
+(defn set-fatigue-reduction
+  "Set the listening-fatigue reduction `strength`. Returns `p` for threading."
+  [^MemorySegment p strength]
+  (ffi/call :player-set-fatigue-reduction p (int strength))
+  p)
+
 (defn set-surround
   "Configure the surround effect: delay (ms), balance, and low/high cutoffs (Hz).
   Returns `p` for threading."

@@ -339,6 +339,60 @@ defmodule Rockbox.Player do
   @spec set_treble(t(), integer()) :: t()
   def set_treble(p, treble_db), do: then_self(:rockbox_ffi_nif.player_set_treble(p, treble_db), p)
 
+  @doc "Override the bass tone shelf cutoff in Hz (`0` = native default); gains unchanged."
+  @spec set_bass_cutoff(t(), integer()) :: t()
+  def set_bass_cutoff(p, hz), do: then_self(:rockbox_ffi_nif.player_set_bass_cutoff(p, hz), p)
+
+  @doc "Override the treble tone shelf cutoff in Hz (`0` = native default); gains unchanged."
+  @spec set_treble_cutoff(t(), integer()) :: t()
+  def set_treble_cutoff(p, hz),
+    do: then_self(:rockbox_ffi_nif.player_set_treble_cutoff(p, hz), p)
+
+  @doc """
+  Headphone crossfeed. `mode` accepts a `Rockbox.CrossfeedMode` atom (`:off`,
+  `:meier`, `:custom`) or its integer code.
+
+  `direct_gain`, `cross_gain` and `hf_gain` are in tenths of a dB (`<= 0`);
+  `hf_cutoff_hz` is in Hz. The cross/high-frequency parameters only apply in
+  `:custom` mode.
+  """
+  @spec set_crossfeed(
+          t(),
+          Rockbox.CrossfeedMode.t() | 0..2,
+          integer(),
+          integer(),
+          integer(),
+          integer()
+        ) :: t()
+  def set_crossfeed(p, mode, direct_gain, cross_gain, hf_gain, hf_cutoff_hz),
+    do:
+      then_self(
+        :rockbox_ffi_nif.player_set_crossfeed(
+          p,
+          Rockbox.CrossfeedMode.to_int(mode),
+          direct_gain,
+          cross_gain,
+          hf_gain,
+          hf_cutoff_hz
+        ),
+        p
+      )
+
+  @doc """
+  Perceptual bass enhancement. `strength` is a percentage (`0` = off); `precut`
+  is in tenths of a dB (`<= 0`).
+  """
+  @spec set_bass_enhancement(t(), integer(), integer()) :: t()
+  def set_bass_enhancement(p, strength, precut),
+    do: then_self(:rockbox_ffi_nif.player_set_bass_enhancement(p, strength, precut), p)
+
+  @doc """
+  Auditory fatigue reduction: `0` off, `1` weak, `2` moderate, `3` strong.
+  """
+  @spec set_fatigue_reduction(t(), 0..3) :: t()
+  def set_fatigue_reduction(p, strength),
+    do: then_self(:rockbox_ffi_nif.player_set_fatigue_reduction(p, strength), p)
+
   @doc """
   Haas surround effect: `delay_ms` (`0` = off), `balance` %, and the band-split
   cutoffs in Hz.

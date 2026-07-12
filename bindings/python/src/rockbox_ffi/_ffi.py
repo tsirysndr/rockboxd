@@ -114,6 +114,14 @@ ffi.cdef(
                                    int32_t makeup_gain, int32_t ratio,
                                    int32_t knee, int32_t attack_ms,
                                    int32_t release_ms);
+    void  rb_player_set_bass_cutoff(RbPlayer *p, int32_t hz);
+    void  rb_player_set_treble_cutoff(RbPlayer *p, int32_t hz);
+    void  rb_player_set_crossfeed(RbPlayer *p, int32_t mode, int32_t direct_gain,
+                                  int32_t cross_gain, int32_t hf_gain,
+                                  int32_t hf_cutoff);
+    void  rb_player_set_bass_enhancement(RbPlayer *p, int32_t strength,
+                                         int32_t precut);
+    void  rb_player_set_fatigue_reduction(RbPlayer *p, int32_t strength);
     void  rb_player_set_dither(RbPlayer *p, bool enabled);
     void  rb_player_set_pitch(RbPlayer *p, int32_t ratio);
     char *rb_player_dsp_settings_json(RbPlayer *p);

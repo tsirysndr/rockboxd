@@ -114,3 +114,11 @@ class ChannelMode(IntEnum):
     MONO_RIGHT = 4
     KARAOKE = 5
     SWAP = 6
+
+
+class CrossfeedMode(IntEnum):
+    """Values for :meth:`rockbox_ffi.player.Player.set_crossfeed`."""
+
+    OFF = 0
+    MEIER = 1
+    CUSTOM = 2
