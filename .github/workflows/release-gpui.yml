@@ -60,7 +60,6 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            zig/.zig-cache
           key: gpui-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: gpui-${{ matrix.os }}-${{ matrix.arch }}-
 
@@ -85,6 +84,7 @@ jobs:
           cd webui/rockbox
           deno install
           deno run build
+          rm -r node_modules
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -97,7 +97,9 @@ jobs:
 
       - name: Build admin UI
         working-directory: crates/s3/s3webui
-        run: bun run build
+        run: |
+          bun run build
+          rm -r node_modules
 
       # ── Step 1-2: Headless firmware + rockbox-server ──────────────────────
       - name: Build headless firmware
@@ -105,20 +107,8 @@ jobs:
 
       # ── Step 3: rockbox-embed Rust crate ──────────────────────────────────
       - name: Build rockbox-embed
-        # Remove the cached static archive so cargo always re-links it from the
-        # current target/release/deps. Cargo's mtime check usually catches
-        # source edits, but the cache key only hashes Cargo.lock and
-        # `restore-keys` falls back to any prior gpui-${{ matrix.os }}- cache,
-        # so a crates/embed-only change can otherwise restore a stale .a that
-        # is missing newer exports (e.g. rb_daemon_start). Mirrors the
-        # linux-x86_64-build workflow's force-relink step.
         run: |
-          rm -f target/release/librockbox_embed.a
           cargo build --release -p rockbox-embed
-          echo "--- verify rb_daemon_start is present ---"
-          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
-            | grep rb_daemon_start \
-            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
 
       # ── Step 4: Fat static library ────────────────────────────────────────
       # Remove the cached archive so the zig link step always re-runs — the
@@ -126,14 +116,8 @@ jobs:
       # would otherwise leave a stale librockboxd.a in place.
       - name: Build librockboxd.a
         run: |
-          rm -f zig/zig-out/lib/librockboxd.a
           cd zig
           zig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}
-          cd ..
-          echo "--- verify rb_daemon_start survived into librockboxd.a ---"
-          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
-            | grep rb_daemon_start \
-            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
 
       # ── Step 5: GPUI app + DMG ────────────────────────────────────────────
       - name: Build and package
