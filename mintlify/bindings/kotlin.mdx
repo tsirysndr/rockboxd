@@ -43,13 +43,56 @@ Dsp(44_100).use { dsp ->
     val out: ShortArray = dsp.process(samples)
 }
 
-// Player (queue + transport)
+// Player (queue + transport + DSP + shuffle/repeat)
 Player(Player.Config().apply { volume = 0.8f }).use { player ->
-    player.setQueue(listOf("/music/a.flac", "/music/b.mp3"))
+    // Sources may be local paths, http(s):// URLs, or live-radio / streaming URLs.
+    player.setQueue(listOf("/music/a.flac", "https://example.com/b.mp3"))
+    player.enqueue("http://stream.example.org/radio")
+
+    // DSP chain
+    player.setEqEnabled(true)
+    player.setEqPreset(EqPreset.BASS_BOOST)     // one of 21 built-in presets
+
+    // Playback modes
+    player.setShuffle(true)
+    player.setRepeat(RepeatMode.ALL)
+
     player.play()
     println(player.status()["state"])
+    println(player.dspSettings())               // Map<String, Any?>
 }
 ```
+
+<Note>
+  Player setters follow Kotlin idiom — they return `Unit`, so they do **not**
+  chain. Construct with `Player(Config().apply { volume = 0.8f })` and call
+  each setter on its own line.
+</Note>
+
+## API surface
+
+| Type       | Selected members                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Metadata` | `read(path)` → `Map<String, Any?>`, `probe(path)` → codec name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Dsp`      | `eqEnable(on)`, `setEqBand(band, cutoffHz, q, gainDb)`, `process(samples)`, `setReplaygain(mode, …)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `Player`   | **Sources / queue**: `setQueue(paths)`, `enqueue(path)`, `insert(paths, position, index)`, `queue()`, `loadM3u` / `importM3u` / `exportM3u` — every path may be a local file, an `http(s)://` URL, or a live-radio / streaming URL. **Transport**: `play`, `pause`, `toggle`, `stop`, `next`, `previous`, `skipTo`, `seekMs`. **Volume / crossfade / replaygain**: `setVolume`, `setCrossfade`, `setReplaygain`. **Shuffle / repeat**: `setShuffle(on)`, `isShuffleEnabled()`, `setRepeat(mode)`, `repeat()`. **DSP chain**: `setEqEnabled` / `isEqEnabled`, `setEqPreset`, `setEqBand`, `setEqPrecut`, `setTone`, `setBass`, `setTreble`, `setBassCutoff`, `setTrebleCutoff`, `setCrossfeed`, `setSurround`, `setChannelMode`, `setStereoWidth`, `setBassEnhancement`, `setFatigueReduction`, `setCompressor`, `setDither`, `setPitch`, `dspSettings()` → `Map`. **Status / resume**: `status()`, `resume`, `saveResume`, `clearResume`. |
+
+### Enums
+
+- `EqPreset` — 21 built-in presets: `FLAT`, `ACOUSTIC`, `BASS_BOOST`, `BASS_REDUCER`, `CLASSICAL`, `DANCE`, `DEEP`, `ELECTRONIC`, `HIP_HOP`, `JAZZ`, `LATIN`, `LOUDNESS`, `LOUNGE`, `PIANO`, `POP`, `RNB`, `ROCK`, `SMALL_SPEAKERS`, `TREBLE_BOOST`, `TREBLE_REDUCER`, `VOCAL_BOOST`.
+- `RepeatMode` — `OFF`, `ONE`, `ALL`.
+- `CrossfeedMode` — `OFF`, `MEIER`, `CUSTOM`.
+- `ChannelMode` — `STEREO`, `MONO`, `CUSTOM`, `MONO_LEFT`, `MONO_RIGHT`, `KARAOKE`, `SWAP`.
+- `CrossfadeMode` — `OFF`, `AUTO_SKIP`, `MANUAL_SKIP`, `SHUFFLE`, `SHUFFLE_OR_MANUAL`, `ALWAYS`; `MixMode` — `CROSSFADE`, `MIX`.
+- `InsertPosition` — `PREPEND`, `INSERT`, `INSERT_NEXT`, `INSERT_LAST`, `INSERT_SHUFFLED`, `INSERT_LAST_SHUFFLED`, `REPLACE`, `INDEX`.
+- `ReplayGainMode` (player) — `OFF`, `TRACK`, `ALBUM`; `DspReplayGainMode` (`Dsp`) — `TRACK`, `ALBUM`, `SHUFFLE`, `OFF`.
+
+<Tip>
+  The DSP chain mirrors Rockbox's own **Sound Settings** — parametric EQ,
+  crossfeed, tone controls, channel modes, surround, and the compressor. For
+  what each knob does and sensible ranges, see the official
+  [Rockbox manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+</Tip>
 
 ## Notes
 

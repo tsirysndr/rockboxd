@@ -18,12 +18,12 @@ running a daemon or talking to any network port.
 
 ## SDKs vs. bindings
 
-| &nbsp;              | [Client SDKs](/sdks/overview)          | Bindings (this section)                     |
-| ------------------- | -------------------------------------- | ------------------------------------------- |
-| Talks to            | A running `rockboxd` over GraphQL      | The engine, linked in-process               |
-| Transport           | HTTP / WebSocket on port 6062          | Native `dlopen` / FFI — no network          |
-| Best for            | Apps that control a music server       | Embedding DSP / metadata / playback         |
-| Package family      | `rockbox-sdk`, `@rockbox-zig/sdk`, …   | `rockbox-ffi` and friends                   |
+| &nbsp;         | [Client SDKs](/sdks/overview)        | Bindings (this section)             |
+| -------------- | ------------------------------------ | ----------------------------------- |
+| Talks to       | A running `rockboxd` over GraphQL    | The engine, linked in-process       |
+| Transport      | HTTP / WebSocket on port 6062        | Native `dlopen` / FFI — no network  |
+| Best for       | Apps that control a music server     | Embedding DSP / metadata / playback |
+| Package family | `rockbox-sdk`, `@rockbox-zig/sdk`, … | `rockbox-ffi` and friends           |
 
 ## Three surfaces
 
@@ -36,14 +36,50 @@ Every binding exposes the same three namespaces with matching method names:
     no I/O.
   </Card>
   <Card title="Dsp" icon="sliders">
-    Construct with a sample rate, then EQ / tone / surround / compressor /
-    ReplayGain setters, and `process(samples)` over interleaved stereo int16.
+    Construct with a sample rate, then the whole pipeline — EQ, tone,
+    crossfeed, surround, channel mixing, bass enhancement, compressor,
+    ReplayGain, … — and `process(samples)` over interleaved stereo int16.
   </Card>
   <Card title="Player" icon="play">
-    Queue + transport (`play` / `pause` / `next` / `seek` / …), crossfade,
-    ReplayGain, and `status()`. Needs an audio output device.
+    Queue + transport, **shuffle / repeat**, crossfade, ReplayGain, the full
+    **DSP chain** (EQ + presets, tone, crossfeed, surround, compressor, …),
+    and `status()`. Needs an audio output device.
   </Card>
 </CardGroup>
+
+## What the Player exposes
+
+Beyond queue and transport, the player mirrors Rockbox's own sound engine —
+every setter is live and reflected back by `dsp_settings()` / `status()`:
+
+<CardGroup cols={2}>
+  <Card title="Playback modes" icon="shuffle">
+    **Shuffle** (current track stays, the rest are shuffled) and **repeat**
+    (`off` / `one` / `all`), readable back from `status()`.
+  </Card>
+  <Card title="Equalizer" icon="sliders">
+    10-band parametric EQ with **21 ready-to-use presets** (Rock, Jazz, Bass
+    Boost, …), per-band control, and a pre-cut.
+  </Card>
+  <Card title="Tone & spatial" icon="wave-sine">
+    Bass/treble (with cutoffs), **crossfeed**, Haas **surround**, channel
+    mixing (mono / karaoke / swap) and custom stereo width.
+  </Card>
+  <Card title="Enhancement & output" icon="volume-high">
+    **Perceptual bass enhancement**, **auditory fatigue reduction**, a
+    dynamic-range **compressor**, **dither** and **pitch**/speed.
+  </Card>
+</CardGroup>
+
+Queue entries can be **local file paths**, **`http(s)://` URLs** (finite
+remote files, streamed on demand), or **live-radio / streaming URLs**.
+
+<Note>
+  These are the same controls as Rockbox's on-device sound menu — see the
+  official [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+  (and the [Equalizer](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html#x11-1200006.11)
+  section) for what each one does.
+</Note>
 
 ## Pick a language
 

@@ -43,33 +43,46 @@ func main() {
 	_ = processed
 
 	// --- playback (needs an output device) ----------------------------
-	cfg := rockbox.DefaultConfig()
-	cfg.Volume = 0.8
-	player, _ := rockbox.NewPlayer(cfg)
+	// Functional-options constructor (or use NewPlayer(Config) directly):
+	player, _ := rockbox.New(
+		rockbox.WithVolume(0.8),
+		rockbox.WithReplayGain(rockbox.ReplayGainTrack, 0.0, true),
+		rockbox.WithCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade),
+		rockbox.WithResumeFile("state.m3u8"),
+	)
 	defer player.Close()
-	player.SetReplaygain(rockbox.ReplayGainTrack, 0.0, true)
-	player.SetCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade)
-	player.SetQueue([]string{"a.flac", "b.mp3", "c.opus"})
+
+	// DSP chain — EQ presets, tone, crossfeed, compressor, … (setters return nothing)
+	player.SetEqEnabled(true)
+	player.SetEqPreset(rockbox.EqPresetBassBoost)
+
+	// Shuffle & repeat
+	player.SetShuffle(true)
+	player.SetRepeat(rockbox.RepeatAll)
+
+	// Queue entries may be local paths, http(s):// URLs, or live-radio / streaming URLs.
+	player.SetQueue([]string{"a.flac", "https://example.com/b.mp3", "https://stream.example/radio"})
 	player.Play()
-	st, _ := player.Status() // &Status{State: "playing", Index: 0, ...}
-	fmt.Println(st.State)
+	st, _ := player.Status() // &Status{State: "playing", Index: 0, Shuffle: true, Repeat: "all", ...}
+	fmt.Println(st.State, st.Shuffle, st.Repeat)
 }
 ```
 
 ## API
 
-| Symbol                          | Contents                                                           |
-| ------------------------------- | ------------------------------------------------------------------ |
-| `rockbox.Metadata`              | `Read(path) (*Meta, error)`, `Probe(name) (string, bool)`          |
-| `rockbox.NewDsp` → `*Dsp`       | EQ / tone / surround / compressor / ReplayGain, `Process([]int16)` |
-| `rockbox.NewPlayer` → `*Player` | queue + transport + crossfade + ReplayGain, `Status()`             |
-| `rockbox.*` consts              | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, `ChannelConfig` |
+| Symbol                                          | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rockbox.Metadata`                              | `Read(path) (*Meta, error)`, `Probe(name) (string, bool)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `rockbox.NewDsp` → `*Dsp`                       | EQ / tone / surround / compressor / ReplayGain, `Process([]int16)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `rockbox.New` / `rockbox.NewPlayer` → `*Player` | **Construct:** `New(WithVolume, WithReplayGain, WithCrossfade, WithResumeFile, …)` (functional options) or `NewPlayer(Config)`. **Transport:** `Play` / `Pause` / `Toggle` / `Stop` / `Next` / `Previous` / `SkipTo` / `SeekMs`. **Queue:** `SetQueue` / `Enqueue` / `Insert` / `Queue` (local paths, `http(s)://`, live-radio / streaming URLs). **Shuffle & repeat:** `SetShuffle` / `IsShuffleEnabled`, `SetRepeat` / `Repeat`. **DSP chain:** `SetEqEnabled` / `IsEqEnabled` / `SetEqPreset` / `SetEqBand` / `SetEqPrecut`, `SetTone` / `SetBass` / `SetTreble` / `SetBassCutoff` / `SetTrebleCutoff`, `SetCrossfeed`, `SetSurround`, `SetChannelMode` / `SetStereoWidth`, `SetBassEnhancement`, `SetFatigueReduction`, `SetCompressor`, `SetDither`, `SetPitch`, `DSPSettings()`. **Volume/ReplayGain/crossfade:** `SetVolume` / `Volume`, `SetReplaygain`, `SetCrossfade`. **Resume / m3u:** `Resume` / `SaveResume` / `ClearResume`, `LoadM3u` / `ImportM3u` / `ExportM3u`. **State:** `Status()`. |
+| `rockbox.*` consts                              | `DspReplayGainMode`, `ReplayGainMode`, `RepeatMode` (Off/One/All), `EqPreset` (21 presets), `CrossfeedMode`, `ChannelMode`, `CrossfadeMode`, `MixMode`, `InsertPosition`, `ChannelConfig`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 - **Handles** own native resources — `defer dsp.Close()` / `defer player.Close()`
   frees them.
 - **Rich values** (metadata, status) decode into typed structs (`Meta`,
   `Status`); optional tags are `nil`-able pointer fields.
 - **Sample buffers** are `[]int16` of interleaved-stereo signed 16-bit samples.
+- **DSP semantics** (EQ bands, tone, crossfeed, compressor, …) mirror Rockbox's own settings — see the [official Rockbox manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html) for what each control does.
 
 <Warning>
   `Dsp.SetReplaygain` and `Player.SetReplaygain` take **different mode
