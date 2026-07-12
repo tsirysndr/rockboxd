@@ -80,6 +80,16 @@ export const EqPreset = {
   VocalBoost: 20,
 } as const;
 
+/** For `Player.setRepeat` / `Player.repeat` (0 off, 1 one, 2 all). */
+export const RepeatMode = {
+  Off: 0,
+  One: 1,
+  All: 2,
+} as const;
+
+/** The integer values of `RepeatMode` (0, 1 or 2). */
+export type RepeatMode = (typeof RepeatMode)[keyof typeof RepeatMode];
+
 /** For `Player.setChannelMode`. */
 export const ChannelMode = {
   Stereo: 0,

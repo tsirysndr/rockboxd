@@ -18,6 +18,13 @@ module RockboxFFI
     ALBUM = 2
   end
 
+  # Values for Player#set_repeat / #repeat.
+  module RepeatMode
+    OFF = 0
+    ONE = 1
+    ALL = 2
+  end
+
   module CrossfadeMode
     OFF = 0
     AUTO_SKIP = 1

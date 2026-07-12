@@ -121,6 +121,10 @@ module RockboxFFI
     extern "float rb_player_volume(void*)"
     extern "uint32_t rb_player_sample_rate(void*)"
     extern "void* rb_player_status_json(void*)"
+    extern "void rb_player_set_shuffle(void*, bool)"
+    extern "bool rb_player_is_shuffle_enabled(void*)"
+    extern "void rb_player_set_repeat(void*, int32_t)"
+    extern "int32_t rb_player_repeat(void*)"
 
     # ---- player DSP ---------------------------------------------------
     extern "void rb_player_set_eq_enabled(void*, bool)"

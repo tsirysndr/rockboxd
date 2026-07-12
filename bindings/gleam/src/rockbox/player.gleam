@@ -7,6 +7,14 @@
 //// ReplayGain `mode` here uses the player values: 0 off, 1 track, 2 album.
 //// Crossfade `mode`: 0 off, 1 auto-skip, 2 manual-skip, 3 shuffle,
 //// 4 shuffle-or-manual, 5 always. Mix mode: 0 crossfade, 1 mix.
+////
+//// Mutating functions return the `Player`, so they can be piped:
+////
+////     p
+////     |> player.set_queue(tracks)
+////     |> player.set_shuffle(True)
+////     |> player.set_repeat(player.All)
+////     |> player.play
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -184,6 +192,32 @@ pub fn channel_mode_to_int(mode: ChannelMode) -> Int {
   }
 }
 
+/// Repeat mode (`set_repeat` / `repeat`). Values map to the ABI's integer
+/// mode ids: 0 off, 1 one, 2 all.
+pub type RepeatMode {
+  Off
+  One
+  All
+}
+
+/// Encode a `RepeatMode` as the ABI's integer id (0/1/2).
+pub fn repeat_mode_to_int(mode: RepeatMode) -> Int {
+  case mode {
+    Off -> 0
+    One -> 1
+    All -> 2
+  }
+}
+
+/// Decode the ABI's integer id (0/1/2) into a `RepeatMode` (unknown → `Off`).
+pub fn repeat_mode_from_int(value: Int) -> RepeatMode {
+  case value {
+    1 -> One
+    2 -> All
+    _ -> Off
+  }
+}
+
 /// A snapshot of the player's status.
 pub type Status {
   Status(
@@ -192,6 +226,8 @@ pub type Status {
     position_ms: Int,
     duration_ms: Int,
     queue_len: Int,
+    shuffle: Bool,
+    repeat: String,
   )
 }
 
@@ -283,8 +319,9 @@ pub fn with_config(c: Config) -> Player {
 
 /// Replace the queue. Each entry may be a local file path, an `http(s)://`
 /// URL to a finite remote file, or a live-radio / streaming URL.
-pub fn set_queue(player: Player, paths: List(String)) -> Nil {
+pub fn set_queue(player: Player, paths: List(String)) -> Player {
   ffi_set_queue_json(player, iolist_to_binary(json_encode(paths)))
+  player
 }
 
 /// Insert a list of paths / URLs into the queue at `position`.
@@ -292,9 +329,10 @@ pub fn insert(
   player: Player,
   paths: List(String),
   position: InsertPosition,
-) -> Nil {
+) -> Player {
   let #(pos, index) = insert_position_args(position)
   ffi_insert_json(player, iolist_to_binary(json_encode(paths)), pos, index)
+  player
 }
 
 /// The current queue as a list of paths / URLs.
@@ -307,35 +345,94 @@ pub fn queue(player: Player) -> List(String) {
 
 /// Append one track to the queue. `path` may be a local file path, an
 /// `http(s)://` URL to a finite remote file, or a live-radio / streaming URL.
+pub fn enqueue(player: Player, path: String) -> Player {
+  ffi_enqueue(player, path)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_enqueue")
-pub fn enqueue(player: Player, path: String) -> Nil
+fn ffi_enqueue(player: Player, path: String) -> Nil
+
+/// Start (or resume) playback.
+pub fn play(player: Player) -> Player {
+  ffi_play(player)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_play")
-pub fn play(player: Player) -> Nil
+fn ffi_play(player: Player) -> Nil
+
+/// Pause playback.
+pub fn pause(player: Player) -> Player {
+  ffi_pause(player)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_pause")
-pub fn pause(player: Player) -> Nil
+fn ffi_pause(player: Player) -> Nil
+
+/// Toggle between play and pause.
+pub fn toggle(player: Player) -> Player {
+  ffi_toggle(player)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_toggle")
-pub fn toggle(player: Player) -> Nil
+fn ffi_toggle(player: Player) -> Nil
+
+/// Stop playback.
+pub fn stop(player: Player) -> Player {
+  ffi_stop(player)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_stop")
-pub fn stop(player: Player) -> Nil
+fn ffi_stop(player: Player) -> Nil
+
+/// Skip to the next track.
+pub fn next(player: Player) -> Player {
+  ffi_next(player)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_next")
-pub fn next(player: Player) -> Nil
+fn ffi_next(player: Player) -> Nil
+
+/// Skip to the previous track.
+pub fn previous(player: Player) -> Player {
+  ffi_previous(player)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_previous")
-pub fn previous(player: Player) -> Nil
+fn ffi_previous(player: Player) -> Nil
+
+/// Skip to the track at `index` in the queue.
+pub fn skip_to(player: Player, index: Int) -> Player {
+  ffi_skip_to(player, index)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_skip_to")
-pub fn skip_to(player: Player, index: Int) -> Nil
+fn ffi_skip_to(player: Player, index: Int) -> Nil
+
+/// Seek to `ms` within the current track.
+pub fn seek_ms(player: Player, ms: Int) -> Player {
+  ffi_seek_ms(player, ms)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_seek_ms")
-pub fn seek_ms(player: Player, ms: Int) -> Nil
+fn ffi_seek_ms(player: Player, ms: Int) -> Nil
+
+/// Set the output volume (0.0..1.0).
+pub fn set_volume(player: Player, volume: Float) -> Player {
+  ffi_set_volume(player, volume)
+  player
+}
 
 @external(erlang, "rockbox_ffi_nif", "player_set_volume")
-pub fn set_volume(player: Player, volume: Float) -> Nil
+fn ffi_set_volume(player: Player, volume: Float) -> Nil
 
 @external(erlang, "rockbox_ffi_nif", "player_volume")
 pub fn volume(player: Player) -> Float
@@ -343,8 +440,30 @@ pub fn volume(player: Player) -> Float
 @external(erlang, "rockbox_ffi_nif", "player_sample_rate")
 pub fn sample_rate(player: Player) -> Int
 
-@external(erlang, "rockbox_ffi_nif", "player_set_crossfade")
+/// Configure crossfade behaviour.
 pub fn set_crossfade(
+  player: Player,
+  mode: Int,
+  fade_out_delay_ms: Int,
+  fade_out_duration_ms: Int,
+  fade_in_delay_ms: Int,
+  fade_in_duration_ms: Int,
+  mix_mode: Int,
+) -> Player {
+  ffi_set_crossfade(
+    player,
+    mode,
+    fade_out_delay_ms,
+    fade_out_duration_ms,
+    fade_in_delay_ms,
+    fade_in_duration_ms,
+    mix_mode,
+  )
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_crossfade")
+fn ffi_set_crossfade(
   player: Player,
   mode: Int,
   fade_out_delay_ms: Int,
@@ -354,8 +473,19 @@ pub fn set_crossfade(
   mix_mode: Int,
 ) -> Nil
 
-@external(erlang, "rockbox_ffi_nif", "player_set_replaygain")
+/// Configure ReplayGain (mode, pre-amp in dB, clipping prevention).
 pub fn set_replaygain(
+  player: Player,
+  mode: Int,
+  preamp_db: Float,
+  prevent_clipping: Bool,
+) -> Player {
+  ffi_set_replaygain(player, mode, preamp_db, prevent_clipping)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_replaygain")
+fn ffi_set_replaygain(
   player: Player,
   mode: Int,
   preamp_db: Float,
@@ -369,19 +499,61 @@ pub fn status(player: Player) -> Status {
   status
 }
 
+// -- shuffle / repeat ---------------------------------------------------
+
+/// Enable or disable shuffle playback.
+pub fn set_shuffle(player: Player, enabled: Bool) -> Player {
+  ffi_set_shuffle(player, enabled)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_shuffle")
+fn ffi_set_shuffle(player: Player, enabled: Bool) -> Nil
+
+/// Whether shuffle playback is currently enabled.
+@external(erlang, "rockbox_ffi_nif", "player_is_shuffle_enabled")
+pub fn is_shuffle_enabled(player: Player) -> Bool
+
+/// Set the repeat mode (off / one / all).
+pub fn set_repeat(player: Player, mode: RepeatMode) -> Player {
+  ffi_set_repeat(player, repeat_mode_to_int(mode))
+  player
+}
+
+/// The current repeat mode (off / one / all).
+pub fn repeat(player: Player) -> RepeatMode {
+  repeat_mode_from_int(ffi_repeat(player))
+}
+
 // -- DSP chain ----------------------------------------------------------
 
 /// Enable or disable the graphic equalizer.
+pub fn set_eq_enabled(player: Player, enabled: Bool) -> Player {
+  ffi_set_eq_enabled(player, enabled)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_eq_enabled")
-pub fn set_eq_enabled(player: Player, enabled: Bool) -> Nil
+fn ffi_set_eq_enabled(player: Player, enabled: Bool) -> Nil
 
 /// Whether the graphic equalizer is currently enabled.
 @external(erlang, "rockbox_ffi_nif", "player_is_eq_enabled")
 pub fn is_eq_enabled(player: Player) -> Bool
 
 /// Configure one EQ band: `cutoff_hz` in Hz, `q` factor, `gain_db` in dB.
-@external(erlang, "rockbox_ffi_nif", "player_set_eq_band")
 pub fn set_eq_band(
+  player: Player,
+  band: Int,
+  cutoff_hz: Int,
+  q: Float,
+  gain_db: Float,
+) -> Player {
+  ffi_set_eq_band(player, band, cutoff_hz, q, gain_db)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_eq_band")
+fn ffi_set_eq_band(
   player: Player,
   band: Int,
   cutoff_hz: Int,
@@ -390,17 +562,34 @@ pub fn set_eq_band(
 ) -> Nil
 
 /// Set the EQ pre-cut (headroom), in dB.
+pub fn set_eq_precut(player: Player, db: Float) -> Player {
+  ffi_set_eq_precut(player, db)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_eq_precut")
-pub fn set_eq_precut(player: Player, db: Float) -> Nil
+fn ffi_set_eq_precut(player: Player, db: Float) -> Nil
 
 /// Apply a built-in EQ preset.
-pub fn set_eq_preset(player: Player, preset: EqPreset) -> Nil {
+pub fn set_eq_preset(player: Player, preset: EqPreset) -> Player {
   ffi_set_eq_preset(player, eq_preset_to_int(preset))
+  player
 }
 
 /// Set the bass/treble tone controls (gains in dB, cutoffs in Hz).
-@external(erlang, "rockbox_ffi_nif", "player_set_tone")
 pub fn set_tone(
+  player: Player,
+  bass_db: Int,
+  treble_db: Int,
+  bass_cutoff_hz: Int,
+  treble_cutoff_hz: Int,
+) -> Player {
+  ffi_set_tone(player, bass_db, treble_db, bass_cutoff_hz, treble_cutoff_hz)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_tone")
+fn ffi_set_tone(
   player: Player,
   bass_db: Int,
   treble_db: Int,
@@ -409,16 +598,37 @@ pub fn set_tone(
 ) -> Nil
 
 /// Set the bass tone gain, in dB.
+pub fn set_bass(player: Player, bass_db: Int) -> Player {
+  ffi_set_bass(player, bass_db)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_bass")
-pub fn set_bass(player: Player, bass_db: Int) -> Nil
+fn ffi_set_bass(player: Player, bass_db: Int) -> Nil
 
 /// Set the treble tone gain, in dB.
+pub fn set_treble(player: Player, treble_db: Int) -> Player {
+  ffi_set_treble(player, treble_db)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_treble")
-pub fn set_treble(player: Player, treble_db: Int) -> Nil
+fn ffi_set_treble(player: Player, treble_db: Int) -> Nil
 
 /// Configure the surround effect (delay in ms, balance, cutoffs in Hz).
-@external(erlang, "rockbox_ffi_nif", "player_set_surround")
 pub fn set_surround(
+  player: Player,
+  delay_ms: Int,
+  balance: Int,
+  cutoff_low_hz: Int,
+  cutoff_high_hz: Int,
+) -> Player {
+  ffi_set_surround(player, delay_ms, balance, cutoff_low_hz, cutoff_high_hz)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_surround")
+fn ffi_set_surround(
   player: Player,
   delay_ms: Int,
   balance: Int,
@@ -427,17 +637,44 @@ pub fn set_surround(
 ) -> Nil
 
 /// Set the channel-mixing mode.
-pub fn set_channel_mode(player: Player, mode: ChannelMode) -> Nil {
+pub fn set_channel_mode(player: Player, mode: ChannelMode) -> Player {
   ffi_set_channel_mode(player, channel_mode_to_int(mode))
+  player
 }
 
 /// Set the stereo width, as a percentage.
+pub fn set_stereo_width(player: Player, percent: Int) -> Player {
+  ffi_set_stereo_width(player, percent)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_stereo_width")
-pub fn set_stereo_width(player: Player, percent: Int) -> Nil
+fn ffi_set_stereo_width(player: Player, percent: Int) -> Nil
 
 /// Configure the dynamic-range compressor.
-@external(erlang, "rockbox_ffi_nif", "player_set_compressor")
 pub fn set_compressor(
+  player: Player,
+  threshold_db: Int,
+  makeup_gain: Int,
+  ratio: Int,
+  knee: Int,
+  attack_ms: Int,
+  release_ms: Int,
+) -> Player {
+  ffi_set_compressor(
+    player,
+    threshold_db,
+    makeup_gain,
+    ratio,
+    knee,
+    attack_ms,
+    release_ms,
+  )
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_compressor")
+fn ffi_set_compressor(
   player: Player,
   threshold_db: Int,
   makeup_gain: Int,
@@ -448,12 +685,22 @@ pub fn set_compressor(
 ) -> Nil
 
 /// Enable or disable output dithering.
+pub fn set_dither(player: Player, enabled: Bool) -> Player {
+  ffi_set_dither(player, enabled)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_dither")
-pub fn set_dither(player: Player, enabled: Bool) -> Nil
+fn ffi_set_dither(player: Player, enabled: Bool) -> Nil
 
 /// Set the pitch ratio (Rockbox's fixed-point pitch value).
+pub fn set_pitch(player: Player, ratio: Int) -> Player {
+  ffi_set_pitch(player, ratio)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_set_pitch")
-pub fn set_pitch(player: Player, ratio: Int) -> Nil
+fn ffi_set_pitch(player: Player, ratio: Int) -> Nil
 
 /// Read back the whole DSP chain state.
 pub fn dsp_settings(player: Player) -> DspSettings {
@@ -471,12 +718,22 @@ pub fn resume(player: Player) -> Option(ResumeState) {
 }
 
 /// Persist the current queue + position to the resume file right now.
+pub fn save_resume(player: Player) -> Player {
+  ffi_save_resume(player)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_save_resume")
-pub fn save_resume(player: Player) -> Nil
+fn ffi_save_resume(player: Player) -> Nil
 
 /// Delete the resume file (forget the saved state).
+pub fn clear_resume(player: Player) -> Player {
+  ffi_clear_resume(player)
+  player
+}
+
 @external(erlang, "rockbox_ffi_nif", "player_clear_resume")
-pub fn clear_resume(player: Player) -> Nil
+fn ffi_clear_resume(player: Player) -> Nil
 
 /// Peek at a resume file without a player. `None` if it is missing/unreadable.
 pub fn load_resume(path: String) -> Option(ResumeState) {
@@ -595,7 +852,17 @@ fn status_decoder() -> Decoder(Status) {
   use position_ms <- decode.field("position_ms", decode.int)
   use duration_ms <- decode.field("duration_ms", decode.int)
   use queue_len <- decode.field("queue_len", decode.int)
-  decode.success(Status(state:, index:, position_ms:, duration_ms:, queue_len:))
+  use shuffle <- decode.field("shuffle", decode.bool)
+  use repeat <- decode.field("repeat", decode.string)
+  decode.success(Status(
+    state:,
+    index:,
+    position_ms:,
+    duration_ms:,
+    queue_len:,
+    shuffle:,
+    repeat:,
+  ))
 }
 
 // -- dsp settings decoder -----------------------------------------------
@@ -711,6 +978,12 @@ fn ffi_set_eq_preset(player: Player, preset: Int) -> Nil
 
 @external(erlang, "rockbox_ffi_nif", "player_set_channel_mode")
 fn ffi_set_channel_mode(player: Player, mode: Int) -> Nil
+
+@external(erlang, "rockbox_ffi_nif", "player_set_repeat")
+fn ffi_set_repeat(player: Player, mode: Int) -> Nil
+
+@external(erlang, "rockbox_ffi_nif", "player_repeat")
+fn ffi_repeat(player: Player) -> Int
 
 @external(erlang, "rockbox_ffi_nif", "player_dsp_settings_json")
 fn ffi_dsp_settings_json(player: Player) -> String

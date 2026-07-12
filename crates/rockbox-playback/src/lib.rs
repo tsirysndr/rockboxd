@@ -56,12 +56,43 @@ pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
+/// How the queue repeats when a track (or the whole queue) finishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RepeatMode {
+    /// No repeat — playback stops after the last track.
+    #[default]
+    Off,
+    /// Repeat the current track indefinitely (on automatic advance; a manual
+    /// `next` / `previous` still moves to another track).
+    One,
+    /// Repeat the whole queue — wrap back to the start after the last track
+    /// (and to the end when stepping back from the first).
+    All,
+}
+
+impl RepeatMode {
+    fn to_u8(self) -> u8 {
+        match self {
+            RepeatMode::Off => 0,
+            RepeatMode::One => 1,
+            RepeatMode::All => 2,
+        }
+    }
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => RepeatMode::One,
+            2 => RepeatMode::All,
+            _ => RepeatMode::Off,
+        }
+    }
+}
 
 /// ReplayGain mode — which tag to apply (mirrors `rockbox-dsp`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -443,6 +474,10 @@ pub struct Status {
     pub metadata: Option<Metadata>,
     /// Number of tracks in the queue.
     pub queue_len: usize,
+    /// Whether shuffle playback is enabled.
+    pub shuffle: bool,
+    /// The current repeat mode.
+    pub repeat: RepeatMode,
 }
 
 /// Configuration for [`Player::with_config`].
@@ -461,6 +496,10 @@ pub struct PlayerConfig {
     /// mixing, compressor, dither, pitch). Defaults to a transparent
     /// pipeline.
     pub dsp: DspSettings,
+    /// Whether shuffle playback starts enabled.
+    pub shuffle: bool,
+    /// Initial repeat mode.
+    pub repeat: RepeatMode,
     /// Initial volume, 0.0..=1.0.
     pub volume: f32,
     /// When set, the queue and the exact playback position are auto-saved to
@@ -483,10 +522,111 @@ impl Default for PlayerConfig {
             replaygain_preamp_db: 0.0,
             replaygain_prevent_clipping: true,
             dsp: DspSettings::default(),
+            shuffle: false,
+            repeat: RepeatMode::Off,
             volume: 1.0,
             resume_file: None,
             resume_save_interval: Duration::from_secs(5),
         }
+    }
+}
+
+impl PlayerConfig {
+    /// Start a fluent [`PlayerConfigBuilder`] seeded with the defaults:
+    ///
+    /// ```no_run
+    /// use rockbox_playback::{PlayerConfig, RepeatMode};
+    ///
+    /// let player = PlayerConfig::builder()
+    ///     .volume(0.8)
+    ///     .shuffle(true)
+    ///     .repeat(RepeatMode::All)
+    ///     .open()?;                     // build + construct in one step
+    /// # Ok::<(), rockbox_playback::Error>(())
+    /// ```
+    pub fn builder() -> PlayerConfigBuilder {
+        PlayerConfigBuilder {
+            cfg: PlayerConfig::default(),
+        }
+    }
+}
+
+/// Fluent builder for [`PlayerConfig`] — obtain one from [`PlayerConfig::builder`].
+/// Every method takes and returns `self` so calls chain; finish with
+/// [`build`](PlayerConfigBuilder::build) (get the config) or
+/// [`open`](PlayerConfigBuilder::open) (build it *and* construct the player).
+pub struct PlayerConfigBuilder {
+    cfg: PlayerConfig,
+}
+
+impl PlayerConfigBuilder {
+    /// Output sample rate in Hz. Unset (the default) uses the output device's
+    /// native rate; every track is resampled to this rate.
+    pub fn sample_rate(mut self, hz: u32) -> Self {
+        self.cfg.sample_rate = Some(hz);
+        self
+    }
+    /// Seconds of audio to decode ahead into the ring buffer.
+    pub fn buffer_seconds(mut self, secs: f32) -> Self {
+        self.cfg.buffer_seconds = secs;
+        self
+    }
+    /// Crossfade behaviour (see [`CrossfadeSettings`]).
+    pub fn crossfade(mut self, crossfade: CrossfadeSettings) -> Self {
+        self.cfg.crossfade = crossfade;
+        self
+    }
+    /// ReplayGain mode, preamp in dB, and clip prevention — mirrors
+    /// [`Player::set_replaygain`].
+    pub fn replaygain(
+        mut self,
+        mode: ReplayGainMode,
+        preamp_db: f32,
+        prevent_clipping: bool,
+    ) -> Self {
+        self.cfg.replaygain_mode = mode;
+        self.cfg.replaygain_preamp_db = preamp_db;
+        self.cfg.replaygain_prevent_clipping = prevent_clipping;
+        self
+    }
+    /// Initial DSP-chain settings (EQ, tone, surround, …). See [`DspSettings`].
+    pub fn dsp(mut self, dsp: DspSettings) -> Self {
+        self.cfg.dsp = dsp;
+        self
+    }
+    /// Whether shuffle playback starts enabled.
+    pub fn shuffle(mut self, enabled: bool) -> Self {
+        self.cfg.shuffle = enabled;
+        self
+    }
+    /// Initial [`RepeatMode`].
+    pub fn repeat(mut self, mode: RepeatMode) -> Self {
+        self.cfg.repeat = mode;
+        self
+    }
+    /// Initial volume, 0.0..=1.0.
+    pub fn volume(mut self, volume: f32) -> Self {
+        self.cfg.volume = volume;
+        self
+    }
+    /// Enable resume: auto-persist the queue + exact position to this `.m3u8`.
+    pub fn resume_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.cfg.resume_file = Some(path.into());
+        self
+    }
+    /// How often the resume file is refreshed while playing.
+    pub fn resume_save_interval(mut self, interval: Duration) -> Self {
+        self.cfg.resume_save_interval = interval;
+        self
+    }
+    /// Finish building and return the [`PlayerConfig`].
+    pub fn build(self) -> PlayerConfig {
+        self.cfg
+    }
+    /// Build the config and construct the [`Player`] in one step (a shortcut
+    /// for `Player::with_config(builder.build())`).
+    pub fn open(self) -> Result<Player, Error> {
+        Player::with_config(self.cfg)
     }
 }
 
@@ -523,6 +663,8 @@ enum Command {
     SetCompressor(Compressor),
     SetDither(bool),
     SetPitch(i32),
+    SetShuffle(bool),
+    SetRepeat(RepeatMode),
     Shutdown,
 }
 
@@ -542,6 +684,10 @@ struct Shared {
     /// User volume 0.0..=1.0 (f32 bits).
     volume: AtomicU32,
     output_rate: AtomicU32,
+    /// Whether shuffle playback is enabled (mirrored from the engine).
+    shuffle: AtomicBool,
+    /// The current [`RepeatMode`] as `u8` (mirrored from the engine).
+    repeat: AtomicU8,
     ring: Mutex<VecDeque<i16>>,
     meta: Mutex<Option<Metadata>>,
     /// Live mirror of the DSP-chain settings, updated by the engine as it
@@ -626,6 +772,8 @@ impl Player {
             target_amp: AtomicU32::new(0f32.to_bits()),
             volume: AtomicU32::new(config.volume.clamp(0.0, 1.0).to_bits()),
             output_rate: AtomicU32::new(rate),
+            shuffle: AtomicBool::new(config.shuffle),
+            repeat: AtomicU8::new(config.repeat.to_u8()),
             ring: Mutex::new(VecDeque::new()),
             meta: Mutex::new(None),
             dsp: Mutex::new(config.dsp.clone()),
@@ -648,6 +796,8 @@ impl Player {
                 prevent_clipping: config.replaygain_prevent_clipping,
             },
             dsp: config.dsp,
+            shuffle: config.shuffle,
+            repeat: config.repeat,
             resume_file: resume_file.clone(),
             resume_save_interval: config.resume_save_interval,
         };
@@ -953,6 +1103,28 @@ impl Player {
         let _ = self.tx.send(Command::SetPitch(ratio));
     }
 
+    /// Enable or disable shuffle playback. When enabled the current track keeps
+    /// playing and the remaining queue is played in a shuffled order; disabling
+    /// restores natural queue order from the current track.
+    pub fn set_shuffle(&self, enabled: bool) {
+        let _ = self.tx.send(Command::SetShuffle(enabled));
+    }
+    /// Set the repeat mode ([`RepeatMode::Off`] / [`RepeatMode::One`] /
+    /// [`RepeatMode::All`]).
+    pub fn set_repeat(&self, mode: RepeatMode) {
+        let _ = self.tx.send(Command::SetRepeat(mode));
+    }
+    /// Whether shuffle playback is currently enabled. Because setters are
+    /// asynchronous, a value set moments ago may not be reflected until the
+    /// engine thread processes it.
+    pub fn shuffle(&self) -> bool {
+        self.shared.shuffle.load(Ordering::Relaxed)
+    }
+    /// The current repeat mode (see the note on [`Player::shuffle`]).
+    pub fn repeat(&self) -> RepeatMode {
+        RepeatMode::from_u8(self.shared.repeat.load(Ordering::Relaxed))
+    }
+
     /// Current volume, 0.0..=1.0.
     pub fn volume(&self) -> f32 {
         self.shared.volume_f32()
@@ -992,6 +1164,8 @@ impl Player {
             duration: Duration::from_millis(self.shared.duration_ms.load(Ordering::Relaxed)),
             metadata: self.shared.meta.lock().unwrap().clone(),
             queue_len: self.shared.queue_len.load(Ordering::Relaxed),
+            shuffle: self.shared.shuffle.load(Ordering::Relaxed),
+            repeat: RepeatMode::from_u8(self.shared.repeat.load(Ordering::Relaxed)),
         }
     }
 }
@@ -1070,6 +1244,8 @@ struct EngineConfig {
     crossfade: CrossfadeSettings,
     replaygain: ReplayGainConfig,
     dsp: DspSettings,
+    shuffle: bool,
+    repeat: RepeatMode,
     resume_file: Option<PathBuf>,
     resume_save_interval: Duration,
 }
@@ -1081,6 +1257,15 @@ struct Engine {
     dsp: rockbox_dsp::Dsp,
     queue: Vec<PathBuf>,
     index: usize,
+    /// Whether shuffle playback is enabled.
+    shuffle: bool,
+    /// The current repeat mode.
+    repeat: RepeatMode,
+    /// Play order: a permutation of `0..queue.len()` giving the sequence in
+    /// which queue indices are played. Identity when shuffle is off; when on,
+    /// the current track stays first and the rest are shuffled. Rebuilt on
+    /// every queue change and shuffle toggle (see [`Engine::rebuild_play_order`]).
+    order: Vec<usize>,
     /// Open decoder for the current track, if playing.
     decoder: Option<Decoder>,
     playing: bool,
@@ -1143,6 +1328,7 @@ impl Engine {
         apply_replaygain_mode(&mut dsp, &cfg.replaygain);
         apply_dsp_settings(&mut dsp, &cfg.dsp);
         let dsp_state = cfg.dsp.clone();
+        let (shuffle, repeat) = (cfg.shuffle, cfg.repeat);
         Engine {
             shared,
             rx,
@@ -1150,6 +1336,9 @@ impl Engine {
             dsp,
             queue: Vec::new(),
             index: 0,
+            shuffle,
+            repeat,
+            order: Vec::new(),
             decoder: None,
             playing: false,
             paused: false,
@@ -1487,12 +1676,11 @@ impl Engine {
             Command::Stop => self.stop_playback(),
             Command::Next => self.manual_skip(self.next_index(false)),
             Command::Previous => {
-                let prev = if self.index == 0 {
-                    None
-                } else {
-                    Some(self.index - 1)
-                };
-                self.manual_skip(prev.or(Some(0)));
+                // Step back in play order; at the start (no wrap) restart the
+                // current track, matching the common "press prev to restart".
+                let prev =
+                    next_in_order(&self.order, self.index, self.repeat, false).or(Some(self.index));
+                self.manual_skip(prev);
             }
             Command::SkipTo(i) => {
                 if i < self.queue.len() {
@@ -1584,6 +1772,17 @@ impl Engine {
                 self.dsp_state.pitch = ratio;
                 self.dsp.set_pitch(ratio);
                 self.sync_dsp();
+            }
+            Command::SetShuffle(enabled) => {
+                if enabled != self.shuffle {
+                    self.shuffle = enabled;
+                    self.rebuild_play_order();
+                }
+                self.sync_modes();
+            }
+            Command::SetRepeat(mode) => {
+                self.repeat = mode;
+                self.sync_modes();
             }
         }
         true
@@ -1876,7 +2075,8 @@ impl Engine {
     // ---- resume persistence ---------------------------------------------
 
     /// Mirror the queue (len + contents) into `Shared` for the handle.
-    fn sync_queue(&self) {
+    fn sync_queue(&mut self) {
+        self.rebuild_play_order();
         self.shared
             .queue_len
             .store(self.queue.len(), Ordering::Relaxed);
@@ -1917,13 +2117,39 @@ impl Engine {
         }
     }
 
-    /// The index the next auto/manual transition moves to, if any.
-    fn next_index(&self, _auto: bool) -> Option<usize> {
+    /// The index the next auto/manual transition moves to, if any. Honors the
+    /// play order (shuffle), repeat mode, and a pending manual-skip target.
+    fn next_index(&self, auto: bool) -> Option<usize> {
         if let Some(t) = self.pending_manual_target {
             return Some(t);
         }
-        let n = self.index + 1;
-        (n < self.queue.len()).then_some(n)
+        // Repeat-one replays the current track on *automatic* advance only; a
+        // manual `next` still steps to the following track.
+        if auto && self.repeat == RepeatMode::One {
+            return Some(self.index);
+        }
+        next_in_order(&self.order, self.index, self.repeat, true)
+    }
+
+    /// Rebuild [`Engine::order`] to match the current queue and shuffle state.
+    /// Identity when shuffle is off; when on, the current track stays first
+    /// (so toggling shuffle never interrupts it) and the remaining indices are
+    /// Fisher-Yates shuffled with the engine RNG.
+    fn rebuild_play_order(&mut self) {
+        let len = self.queue.len();
+        self.order = if self.shuffle {
+            shuffled_order(len, self.index, &mut self.rng_state)
+        } else {
+            (0..len).collect()
+        };
+    }
+
+    /// Publish shuffle + repeat state into [`Shared`] for the handle.
+    fn sync_modes(&self) {
+        self.shared.shuffle.store(self.shuffle, Ordering::Relaxed);
+        self.shared
+            .repeat
+            .store(self.repeat.to_u8(), Ordering::Relaxed);
     }
 
     /// Move to the next track for playback. Returns false at end of queue.
@@ -2072,6 +2298,60 @@ fn rand_below(rng: &mut u64, n: usize) -> usize {
     x ^= x << 17;
     *rng = x;
     (x % n as u64) as usize
+}
+
+/// A shuffled play order for `len` queue indices that keeps `current` first
+/// (so enabling shuffle never interrupts the playing track) and Fisher-Yates
+/// shuffles the remainder with `rng`. Returns identity order for `len <= 1`.
+/// Pure and side-effect free (aside from advancing `rng`) so it is testable.
+fn shuffled_order(len: usize, current: usize, rng: &mut u64) -> Vec<usize> {
+    if len <= 1 {
+        return (0..len).collect();
+    }
+    let mut rest: Vec<usize> = (0..len).filter(|&i| i != current).collect();
+    for i in (1..rest.len()).rev() {
+        rest.swap(i, rand_below(rng, i + 1));
+    }
+    let mut order = Vec::with_capacity(len);
+    if current < len {
+        order.push(current);
+    }
+    order.extend(rest);
+    order
+}
+
+/// Step from `current` (a queue index) to the neighbouring queue index in
+/// `order` — the next one when `forward`, the previous otherwise. Wraps around
+/// under [`RepeatMode::All`]; returns `None` at the corresponding end when
+/// repeat is off. A `current` not found in `order` is treated as position 0.
+/// Pure and side-effect free, so it can be unit-tested in isolation.
+fn next_in_order(
+    order: &[usize],
+    current: usize,
+    repeat: RepeatMode,
+    forward: bool,
+) -> Option<usize> {
+    if order.is_empty() {
+        return None;
+    }
+    let len = order.len();
+    let pos = order.iter().position(|&i| i == current).unwrap_or(0);
+    let next_pos = if forward {
+        if pos + 1 < len {
+            Some(pos + 1)
+        } else if repeat == RepeatMode::All {
+            Some(0)
+        } else {
+            None
+        }
+    } else if pos > 0 {
+        Some(pos - 1)
+    } else if repeat == RepeatMode::All {
+        Some(len - 1)
+    } else {
+        None
+    };
+    next_pos.map(|p| order[p])
 }
 
 /// Seed the shuffled-insertion PRNG. xorshift64 must not start at 0, so a
@@ -2428,5 +2708,95 @@ mod dsp_tests {
         assert_eq!(s.pitch, PITCH_NORMAL);
         assert_eq!(s.channel_mode, ChannelMode::Stereo);
         assert_eq!(s.compressor.threshold_db, 0);
+    }
+}
+
+#[cfg(test)]
+mod shuffle_repeat_tests {
+    //! Pure tests for the shuffle/repeat play-order logic — no audio device.
+
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn repeat_off_stops_at_both_ends() {
+        let order = vec![0, 1, 2];
+        assert_eq!(next_in_order(&order, 2, RepeatMode::Off, true), None); // past last
+        assert_eq!(next_in_order(&order, 0, RepeatMode::Off, false), None); // before first
+        assert_eq!(next_in_order(&order, 1, RepeatMode::Off, true), Some(2));
+        assert_eq!(next_in_order(&order, 1, RepeatMode::Off, false), Some(0));
+    }
+
+    #[test]
+    fn repeat_all_wraps_both_directions() {
+        let order = vec![0, 1, 2];
+        assert_eq!(next_in_order(&order, 2, RepeatMode::All, true), Some(0));
+        assert_eq!(next_in_order(&order, 0, RepeatMode::All, false), Some(2));
+    }
+
+    #[test]
+    fn follows_play_order_not_queue_order() {
+        // Shuffled order: play 2, then 0, then 1.
+        let order = vec![2, 0, 1];
+        assert_eq!(next_in_order(&order, 2, RepeatMode::Off, true), Some(0));
+        assert_eq!(next_in_order(&order, 0, RepeatMode::Off, true), Some(1));
+        assert_eq!(next_in_order(&order, 1, RepeatMode::Off, true), None);
+        assert_eq!(next_in_order(&order, 1, RepeatMode::All, true), Some(2)); // wrap to first
+    }
+
+    #[test]
+    fn empty_order_never_advances() {
+        assert_eq!(next_in_order(&[], 0, RepeatMode::All, true), None);
+        assert_eq!(next_in_order(&[], 5, RepeatMode::Off, false), None);
+    }
+
+    #[test]
+    fn forward_cycle_under_repeat_all_visits_each_once_then_wraps() {
+        let order = vec![3, 1, 0, 2];
+        let mut cur = order[0];
+        let mut visited = vec![cur];
+        for _ in 1..order.len() {
+            cur = next_in_order(&order, cur, RepeatMode::All, true).unwrap();
+            visited.push(cur);
+        }
+        // After the last, forward wraps back to the first.
+        assert_eq!(
+            next_in_order(&order, cur, RepeatMode::All, true),
+            Some(order[0])
+        );
+        visited.sort();
+        assert_eq!(visited, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn repeat_mode_u8_roundtrips() {
+        for m in [RepeatMode::Off, RepeatMode::One, RepeatMode::All] {
+            assert_eq!(RepeatMode::from_u8(m.to_u8()), m);
+        }
+        assert_eq!(RepeatMode::from_u8(200), RepeatMode::Off); // unknown → Off
+    }
+
+    #[test]
+    fn shuffled_order_is_a_permutation_with_current_first() {
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        for len in 1..12usize {
+            for current in 0..len {
+                let order = shuffled_order(len, current, &mut rng);
+                assert_eq!(order.len(), len, "len {len}");
+                assert_eq!(order[0], current, "current stays first (len {len})");
+                let set: HashSet<usize> = order.iter().copied().collect();
+                assert_eq!(set, (0..len).collect(), "must be a permutation (len {len})");
+            }
+        }
+    }
+
+    #[test]
+    fn shuffle_actually_reorders_for_larger_queues() {
+        // With a decent queue size, at least one shuffle must differ from
+        // identity (guards against an accidental no-op shuffle).
+        let mut rng = 42u64;
+        let reordered =
+            (0..8).any(|_| shuffled_order(10, 0, &mut rng) != (0..10).collect::<Vec<_>>());
+        assert!(reordered, "shuffle never reordered a 10-track queue");
     }
 }

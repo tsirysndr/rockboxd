@@ -228,6 +228,27 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
         return JSONObject(json).toMap()
     }
 
+    // ---- shuffle / repeat ---------------------------------------------
+
+    /** Enable or disable shuffle. Also reflected in [status] under `"shuffle"`. */
+    fun setShuffle(enabled: Boolean) =
+        Native.playerSetShuffle.invokeWithArguments(handle(), enabled).let { }
+
+    /** Whether shuffle is currently enabled. */
+    fun isShuffleEnabled(): Boolean =
+        Native.playerIsShuffleEnabled.invokeWithArguments(handle()) as Boolean
+
+    /** Set the repeat mode ([RepeatMode]). Also reflected in [status] under `"repeat"`. */
+    fun setRepeat(mode: RepeatMode) =
+        Native.playerSetRepeat.invokeWithArguments(handle(), mode.value).let { }
+
+    /** The current repeat mode ([RepeatMode]). */
+    fun repeat(): RepeatMode {
+        val v = Native.playerRepeat.invokeWithArguments(handle()) as Int
+        return RepeatMode.entries.firstOrNull { it.value == v }
+            ?: throw RockboxException("rb_player_repeat returned unknown mode $v")
+    }
+
     // ---- DSP ----------------------------------------------------------
 
     /** Enable or disable the parametric equalizer. */

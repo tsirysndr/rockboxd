@@ -81,6 +81,11 @@ var (
 	rbPlayerSampleRate      func(uintptr) uint32
 	rbPlayerStatusJSON      func(uintptr) uintptr
 
+	rbPlayerSetShuffle        func(uintptr, bool)
+	rbPlayerIsShuffleEnabled  func(uintptr) bool
+	rbPlayerSetRepeat         func(uintptr, int32)
+	rbPlayerRepeat            func(uintptr) int32
+
 	// ---- player DSP ---------------------------------------------------
 	rbPlayerSetEqEnabled    func(uintptr, bool)
 	rbPlayerIsEqEnabled     func(uintptr) bool
@@ -166,6 +171,11 @@ func init() {
 	purego.RegisterLibFunc(&rbPlayerVolume, handle, "rb_player_volume")
 	purego.RegisterLibFunc(&rbPlayerSampleRate, handle, "rb_player_sample_rate")
 	purego.RegisterLibFunc(&rbPlayerStatusJSON, handle, "rb_player_status_json")
+
+	purego.RegisterLibFunc(&rbPlayerSetShuffle, handle, "rb_player_set_shuffle")
+	purego.RegisterLibFunc(&rbPlayerIsShuffleEnabled, handle, "rb_player_is_shuffle_enabled")
+	purego.RegisterLibFunc(&rbPlayerSetRepeat, handle, "rb_player_set_repeat")
+	purego.RegisterLibFunc(&rbPlayerRepeat, handle, "rb_player_repeat")
 
 	purego.RegisterLibFunc(&rbPlayerSetEqEnabled, handle, "rb_player_set_eq_enabled")
 	purego.RegisterLibFunc(&rbPlayerIsEqEnabled, handle, "rb_player_is_eq_enabled")

@@ -114,6 +114,7 @@ typealias FnPlayerF1 = @convention(c) (OpaquePointer?, Float) -> Void
 typealias FnPlayerI1 = @convention(c) (OpaquePointer?, Int32) -> Void
 typealias FnPlayerI4 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32) -> Void
 typealias FnPlayerI6 = @convention(c) (OpaquePointer?, Int32, Int32, Int32, Int32, Int32, Int32) -> Void
+typealias FnPlayerReturnsI1 = @convention(c) (OpaquePointer?) -> Int32
 typealias FnPlayerDspJson = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
 /// Loaded once, shared process-wide. A missing native library is a fatal
@@ -207,6 +208,12 @@ final class Lib {
     let playerSetPitch: FnPlayerI1
     let playerDspSettingsJson: FnPlayerDspJson
 
+    // player shuffle / repeat
+    let playerSetShuffle: FnPlayerBool
+    let playerIsShuffleEnabled: FnPlayerIsBool
+    let playerSetRepeat: FnPlayerI1
+    let playerRepeat: FnPlayerReturnsI1
+
     private init() throws {
         let (h, _) = try Lib.open()
         handle = h
@@ -294,6 +301,11 @@ final class Lib {
         playerSetDither = try sym("rb_player_set_dither", FnPlayerBool.self)
         playerSetPitch = try sym("rb_player_set_pitch", FnPlayerI1.self)
         playerDspSettingsJson = try sym("rb_player_dsp_settings_json", FnPlayerDspJson.self)
+
+        playerSetShuffle = try sym("rb_player_set_shuffle", FnPlayerBool.self)
+        playerIsShuffleEnabled = try sym("rb_player_is_shuffle_enabled", FnPlayerIsBool.self)
+        playerSetRepeat = try sym("rb_player_set_repeat", FnPlayerI1.self)
+        playerRepeat = try sym("rb_player_repeat", FnPlayerReturnsI1.self)
     }
 
     /// Copy a heap C string returned by the ABI into a String, then free it.

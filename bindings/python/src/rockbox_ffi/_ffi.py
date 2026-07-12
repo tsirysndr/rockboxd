@@ -92,6 +92,10 @@ ffi.cdef(
                                   uint32_t fi_dur_ms, int32_t mix_mode);
     void  rb_player_set_replaygain(RbPlayer *p, int32_t mode, float preamp_db,
                                    bool prevent_clipping);
+    void    rb_player_set_shuffle(RbPlayer *p, bool enabled);
+    bool    rb_player_is_shuffle_enabled(RbPlayer *p);
+    void    rb_player_set_repeat(RbPlayer *p, int32_t mode);
+    int32_t rb_player_repeat(RbPlayer *p);
     void  rb_player_set_eq_enabled(RbPlayer *p, bool enabled);
     bool  rb_player_is_eq_enabled(RbPlayer *p);
     void  rb_player_set_eq_band(RbPlayer *p, size_t band, int32_t cutoff_hz,

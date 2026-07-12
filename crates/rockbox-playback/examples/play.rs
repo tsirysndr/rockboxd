@@ -87,9 +87,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // DSP: apply the Bass Boost equalizer preset and a +3 dB bass/treble lift.
     player.set_eq_preset(EqPreset::BassBoost);
-    player.set_bass(3);
-    player.set_treble(3);
-    println!("eq: BassBoost preset, bass +3 dB, treble +3 dB");
+    player.set_bass(7);
+    player.set_treble(4);
+    println!("eq: BassBoost preset, bass +7 dB, treble +4 dB");
 
     for t in &tracks {
         println!("{}: {t}", if is_url(t) { "url" } else { "file" });

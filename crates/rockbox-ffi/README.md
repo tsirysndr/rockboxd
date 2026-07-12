@@ -26,6 +26,9 @@ The public surface is declared in [`include/rockbox_ffi.h`](../../include/rockbo
 - **Rockbox queue insertion** — `rb_player_insert_json(json, position, index)`
   with the full position set (0 prepend, 1 insert, 2 insert-next,
   3 insert-last, 4 shuffled, 5 last-shuffled, 6 replace, 7 explicit index).
+- **Shuffle & repeat** — `rb_player_set_shuffle` / `rb_player_is_shuffle_enabled`
+  and `rb_player_set_repeat` / `rb_player_repeat` (0 off, 1 one, 2 all). Both
+  also appear in the status JSON (`shuffle`, `repeat`).
 - **DSP chain** — the whole Rockbox pipeline past ReplayGain:
   `rb_player_set_eq_enabled` / `is_eq_enabled` / `set_eq_band` /
   `set_eq_precut` / `set_eq_preset` (21 built-in presets), `set_tone` /

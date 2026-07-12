@@ -27,10 +27,29 @@ player.play();
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+Prefer to set everything up front? Use the fluent **config builder**:
+
+```rust
+use rockbox_playback::{PlayerConfig, RepeatMode, ReplayGainMode};
+
+let player = PlayerConfig::builder()
+    .volume(0.8)
+    .replaygain(ReplayGainMode::Track, 0.0, true)
+    .shuffle(true)
+    .repeat(RepeatMode::All)
+    .open()?;                       // build the config + construct the player
+# Ok::<(), rockbox_playback::Error>(())
+```
+
 ## Features
 
 - **Queue + transport**: `play` / `pause` / `toggle` / `stop`, `next` /
   `previous` / `skip_to`, `seek`, `set_volume`, `enqueue`.
+- **Shuffle + repeat**: `set_shuffle(bool)` plays the queue in a shuffled
+  order (current track stays put, the rest are shuffled); `set_repeat` takes
+  `RepeatMode::Off` / `One` (loop the current track) / `All` (loop the queue).
+  Both are readable back via `shuffle()` / `repeat()` and the `Status`
+  snapshot (see [Shuffle & repeat](#shuffle--repeat)).
 - **Rockbox queue insertion**: the full `playlist_insert_track` position
   set — insert next, insert last, insert (grow a block after the current
   track), shuffled, last-shuffled, prepend, replace and insert-at-index —
@@ -132,6 +151,40 @@ one contiguous block right after the current track, in call order. A
 multi-track `insert_tracks(.., InsertLastShuffled)` shuffles the new
 tracks among themselves at the tail while leaving every earlier track in
 place.
+
+## Shuffle & repeat
+
+Shuffle and repeat are independent playback modes, each a live setter on the
+`Player` (and an initial value in `PlayerConfig`, defaulting to off / `Off`):
+
+```rust
+use rockbox_playback::{Player, RepeatMode};
+
+let player = Player::new()?;
+player.set_queue(vec!["a.flac", "b.mp3", "c.opus", "d.ogg"]);
+
+player.set_shuffle(true);          // play the queue in a shuffled order
+player.set_repeat(RepeatMode::All); // loop the whole queue
+
+player.play();
+
+// Read the current modes back (also on the Status snapshot).
+assert!(player.shuffle());
+assert_eq!(player.repeat(), RepeatMode::All);
+let st = player.status();
+let _ = (st.shuffle, st.repeat);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+- **Shuffle** keeps the *current* track playing and shuffles the play order of
+  the remaining tracks (Fisher-Yates); turning it off restores natural queue
+  order from where you are. `next` / `previous` follow the shuffled order.
+- **Repeat** — `RepeatMode::Off` stops at the end of the queue; `One` replays
+  the current track on automatic advance (a manual `next` still moves on);
+  `All` wraps from the last track back to the first (and from the first back
+  to the last when stepping `previous`).
+
+The two compose: shuffle + `RepeatMode::All` reshuffles-and-loops the queue.
 
 ## Resume
 

@@ -31,6 +31,13 @@ enum class MixMode(val value: Int) {
     MIX(1),
 }
 
+/** Repeat mode for [Player.setRepeat] / [Player.repeat] (`rb_player_set_repeat`). */
+enum class RepeatMode(val value: Int) {
+    OFF(0),
+    ONE(1),
+    ALL(2),
+}
+
 /** Where to place tracks when inserting into the queue (`rb_player_insert_json`). */
 enum class InsertPosition(val value: Int) {
     PREPEND(0),

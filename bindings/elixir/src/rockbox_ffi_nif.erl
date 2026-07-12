@@ -19,6 +19,8 @@
          player_stop/1, player_next/1, player_previous/1, player_skip_to/2,
          player_seek_ms/2, player_set_volume/2, player_volume/1,
          player_sample_rate/1, player_set_crossfade/7, player_set_replaygain/4,
+         player_set_shuffle/2, player_is_shuffle_enabled/1, player_set_repeat/2,
+         player_repeat/1,
          player_status_json/1,
          player_set_eq_enabled/2, player_is_eq_enabled/1, player_set_eq_band/5,
          player_set_eq_precut/2, player_set_eq_preset/2, player_set_tone/5,
@@ -93,6 +95,10 @@ player_volume(_P) -> ?NOT_LOADED.
 player_sample_rate(_P) -> ?NOT_LOADED.
 player_set_crossfade(_P, _Mode, _FoDel, _FoDur, _FiDel, _FiDur, _Mix) -> ?NOT_LOADED.
 player_set_replaygain(_P, _Mode, _Preamp, _Clip) -> ?NOT_LOADED.
+player_set_shuffle(_P, _Enabled) -> ?NOT_LOADED.
+player_is_shuffle_enabled(_P) -> ?NOT_LOADED.
+player_set_repeat(_P, _Mode) -> ?NOT_LOADED.
+player_repeat(_P) -> ?NOT_LOADED.
 player_status_json(_P) -> ?NOT_LOADED.
 player_set_eq_enabled(_P, _En) -> ?NOT_LOADED.
 player_is_eq_enabled(_P) -> ?NOT_LOADED.

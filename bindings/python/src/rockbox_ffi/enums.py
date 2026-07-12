@@ -29,6 +29,14 @@ class ReplayGainMode(IntEnum):
     ALBUM = 2
 
 
+class RepeatMode(IntEnum):
+    """Values for :meth:`rockbox_ffi.player.Player.set_repeat`."""
+
+    OFF = 0
+    ONE = 1
+    ALL = 2
+
+
 class CrossfadeMode(IntEnum):
     OFF = 0
     AUTO_SKIP = 1

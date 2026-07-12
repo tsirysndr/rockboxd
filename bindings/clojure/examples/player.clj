@@ -9,12 +9,14 @@
     (println "sample-rate:" (player/sample-rate p) "Hz")
     (if path
       (do
-        (player/set-queue p [path])
-        ;; DSP: Bass Boost preset + a +3 dB bass/treble lift.
-        (player/set-eq-preset p :bass-boost)
-        (player/set-bass p 3)
-        (player/set-treble p 3)
-        (player/play p)
+        ;; Thread the setup through `p`: queue, DSP (Bass Boost preset + a
+        ;; +3 dB bass/treble lift), then play — every mutator returns `p`.
+        (-> p
+            (player/set-queue [path])
+            (player/set-eq-preset :bass-boost)
+            (player/set-bass 3)
+            (player/set-treble 3)
+            (player/play))
         (println "playing" path)
         (println "eq: BassBoost preset, bass +3 dB, treble +3 dB")
         (dotimes [_ 5]

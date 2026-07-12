@@ -497,6 +497,42 @@ static ERL_NIF_TERM nif_player_set_replaygain(ErlNifEnv *env, int argc,
   return am_nil;
 }
 
+static ERL_NIF_TERM nif_player_set_shuffle(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  bool en;
+  if (!p || !get_bool(env, argv[1], &en)) return enif_make_badarg(env);
+  rb_player_set_shuffle(p, en);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_is_shuffle_enabled(ErlNifEnv *env, int argc,
+                                                  const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return rb_player_is_shuffle_enabled(p) ? am_true : am_false;
+}
+
+static ERL_NIF_TERM nif_player_set_repeat(ErlNifEnv *env, int argc,
+                                          const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int mode;
+  if (!p || !enif_get_int(env, argv[1], &mode)) return enif_make_badarg(env);
+  rb_player_set_repeat(p, mode);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_repeat(ErlNifEnv *env, int argc,
+                                      const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return enif_make_int(env, rb_player_repeat(p));
+}
+
 static ERL_NIF_TERM nif_player_status_json(ErlNifEnv *env, int argc,
                                            const ERL_NIF_TERM argv[]) {
   (void)argc;
@@ -875,6 +911,10 @@ static ErlNifFunc funcs[] = {
     {"player_sample_rate", 1, nif_player_sample_rate, 0},
     {"player_set_crossfade", 7, nif_player_set_crossfade, 0},
     {"player_set_replaygain", 4, nif_player_set_replaygain, 0},
+    {"player_set_shuffle", 2, nif_player_set_shuffle, 0},
+    {"player_is_shuffle_enabled", 1, nif_player_is_shuffle_enabled, 0},
+    {"player_set_repeat", 2, nif_player_set_repeat, 0},
+    {"player_repeat", 1, nif_player_repeat, 0},
     {"player_status_json", 1, nif_player_status_json, 0},
     {"player_set_eq_enabled", 2, nif_player_set_eq_enabled, 0},
     {"player_is_eq_enabled", 1, nif_player_is_eq_enabled, 0},

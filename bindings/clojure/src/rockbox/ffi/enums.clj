@@ -28,6 +28,9 @@
 (def channel-mode
   {:stereo 0 :mono 1 :custom 2 :mono-left 3 :mono-right 4 :karaoke 5 :swap 6})
 
+;; Values for rockbox.ffi.player/set-repeat.
+(def repeat-mode {:off 0 :one 1 :all 2})
+
 ;; Values for rockbox.ffi.player/set-eq-preset (built-in EQ curve presets).
 (def eq-preset
   {:flat 0 :acoustic 1 :bass-boost 2 :bass-reducer 3 :classical 4 :dance 5
