@@ -1,6 +1,6 @@
 [submodule "deno"]
 	path = deno
-	url = git@github.com:tsirysndr/rockbox-deno.git
+	url = https://github.com/tsirysndr/rockbox-deno.git
 [submodule "rmpc"]
 	path = rmpc
-	url = git@github.com:tsirysndr/rmpc.git
+	url = https://github.com/tsirysndr/rmpc.git
