@@ -17,7 +17,7 @@ on:
       tag:
         description: "Release tag to create / upload assets to"
         required: true
-        default: "bindings-v0.1.1"
+        default: "bindings-v0.2.0"
   push:
     tags:
       - "bindings-v*"
@@ -25,12 +25,34 @@ on:
 permissions:
   contents: read
 
-env:
-  # Ruby gem version (drives the .gem filenames). Python and npm carry their
-  # own versions in their manifests — the Ruby gem intentionally lags at 0.1.0.
-  BINDING_VERSION: "0.1.0"
-
 jobs:
+  # 0. Single source of truth for the release version: derive it from the tag
+  # (`bindings-v0.2.0` -> `0.2.0`) so every packaged artifact — Ruby gem,
+  # Python wheel, npm tarball — carries the same version as the release. No
+  # manifest is trusted for the version; they are all stamped from this output
+  # before packaging, so the tag alone drives everything.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - id: v
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+          # Strip the leading "bindings-v" (or bare "bindings-") to get a plain
+          # semver the language packagers accept.
+          version="${tag#bindings-v}"
+          version="${version#bindings-}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "release tag=${tag} -> package version=${version}"
+
   # 1. Build the shared library on a native runner per target.
   build-lib:
     name: build-lib (${{ matrix.target }})
@@ -189,8 +211,10 @@ jobs:
 
   # 2a. Ruby platform gems (packaging is host-independent — build all on one runner).
   ruby:
-    needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
+    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd]
     runs-on: ubuntu-latest
+    env:
+      BINDING_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
@@ -200,6 +224,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Stamp gem version from release tag
+        working-directory: bindings/ruby
+        run: |
+          set -euxo pipefail
+          # gem build reads RockboxFFI::VERSION from version.rb; keep it in lock-
+          # step with the -o filename (BINDING_VERSION) so the gem's internal
+          # version matches its filename and the release tag.
+          printf 'module RockboxFFI\n  VERSION = "%s"\nend\n' "$BINDING_VERSION" \
+            > lib/rockbox_ffi/version.rb
 
       - name: Build platform gems
         working-directory: bindings/ruby
@@ -246,8 +280,10 @@ jobs:
   # the manylinux tag. BSD wheels are best-effort — pip falls back to the
   # sdist when the tag does not match.
   python:
-    needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
+    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd]
     runs-on: ubuntu-latest
+    env:
+      BINDING_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -257,6 +293,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Stamp wheel version from release tag
+        working-directory: bindings/python
+        run: |
+          set -euxo pipefail
+          # Pin the first (project) `version = "..."` in pyproject.toml to the tag.
+          sed -i "0,/^version = .*/s//version = \"${BINDING_VERSION}\"/" pyproject.toml
+          grep -m1 '^version = ' pyproject.toml
 
       - name: Install build tooling
         run: pip install build wheel
@@ -305,8 +349,10 @@ jobs:
 
   # 2c. npm: pack the main package + per-platform binary packages into tarballs.
   npm:
-    needs: [build-lib, build-lib-freebsd, build-lib-netbsd]
+    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd]
     runs-on: ubuntu-latest
+    env:
+      BINDING_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -317,6 +363,35 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Stamp npm versions from release tag
+        working-directory: bindings/typescript
+        run: |
+          set -euxo pipefail
+          # Bump the main package, every per-platform package, and the main
+          # package's optionalDependencies (which must pin the exact per-platform
+          # version) all to the tag — otherwise `npm install rockbox-ffi` pulls a
+          # stale prebuilt-binary package.
+          node -e '
+            const fs = require("fs");
+            const v = process.env.BINDING_VERSION;
+            const main = "package.json";
+            const m = JSON.parse(fs.readFileSync(main, "utf8"));
+            m.version = v;
+            for (const k of Object.keys(m.optionalDependencies || {})) {
+              m.optionalDependencies[k] = v;
+            }
+            fs.writeFileSync(main, JSON.stringify(m, null, 2) + "\n");
+            for (const d of fs.readdirSync("npm", { withFileTypes: true })) {
+              if (!d.isDirectory()) continue;
+              const p = `npm/${d.name}/package.json`;
+              if (!fs.existsSync(p)) continue;
+              const j = JSON.parse(fs.readFileSync(p, "utf8"));
+              j.version = v;
+              fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
+            }
+            console.log("stamped npm packages to", v);
+          '
 
       - name: Build dist, stage binaries, pack tarballs
         working-directory: bindings/typescript
@@ -467,7 +542,7 @@ jobs:
 
   # 3. Collect every artifact and attach it to the GitHub Release.
   release:
-    needs: [build-lib, build-lib-freebsd, build-lib-netbsd, ruby, python, npm, swift]
+    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd, ruby, python, npm, swift]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -496,18 +571,9 @@ jobs:
           done
           ls -l release
 
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
           files: release/*
           fail_on_unmatched_files: true
