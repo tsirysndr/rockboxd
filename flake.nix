@@ -122,41 +122,56 @@
           ]
         );
 
-        # ── Build source (scoped) ────────────────────────────────────────────
-        # `src = ./.` would rehash the whole repo, so editing docs/CI/mobile
-        # apps busts the (heavy) rockboxd/rockbox derivations and defeats the
-        # binary cache. Exclude everything the firmware+cargo+zig build never
-        # reads. Keep firmware/apps/lib/tools, the full cargo workspace
-        # (crates, cli, gtk, webui + the deno/rmpc path-dep submodules), zig,
-        # and scripts.
-        buildSrc = lib.fileset.toSource {
+        # ── Build source (scoped + split) ────────────────────────────────────
+        # `src = ./.` rehashes the whole repo, so editing docs/CI/mobile apps
+        # busts the (heavy) derivations and defeats the binary cache. Split the
+        # inputs so each derivation only depends on what it actually reads:
+        #   rustSrc — the cargo workspace (manifests, all members, deno/rmpc
+        #             submodules). Feeds cargoDeps, the rockbox CLI, and the
+        #             separately-cached Rust staticlibs.
+        #   fwSrc   — the firmware(make)+zig half: everything else the build
+        #             reads, minus docs/CI/frontends AND minus the rust tree
+        #             (so a Rust edit doesn't rebuild the firmware inputs, and
+        #             the big deno tree stays out of the firmware derivation).
+        srcExcludes = lib.fileset.unions [
+          ./.github
+          ./flake.nix
+          ./flake.lock
+          ./expo
+          ./gpui
+          ./bindings
+          ./doc
+          ./docs
+          ./manual
+          ./mintlify
+          ./memory
+          ./.devcontainer
+          ./.fluentci
+          ./dagger.json
+          ./README.md
+          ./CHANGELOG.md
+          ./CLAUDE.md
+          ./CODE_OF_CONDUCT.md
+          ./CONTRIBUTING.md
+          ./AUDIO_SETTINGS.md
+          ./HEADLESS.md
+          ./SNAPCAST.md
+          ./THREADING.md
+          ./WEBASSEMBLY.md
+        ];
+        rustFileset = lib.fileset.unions [
+          ./Cargo.toml ./Cargo.lock
+          ./crates ./cli ./gtk ./webui ./deno ./rmpc
+        ];
+        rustSrc = lib.fileset.toSource {
           root = ./.;
-          fileset = lib.fileset.difference ./. (lib.fileset.unions [
-            ./.github
-            ./flake.nix
-            ./flake.lock
-            ./expo
-            ./gpui
-            ./bindings
-            ./doc
-            ./docs
-            ./manual
-            ./mintlify
-            ./memory
-            ./.devcontainer
-            ./.fluentci
-            ./dagger.json
-            ./README.md
-            ./CHANGELOG.md
-            ./CLAUDE.md
-            ./CODE_OF_CONDUCT.md
-            ./CONTRIBUTING.md
-            ./AUDIO_SETTINGS.md
-            ./HEADLESS.md
-            ./SNAPCAST.md
-            ./THREADING.md
-            ./WEBASSEMBLY.md
-          ]);
+          fileset = rustFileset;
+        };
+        fwSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.difference
+            (lib.fileset.difference ./. srcExcludes)
+            rustFileset;
         };
 
         # ── WebUI static assets ──────────────────────────────────────────────
@@ -242,8 +257,71 @@
         #   nix build .#rockboxd 2>&1 | grep 'got:'
         # then paste the printed hash below.
         cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-          src  = buildSrc;
+          src  = rustSrc;
           hash = "sha256-wjTaGAZrpgPGnmwe9nwsOLULQHc5wjoltu+D+LPrwNw=";
+        };
+
+        # ── Rust staticlibs (separately cached) ──────────────────────────────
+        # librockbox_cli.a + librockbox_server.a, built in their own derivation
+        # (src = rustSrc) so the ~5-min Rust compile is cached independently of
+        # the firmware/zig link and shared via the binary cache. rockboxd's
+        # build-headless.sh consumes these with SKIP_CARGO=1. Feature flags
+        # mirror scripts/build-headless.sh (Linux: alsa/fts5, macOS: cpal).
+        rustCliFeatures    = if pkgs.stdenv.isDarwin then "cpal-sink" else "alsa-sink,fts5";
+        rustServerFeatures = if pkgs.stdenv.isDarwin then ""          else "fts5";
+        rockboxRustLibs = pkgs.stdenv.mkDerivation {
+          pname   = "rockbox-rustlibs";
+          version = "0.1.0";
+          src     = rustSrc;
+
+          nativeBuildInputs = with pkgs; [
+            rustToolchain
+            gnumake
+            gcc
+            pkg-config
+            cmake
+            perl
+            python3
+            protobuf   # protoc for tonic build.rs
+            rustPlatform.cargoSetupHook
+          ] ++ darwinPkgs;
+
+          # -sys crates' build scripts need these at compile time (alsa/dbus on
+          # Linux for the sink features; zlib for flate2/libz-sys).
+          buildInputs = with pkgs; [
+            zlib zlib.dev
+          ] ++ linuxPkgs;
+
+          inherit cargoDeps;
+
+          dontUseCmakeConfigure = true;
+
+          # rockbox-server / rockbox-s3 embed the compiled web UIs via rust-embed
+          # at compile time, so the dist/ dirs must exist before cargo runs.
+          preBuild = ''
+            mkdir -p webui/rockbox/dist
+            cp -r ${webuiAssets}/. webui/rockbox/dist/
+            mkdir -p crates/s3/s3webui/dist
+            cp -r ${s3webuiAssets}/. crates/s3/s3webui/dist/
+          '';
+
+          buildPhase = ''
+            runHook preBuild
+            cargo build --release --features "${rustCliFeatures}" -p rockbox-cli
+            ${if rustServerFeatures != "" then
+                ''cargo build --release --features "${rustServerFeatures}" -p rockbox-server''
+              else
+                ''cargo build --release -p rockbox-server''}
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/lib
+            cp target/release/librockbox_cli.a    $out/lib/
+            cp target/release/librockbox_server.a $out/lib/
+            runHook postInstall
+          '';
         };
 
         # ── Prebuilt V8 for the `deno` crate (v8 / rusty_v8 130.0.2) ──────────
@@ -278,19 +356,17 @@
         };
 
         # ── rockboxd derivation ───────────────────────────────────────────────
-        # Build order mirrors scripts/build-headless.sh:
-        #   0. webui assets (done above, injected via preBuild)
+        # Build order mirrors scripts/build-headless.sh, minus cargo:
         #   1. configure + make lib  (headless C firmware)
-        #   2. cargo build           (Rust crates, offline via cargoDeps)
+        #   2. (cargo skipped — prebuilt Rust staticlibs injected below)
         #   3. zig build             (final link)
         rockboxd = pkgs.stdenv.mkDerivation {
           pname   = "rockboxd";
           version = "0.1.0";
-          src     = buildSrc;
+          src     = fwSrc;
 
           nativeBuildInputs = with pkgs; [
             zig
-            rustToolchain
             gnumake
             gcc
             pkg-config
@@ -299,10 +375,7 @@
             python3
             zip        # firmware build packages voice/lang zips (tools/buildzip.pl)
             unzip
-            protobuf   # protoc for Rust codegen
             makeWrapper # wrap rockboxd so typesense-server is on its PATH
-            # Wires up offline Cargo registry from cargoDeps.
-            rustPlatform.cargoSetupHook
           ] ++ darwinPkgs;
 
           # Libraries linked into the final binary.
@@ -311,8 +384,6 @@
             zlib zlib.dev
             libusb1 libusb1.dev
           ] ++ linuxPkgs;
-
-          inherit cargoDeps;
 
           # Nixpkgs' stdenv injects -Werror=format-security via the "format"
           # hardening flag. Rockbox's splash()/splashf() are printf-style and
@@ -323,7 +394,7 @@
           hardeningDisable = [ "format" ];
 
           # cmake is present for sub-builds that need it, but the top level
-          # has no CMakeLists.txt — rockboxd builds via make + cargo + zig
+          # has no CMakeLists.txt — rockboxd builds via make + zig
           # (scripts/build-headless.sh). Skip cmake's default configurePhase.
           dontUseCmakeConfigure = true;
 
@@ -340,22 +411,20 @@
             patchShebangs tools
           '';
 
+          # Inject the separately-built Rust staticlibs where zig's link step
+          # (build.zig → ../target/release) expects them; SKIP_CARGO=1 then
+          # tells build-headless.sh not to rebuild them.
           preBuild = ''
-            # Inject compiled webui where rockbox-server's build.rs expects it.
-            mkdir -p webui/rockbox/dist
-            cp -r ${webuiAssets}/. webui/rockbox/dist/
-
-            # Inject compiled S3 admin webui where rockbox-s3's rust-embed
-            # (crates/s3/src/admin.rs) expects it at compile time.
-            mkdir -p crates/s3/s3webui/dist
-            cp -r ${s3webuiAssets}/. crates/s3/s3webui/dist/
+            mkdir -p target/release
+            cp ${rockboxRustLibs}/lib/librockbox_cli.a    target/release/
+            cp ${rockboxRustLibs}/lib/librockbox_server.a target/release/
           '';
 
           buildPhase = ''
             runHook preBuild
             export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
             export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-cache"
-            bash scripts/build-headless.sh
+            SKIP_CARGO=1 bash scripts/build-headless.sh
             runHook postBuild
           '';
 
@@ -394,7 +463,7 @@
         rockbox = pkgs.stdenv.mkDerivation {
           pname   = "rockbox";
           version = "0.1.0";
-          src     = buildSrc;
+          src     = rustSrc;
 
           nativeBuildInputs = with pkgs; [
             rustToolchain
@@ -454,6 +523,7 @@
         packages = {
           default        = rockboxd;       # ← what gets installed
           inherit rockboxd rockbox;
+          rockbox-rustlibs = rockboxRustLibs;  # cached separately to speed rebuilds
           webui-assets   = webuiAssets;    # exposed separately to ease hash updates
           s3webui-assets = s3webuiAssets;  # exposed separately to ease hash updates
         };
