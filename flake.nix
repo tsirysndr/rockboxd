@@ -162,6 +162,8 @@
         rustFileset = lib.fileset.unions [
           ./Cargo.toml ./Cargo.lock
           ./crates ./cli ./gtk ./webui ./deno ./rmpc
+          # [patch.crates-io] hyper-rustls = { path = "vendor/hyper-rustls" }
+          ./vendor
         ];
         rustSrc = lib.fileset.toSource {
           root = ./.;
