@@ -198,12 +198,19 @@ case "$(uname)" in
         ;;
 esac
 
-echo "==> Step 3: Build Rust crates (cli features: $CLI_FEATURES)"
-cargo build $CARGO_FLAG --features "$CLI_FEATURES" -p rockbox-cli
-if [ -n "$SERVER_FEATURES" ]; then
-    cargo build $CARGO_FLAG --features "$SERVER_FEATURES" -p rockbox-server
+# SKIP_CARGO=1 lets a caller (e.g. the Nix build) provide prebuilt
+# librockbox_cli.a / librockbox_server.a in target/release/ so the Rust
+# staticlibs can be built in a separate, independently-cached derivation.
+if [ "${SKIP_CARGO:-0}" = "1" ]; then
+    echo "==> Step 3: Skipping cargo (SKIP_CARGO=1; using prebuilt Rust staticlibs)"
 else
-    cargo build $CARGO_FLAG -p rockbox-server
+    echo "==> Step 3: Build Rust crates (cli features: $CLI_FEATURES)"
+    cargo build $CARGO_FLAG --features "$CLI_FEATURES" -p rockbox-cli
+    if [ -n "$SERVER_FEATURES" ]; then
+        cargo build $CARGO_FLAG --features "$SERVER_FEATURES" -p rockbox-server
+    else
+        cargo build $CARGO_FLAG -p rockbox-server
+    fi
 fi
 
 echo "==> Step 4: Link rockboxd with Zig (headless)"
