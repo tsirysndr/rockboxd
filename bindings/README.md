@@ -27,7 +27,8 @@ surface is declared in [`include/rockbox_ffi.h`](../include/rockbox_ffi.h).
    ┌──────┬──────┬──────────┬────────┬───────┬───────┬───────┬─────────┐
  Python   Go  TypeScript  Elixir    Gleam   Ruby   Swift   Kotlin  Clojure
  (cffi)(purego)(Bun/Deno/ (erl_nif)─(erl_nif)(fiddle)(dlopen)(Java FFM)(Java FFM)
-                Node)        └─ shared rockbox_ffi_nif.{c,erl} ─┘
+                Node)        │       │
+                             └─ shared rockbox_ffi_nif.{c,erl} 
 ```
 
 Build the shared library once from the repo root:
