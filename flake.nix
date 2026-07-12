@@ -220,6 +220,14 @@
 
           inherit cargoDeps;
 
+          # Nixpkgs' stdenv injects -Werror=format-security via the "format"
+          # hardening flag. Rockbox's splash()/splashf() are printf-style and
+          # are routinely called with a runtime format pointer (e.g.
+          # `splash(HZ/2, ID2P(LANG_TIMEOUT))`), which trips that check and
+          # turns every such call into a hard error. Upstream Rockbox never
+          # sets this flag; disable it so the firmware compiles as designed.
+          hardeningDisable = [ "format" ];
+
           # cmake is present for sub-builds that need it, but the top level
           # has no CMakeLists.txt — rockboxd builds via make + cargo + zig
           # (scripts/build-headless.sh). Skip cmake's default configurePhase.
