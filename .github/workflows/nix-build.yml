@@ -32,8 +32,11 @@ jobs:
           extra-conf: |
             experimental-features = nix-command flakes
 
-      - name: Cache Nix store
-        uses: DeterminateSystems/magic-nix-cache-action@v14
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: rockbox
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: nix flake show
         run: nix flake show
