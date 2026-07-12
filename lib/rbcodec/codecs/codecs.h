@@ -52,7 +52,9 @@
 #undef LDEBUGF
 #define LDEBUGF ci->debugf
 #else
+#undef DEBUGF
 #define DEBUGF(...)
+#undef LDEBUGF
 #define LDEBUGF(...)
 #endif
 
