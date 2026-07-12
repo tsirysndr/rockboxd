@@ -40,8 +40,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             zig/.zig-cache
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ matrix.os }}-cargo-
+          key: ${{ matrix.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.os }}-${{ matrix.arch }}-cargo-
 
       - name: Install LLVM@21
         run: |

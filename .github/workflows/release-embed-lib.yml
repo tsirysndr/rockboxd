@@ -79,8 +79,8 @@ jobs:
             ~/.cargo/git
             zig/.zig-cache
             target
-          key: embed-lib-${{ matrix.runner }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: embed-lib-${{ matrix.runner }}-
+          key: embed-lib-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: embed-lib-${{ matrix.runner }}-${{ matrix.arch }}-
 
       # ── macOS dependencies ────────────────────────────────────────────────
       - name: Install macOS dependencies
@@ -141,13 +141,31 @@ jobs:
 
       # ── Step 3: rockbox-embed Rust crate ──────────────────────────────────
       - name: Build rockbox-embed
-        run: cargo build --release -p rockbox-embed
+        # Remove the cached static archive so cargo always re-links it from the
+        # current target/release/deps. The cache key only hashes Cargo.lock and
+        # `restore-keys` falls back to any prior embed-lib-${{ matrix.runner }}-
+        # ${{ matrix.arch }}- cache, so a crates/embed-only change can otherwise
+        # restore a stale .a missing newer exports (e.g. rb_daemon_start).
+        # Mirrors the release-gpui / linux-x86_64-build force-relink step.
+        run: |
+          rm -f target/release/librockbox_embed.a
+          cargo build --release -p rockbox-embed
+          echo "--- verify rb_daemon_start is present ---"
+          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
 
       # ── Step 4: Zig lib step ──────────────────────────────────────────────
       - name: Build librockboxd.a
         run: |
+          rm -f zig/zig-out/lib/librockboxd.a
           cd zig
           zig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}
+          cd ..
+          echo "--- verify rb_daemon_start survived into librockboxd.a ---"
+          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
 
       - name: Clean build artifacts
         run: |
