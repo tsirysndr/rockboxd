@@ -41,5 +41,11 @@ jobs:
       - name: nix flake show
         run: nix flake show
 
+      # Build the Rust staticlibs first so the (slow) cargo compile is pushed
+      # to Cachix on its own — even if the downstream zig link later fails —
+      # and reused by the main target instead of rebuilt.
+      - name: nix build .#rockbox-rustlibs
+        run: nix build --print-build-logs ".#rockbox-rustlibs"
+
       - name: nix build ${{ inputs.target }}
         run: nix build --print-build-logs "${{ inputs.target }}"

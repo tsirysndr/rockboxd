@@ -25,13 +25,17 @@ command -v twine >/dev/null 2>&1 || { echo "error: twine not found (pip install 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 echo "== Python -> PyPI =="
-download_assets "$TMP" '*.whl' '*.tar.gz'
+# Only the Python sdist (`rockbox_ffi-<version>.tar.gz`, PEP 625 underscore
+# name) — NOT the Swift binding tarball (`rockbox-ffi-swift-macos.tar.gz`),
+# which shares the .tar.gz extension but is not a Python package. Twine treats
+# every .tar.gz as an sdist and rejects the Swift one for lacking PKG-INFO.
+download_assets "$TMP" '*.whl' 'rockbox_ffi-*.tar.gz'
 shopt -s nullglob
 
 # PyPI (Warehouse) accepts macOS + manylinux wheels and the sdist. It always
 # rejects the freebsd_/netbsd_ platform tags, so BSD wheels are never uploaded —
 # those users install from the sdist.
-main=("$TMP"/*macosx*.whl "$TMP"/*manylinux*.whl "$TMP"/*.tar.gz)
+main=("$TMP"/*macosx*.whl "$TMP"/*manylinux*.whl "$TMP"/rockbox_ffi-*.tar.gz)
 
 [ ${#main[@]} -gt 0 ] || { echo "  no wheels/sdist in $TAG" >&2; exit 1; }
 
