@@ -265,10 +265,12 @@
         # librockbox_cli.a + librockbox_server.a, built in their own derivation
         # (src = rustSrc) so the ~5-min Rust compile is cached independently of
         # the firmware/zig link and shared via the binary cache. rockboxd's
-        # build-headless.sh consumes these with SKIP_CARGO=1. Feature flags
-        # mirror scripts/build-headless.sh (Linux: alsa/fts5, macOS: cpal).
-        rustCliFeatures    = if pkgs.stdenv.isDarwin then "cpal-sink" else "alsa-sink,fts5";
-        rustServerFeatures = if pkgs.stdenv.isDarwin then ""          else "fts5";
+        # build-headless.sh consumes these with SKIP_CARGO=1. Features mirror
+        # scripts/build-headless.sh: Linux and macOS both use the default
+        # cpal-sink + Typesense (no fts5). fts5 is a BSD-only fallback there —
+        # and the flake doesn't target the BSDs — so it never applies here.
+        rustCliFeatures    = "cpal-sink";
+        rustServerFeatures = "";
         rockboxRustLibs = pkgs.stdenv.mkDerivation {
           pname   = "rockbox-rustlibs";
           version = "0.1.0";
