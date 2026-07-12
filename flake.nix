@@ -122,6 +122,43 @@
           ]
         );
 
+        # ── Build source (scoped) ────────────────────────────────────────────
+        # `src = ./.` would rehash the whole repo, so editing docs/CI/mobile
+        # apps busts the (heavy) rockboxd/rockbox derivations and defeats the
+        # binary cache. Exclude everything the firmware+cargo+zig build never
+        # reads. Keep firmware/apps/lib/tools, the full cargo workspace
+        # (crates, cli, gtk, webui + the deno/rmpc path-dep submodules), zig,
+        # and scripts.
+        buildSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.difference ./. (lib.fileset.unions [
+            ./.github
+            ./flake.nix
+            ./flake.lock
+            ./expo
+            ./gpui
+            ./bindings
+            ./doc
+            ./docs
+            ./manual
+            ./mintlify
+            ./memory
+            ./.devcontainer
+            ./.fluentci
+            ./dagger.json
+            ./README.md
+            ./CHANGELOG.md
+            ./CLAUDE.md
+            ./CODE_OF_CONDUCT.md
+            ./CONTRIBUTING.md
+            ./AUDIO_SETTINGS.md
+            ./HEADLESS.md
+            ./SNAPCAST.md
+            ./THREADING.md
+            ./WEBASSEMBLY.md
+          ]);
+        };
+
         # ── WebUI static assets ──────────────────────────────────────────────
         # Compiled from webui/rockbox/ and embedded by rockbox-server.
         #
@@ -205,7 +242,7 @@
         #   nix build .#rockboxd 2>&1 | grep 'got:'
         # then paste the printed hash below.
         cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-          src  = ./.;
+          src  = buildSrc;
           hash = "sha256-wjTaGAZrpgPGnmwe9nwsOLULQHc5wjoltu+D+LPrwNw=";
         };
 
@@ -249,7 +286,7 @@
         rockboxd = pkgs.stdenv.mkDerivation {
           pname   = "rockboxd";
           version = "0.1.0";
-          src     = ./.;
+          src     = buildSrc;
 
           nativeBuildInputs = with pkgs; [
             zig
@@ -357,7 +394,7 @@
         rockbox = pkgs.stdenv.mkDerivation {
           pname   = "rockbox";
           version = "0.1.0";
-          src     = ./.;
+          src     = buildSrc;
 
           nativeBuildInputs = with pkgs; [
             rustToolchain
