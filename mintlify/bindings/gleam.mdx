@@ -42,20 +42,74 @@ dsp.set_replaygain_gains(d, Some(-6.02), None, None, None)
 let out = dsp.process(d, pcm)                        // BitArray in/out
 
 // --- playback (needs an output device) ---
-let p = player.with_config(player.Config(..player.default_config(), volume: 0.8))
-player.set_replaygain(p, 1, 0.0, True)              // 1 = track (player)
-player.set_queue(p, ["a.flac", "b.mp3"])
-player.play(p)
-player.status(p)   // Status(state: "playing", index: Some(0), ...)
+// Mutating `player` functions return the `Player`, so setup pipes:
+let p =
+  player.with_config(player.Config(..player.default_config(), volume: 0.8))
+  |> player.set_queue([        // local paths, http(s):// URLs, or live-radio / streaming URLs
+    "a.flac",
+    "https://example.com/b.mp3",
+    "http://stream.example.com/radio",
+  ])
+  |> player.set_eq_preset(player.BassBoost)   // 21 built-in EqPreset values
+  |> player.set_bass(7)                       // tone controls, dB
+  |> player.set_treble(4)
+  |> player.set_crossfeed(player.Meier, 0, 0, 0, 0)
+  |> player.set_shuffle(True)
+  |> player.set_repeat(player.All)            // RepeatMode: Off / One / All
+  |> player.play
+
+player.status(p)         // Status(state: "playing", index: Some(0), ...)
+player.dsp_settings(p)   // DspSettings(equalizer:, tone:, crossfeed:, ...)
 ```
 
 ## API
 
-| Module              | Contents                                                          |
-| ------------------- | ----------------------------------------------------------------- |
-| `rockbox/metadata`  | `read(path) -> Result(Metadata, _)`, `probe(name) -> Option(String)` |
-| `rockbox/dsp`       | EQ / tone / surround / compressor / ReplayGain, `process(d, pcm)`  |
-| `rockbox/player`    | queue + transport + crossfade + ReplayGain, `status(p) -> Status` |
+| Module             | Contents                                                                     |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `rockbox/metadata` | `read(path) -> Result(Metadata, _)`, `probe(name) -> Option(String)`         |
+| `rockbox/dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(d, pcm)`            |
+| `rockbox/player`   | queue + transport + crossfade + ReplayGain + full DSP chain + shuffle/repeat |
+
+### `rockbox/player`
+
+Every mutating function returns the `Player`, so calls chain with `|>`. The
+setters below apply the full Rockbox DSP chain live, mid-playback.
+
+| Function                                                              | Purpose                                                                          |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `new()` / `with_config(Config)`                                       | Create a player (device default, or explicit `Config`)                           |
+| `set_queue(paths)` / `enqueue(path)`                                  | Set / append sources — local paths, `http(s)://`, or live-radio / streaming URLs |
+| `insert(paths, InsertPosition)` / `queue()`                           | Insert at a position; read the current queue                                     |
+| `play` / `pause` / `toggle` / `stop`                                  | Transport                                                                        |
+| `next` / `previous` / `skip_to(i)` / `seek_ms(ms)`                    | Navigation within the queue / track                                              |
+| `set_volume(f)` / `volume()` / `sample_rate()`                        | Output volume and device sample rate                                             |
+| `set_shuffle(Bool)` / `is_shuffle_enabled()`                          | Shuffle playback                                                                 |
+| `set_repeat(RepeatMode)` / `repeat()`                                 | Repeat mode — `Off` / `One` / `All`                                              |
+| `set_crossfade(...)` / `set_replaygain(...)`                          | Crossfade behaviour; ReplayGain (player mode ints)                               |
+| `set_eq_enabled(Bool)` / `is_eq_enabled()`                            | Toggle the graphic equalizer                                                     |
+| `set_eq_preset(EqPreset)`                                             | Apply one of 21 built-in presets (`Flat`, `BassBoost`, …)                        |
+| `set_eq_band(band, cutoff_hz, q, gain_db)` / `set_eq_precut(db)`      | Per-band EQ; EQ pre-cut headroom                                                 |
+| `set_tone(...)` / `set_bass(db)` / `set_treble(db)`                   | Bass/treble tone controls                                                        |
+| `set_bass_cutoff(hz)` / `set_treble_cutoff(hz)`                       | Tone cutoff frequencies                                                          |
+| `set_crossfeed(CrossfeedMode, ...)`                                   | Headphone crossfeed — `CrossfeedOff` / `Meier` / `CrossfeedCustom`               |
+| `set_surround(...)`                                                   | Surround effect                                                                  |
+| `set_channel_mode(ChannelMode)` / `set_stereo_width(pct)`             | Channel mixing (`Stereo`, …); stereo width                                       |
+| `set_bass_enhancement(strength, precut)` / `set_fatigue_reduction(s)` | Bass enhancement; listening-fatigue reduction                                    |
+| `set_compressor(...)` / `set_dither(Bool)` / `set_pitch(ratio)`       | Compressor; dithering; pitch                                                     |
+| `dsp_settings()`                                                      | Read back the whole chain as a typed `DspSettings` record                        |
+| `status()`                                                            | A `Status` snapshot                                                              |
+| `resume` / `save_resume` / `clear_resume` / `load_resume(path)`       | Queue + exact-position persistence                                               |
+| `import_m3u` / `load_m3u` / `export_m3u` / `m3u_read` / `m3u_write`   | `.m3u` / `.m3u8` playlist I/O                                                    |
+
+`DspSettings` is a typed record whose sections include `equalizer`, `tone`,
+`surround`, `channel_mode`, `stereo_width`, `compressor`, `dither`, `pitch`,
+`crossfeed`, `bass_enhancement`, and `fatigue_reduction`.
+
+<Tip>
+  These knobs map 1:1 to Rockbox's own Sound Settings. See the official
+  [Rockbox manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+  for what each control does and its value ranges.
+</Tip>
 
 - `Dsp` and `Player` are opaque NIF resources, freed by the BEAM garbage
   collector — no explicit close.

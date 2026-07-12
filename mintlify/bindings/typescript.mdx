@@ -6,7 +6,9 @@ icon: 'square-js'
 
 TypeScript bindings for **metadata** parsing (40+ formats), the **DSP**
 pipeline (EQ, tone, surround, compressor, ReplayGain, resampler), and a
-queue-based **player** with crossfade. One typed API, three runtimes.
+queue-based **player** with crossfade, shuffle/repeat, and the full Rockbox
+DSP chain (EQ presets, tone, crossfeed, surround, compressor, …). One typed
+API, three runtimes.
 
 ```sh
 npm  install rockbox-ffi        # Node.js  (also pulls in koffi)
@@ -42,6 +44,8 @@ import {
   DspReplayGainMode,
   ReplayGainMode,
   CrossfadeMode,
+  EqPreset,
+  RepeatMode,
 } from "rockbox-ffi/bun"; // or /node, or npm:rockbox-ffi/deno
 
 // --- metadata --------------------------------------------------------
@@ -61,11 +65,20 @@ const output: Int16Array = dsp.process(input);
 dsp.close();
 
 // --- playback (needs an audio output device) -------------------------
+// Mutating Player methods return `this`, so setup fluently chains.
+// Queue entries may be local paths, http(s):// files, or live-radio /
+// streaming URLs.
 const player = new Player({ volume: 0.8, crossfadeMode: CrossfadeMode.ALWAYS });
-player.setReplaygain(ReplayGainMode.TRACK, 0.0, true);
-player.setQueue(["a.flac", "b.mp3", "c.opus"]);
-player.play();
+player
+  .setReplaygain(ReplayGainMode.TRACK, 0.0, true)
+  .setQueue(["a.flac", "https://example.com/b.mp3", "http://radio.example/live"])
+  .setEqPreset(EqPreset.BassBoost) // one of 21 presets
+  .setShuffle(true)
+  .setRepeat(RepeatMode.All)
+  .play();
+
 console.log(player.status()); // { state: "playing", index: 0, ... }
+console.log(player.dspSettings()); // full DSP-chain snapshot
 ```
 
 ## API
@@ -74,7 +87,7 @@ Everything is fully typed — your editor has the details.
 
 **`metadata`**
 
-| Function                   | Returns          | Description                                               |
+| Function                   | Returns          | Description                                              |
 | -------------------------- | ---------------- | -------------------------------------------------------- |
 | `metadata.read(path)`      | `Metadata`       | Parse tags, duration, ReplayGain, album-art/cue offsets  |
 | `metadata.probe(filename)` | `string \| null` | Codec label from the extension, without opening the file |
@@ -89,7 +102,50 @@ feed it `Int16Array`s, and `close()` (or `using`) when done.
 | `eqEnable(on)` / `setEqBand(band, cutoffHz, q, gainDb)` | 10-band EQ (band 0 low-shelf, 9 high-shelf) |
 | `setEqPrecut(db)`                                       | Negative pre-gain to avoid EQ clipping      |
 
-**`Player`** — queue, transport, crossfade, ReplayGain, and `status()`.
+**`Player`** — queue, transport, crossfade, shuffle/repeat, the full DSP
+chain, and `status()`. Every mutating method returns `this`, so calls chain
+fluently (see the quick start); getters and `close()` return their own values.
+
+| Method                                                                        | Description                                                    |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `setQueue(paths)` / `enqueue(path)`                                           | Set / append. Entries: local path, `http(s)://`, or stream URL |
+| `insert(paths, position?, index?)`                                            | Insert at an `InsertPosition`                                  |
+| `queue()`                                                                     | The current queue as an array of paths/URLs                    |
+| `play()` / `pause()` / `toggle()` / `stop()`                                  | Transport controls                                             |
+| `next()` / `previous()` / `skipTo(index)` / `seekMs(ms)`                      | Navigate within the queue                                      |
+| `setVolume(v)` / `volume()` / `sampleRate()`                                  | Volume + output-rate access                                    |
+| `setShuffle(on)` / `isShuffleEnabled()`                                       | Queue shuffle                                                  |
+| `setRepeat(mode)` / `repeat()`                                                | `RepeatMode` (Off / One / All)                                 |
+| `setCrossfade(mode, …)` / `setReplaygain(mode, preampDb, noclip)`             | Crossfade + `ReplayGainMode`                                   |
+| `setEqEnabled(on)` / `isEqEnabled()`                                          | Toggle the graphic EQ                                          |
+| `setEqPreset(preset)`                                                         | Apply one of 21 `EqPreset` presets                             |
+| `setEqBand(band, cutoffHz, q, gainDb)` / `setEqPrecut(db)`                    | Per-band EQ (plain units) + pre-gain                           |
+| `setTone(bassDb, trebleDb, bassHz, trebleHz)`                                 | Bass/treble tone controls at given cutoffs                     |
+| `setBass(db)` / `setTreble(db)` / `setBassCutoff(hz)` / `setTrebleCutoff(hz)` | Individual tone setters                                        |
+| `setCrossfeed(mode, directGain, crossGain, hfGain, hfCutoff)`                 | `CrossfeedMode` (Off / Meier / Custom)                         |
+| `setSurround(delayMs, balance, cutoffLowHz, cutoffHighHz)`                    | Surround/soundstage effect                                     |
+| `setChannelMode(mode)` / `setStereoWidth(percent)`                            | `ChannelMode` + stereo-width control                           |
+| `setBassEnhancement(strength, precut)` / `setFatigueReduction(strength)`      | Bass boost + listening-fatigue reduction                       |
+| `setCompressor(thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs)`    | Dynamic-range compressor                                       |
+| `setDither(on)` / `setPitch(ratio)`                                           | Dithering + pitch/tempo ratio                                  |
+| `dspSettings()`                                                               | The current DSP-chain settings as a plain object               |
+| `status()`                                                                    | Playback state, index, elapsed, and current track metadata     |
+| `resume()` / `saveResume()` / `clearResume()`                                 | Persist / restore the queue + exact position                   |
+| `importM3u(path, position?, index?)` / `loadM3u(path)` / `exportM3u(path)`    | Playlist (.m3u/.m3u8) import / load / export                   |
+
+**Enums**
+
+Exported constant objects to pass to the setters above:
+`DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`,
+`CrossfeedMode`, `InsertPosition`, `ChannelConfig`, `ChannelMode`, `EqPreset`,
+and `RepeatMode`.
+
+<Tip>
+  The `EqPreset` presets, tone/crossfeed/surround/compressor controls, and
+  their value ranges mirror Rockbox's own sound-settings menu — see the
+  [official Rockbox manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+  for what each effect does.
+</Tip>
 
 <Warning>
   `Dsp.setReplaygain` and `Player.setReplaygain` use **different mode
