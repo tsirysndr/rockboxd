@@ -1,0 +1,42 @@
+name: nix-build
+
+# Manually-triggered Nix build of the flake on Linux and macOS.
+# Uses the Determinate Systems Nix installer for a fast, cached install.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Flake attribute to build (e.g. .#rockboxd, .#webui-assets, .#s3webui-assets)"
+        type: string
+        required: false
+        default: ".#rockboxd"
+
+jobs:
+  build:
+    name: nix build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+
+      - name: nix flake show
+        run: nix flake show
+
+      - name: nix build ${{ inputs.target }}
+        run: nix build --print-build-logs "${{ inputs.target }}"

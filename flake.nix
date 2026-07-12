@@ -108,7 +108,60 @@
           version = "0.1.0";
           src     = ./webui/rockbox;
 
-          npmDepsHash = "sha256-nv3Uom0BpJ3oakwyuC8PZJ3MlJGumvfNEUoSlCknMbI=";
+          npmDepsHash = "sha256-zJxCDqddiRmZ7EFGtEBXPkr+A5Yq1Wtk2YQnFf+NMWQ=";
+
+          # --legacy-peer-deps: the lockfile pins graphql@15.7.2 while
+          #   graphql-ws wants graphql@^15.10.1; bun/deno tolerate this,
+          #   npm's strict peer resolution does not.
+          # --ignore-scripts: the `build` script produces the web dist via
+          #   vite; electron is only a devDependency for the desktop variant
+          #   and its postinstall tries to download a binary over the network
+          #   (blocked in the sandbox). None of the web-build deps need
+          #   install scripts.
+          npmFlags = [ "--legacy-peer-deps" "--ignore-scripts" ];
+
+          # Only the compiled dist/ is needed; skip npm's default pack step.
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            cp -r dist/. $out/
+            runHook postInstall
+          '';
+        };
+
+        # ── S3 admin WebUI static assets ─────────────────────────────────────
+        # Compiled from crates/s3/s3webui/ and embedded by rockbox-s3
+        # (rust-embed folder $CARGO_MANIFEST_DIR/s3webui/dist in
+        # crates/s3/src/admin.rs). rockbox-s3 is a dependency of rockbox-server,
+        # so these assets must exist before the Rust build.
+        #
+        # To obtain / update npmDepsHash:
+        #   nix build .#s3webui-assets 2>&1 | grep 'got:'
+        # then paste the printed hash below.
+        s3webuiAssets = pkgs.buildNpmPackage {
+          pname   = "rockbox-s3-webui";
+          version = "0.0.0";
+          src = lib.fileset.toSource {
+            root = ./crates/s3/s3webui;
+            # Full source tree needed for `vite build`. Only the checked-in
+            # inputs are listed; generated/vendored dirs (node_modules, dist,
+            # .tanstack) are gitignored and deliberately excluded.
+            fileset = lib.fileset.unions [
+              ./crates/s3/s3webui/package.json
+              ./crates/s3/s3webui/package-lock.json
+              ./crates/s3/s3webui/index.html
+              ./crates/s3/s3webui/vite.config.ts
+              ./crates/s3/s3webui/tsconfig.json
+              ./crates/s3/s3webui/tsconfig.app.json
+              ./crates/s3/s3webui/tsconfig.node.json
+              ./crates/s3/s3webui/tsr.config.json
+              ./crates/s3/s3webui/.oxlintrc.json
+              ./crates/s3/s3webui/src
+              ./crates/s3/s3webui/public
+            ];
+          };
+
+          npmDepsHash = "sha256-FKkuvP7JfewxGCe8WUjZlDgFSL48ll5/3WE4lGMdE/w=";
 
           # Only the compiled dist/ is needed; skip npm's default pack step.
           installPhase = ''
@@ -169,6 +222,11 @@
             # Inject compiled webui where rockbox-server's build.rs expects it.
             mkdir -p webui/rockbox/dist
             cp -r ${webuiAssets}/. webui/rockbox/dist/
+
+            # Inject compiled S3 admin webui where rockbox-s3's rust-embed
+            # (crates/s3/src/admin.rs) expects it at compile time.
+            mkdir -p crates/s3/s3webui/dist
+            cp -r ${s3webuiAssets}/. crates/s3/s3webui/dist/
           '';
 
           buildPhase = ''
@@ -200,9 +258,10 @@
         # ── packages ────────────────────────────────────────────────────────────
         # nix build / nix shell / nix profile install all use packages.default.
         packages = {
-          default      = rockboxd;       # ← what gets installed
+          default        = rockboxd;       # ← what gets installed
           inherit rockboxd;
-          webui-assets = webuiAssets;    # exposed separately to ease hash updates
+          webui-assets   = webuiAssets;    # exposed separately to ease hash updates
+          s3webui-assets = s3webuiAssets;  # exposed separately to ease hash updates
         };
 
         # ── nix develop ─────────────────────────────────────────────────────────

@@ -360,3 +360,5 @@ zig-out
 *.dump
 .claude/*.lock
 .claude
+
+result
