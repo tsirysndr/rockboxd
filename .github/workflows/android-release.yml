@@ -10,7 +10,11 @@ env:
 
 jobs:
   build:
-    if: "!startsWith(github.event.release.tag_name, 'clojure-v')"
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!startsWith(github.event.release.tag_name, 'clojure-v') &&
+       !startsWith(github.event.release.tag_name, 'clojure-ffi-v') &&
+       !startsWith(github.event.release.tag_name, 'bindings-v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
