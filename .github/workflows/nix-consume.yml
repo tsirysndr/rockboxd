@@ -1,0 +1,42 @@
+name: nix-consume
+
+# Manually-triggered smoke test that consumes the published flake exactly
+# like an end user would: `nix profile add "github:tsirysndr/rockboxd?submodules=1"`.
+# Catches submodule/lock/platform regressions that only surface when the flake
+# is fetched from GitHub rather than a local checkout.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Flake reference to install"
+        type: string
+        required: false
+        default: "github:tsirysndr/rockboxd?submodules=1"
+
+jobs:
+  install:
+    name: nix profile add (${{ inputs.ref }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Cachix (read-only)
+        uses: cachix/cachix-action@v17
+        with:
+          name: rockbox
+          # No authToken + skipPush → pull-only. The public `rockbox` cache
+          # supplies pre-built artifacts so this doesn't rebuild from source.
+          skipPush: true
+
+      - name: nix profile add ${{ inputs.ref }}
+        run: nix profile add --print-build-logs "${{ inputs.ref }}"
+
+      - name: Verify rockboxd is installed
+        run: |
+          nix profile list
+          ls -l ~/.nix-profile/bin/rockboxd
+          command -v rockboxd
