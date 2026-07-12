@@ -190,6 +190,37 @@
           hash = "sha256-wjTaGAZrpgPGnmwe9nwsOLULQHc5wjoltu+D+LPrwNw=";
         };
 
+        # ── Prebuilt V8 for the `deno` crate (v8 / rusty_v8 130.0.2) ──────────
+        # cli/ (package `rockbox`) depends on the `v8` crate, whose build.rs
+        # downloads a prebuilt librusty_v8 archive from GitHub — blocked in the
+        # nix sandbox. Fetch it here and hand it to the crate via
+        # RUSTY_V8_ARCHIVE; RUSTY_V8_SRC_BINDING_PATH supplies the matching
+        # prebuilt bindings so the build skips bindgen/libclang entirely.
+        #
+        # To refresh after a v8 bump: read the version from Cargo.lock, then
+        #   nix store prefetch-file <release-url> --json | jq -r .hash
+        rustyV8Version = "130.0.2";
+        rustyV8BySystem = {
+          "x86_64-linux"   = { triple = "x86_64-unknown-linux-gnu";  archiveHash = "sha256-ew2WZhdsHfffRQtif076AWAlFohwPo/RbmW/6D3LzkU="; bindingHash = "sha256-vbWjlLdQaqz5kBgL0XnrwhhdsPrrdHd1Q54YlxFmYKM="; };
+          "aarch64-linux"  = { triple = "aarch64-unknown-linux-gnu"; archiveHash = "sha256-p9+tHmKIM5wBABubHIAstpwfzO19ypPzOuaV4b6loCU="; bindingHash = "sha256-vbWjlLdQaqz5kBgL0XnrwhhdsPrrdHd1Q54YlxFmYKM="; };
+          "x86_64-darwin"  = { triple = "x86_64-apple-darwin";       archiveHash = "sha256-zNC0DAkMbbFM1M+t6rgKtN0QAm4ONEbCi6Sxivhf8dk="; bindingHash = "sha256-ZJlJ9b4kNwzsQrAfMrtqLc5v2f9M1QB1DsiwNlfiIbw="; };
+          "aarch64-darwin" = { triple = "aarch64-apple-darwin";      archiveHash = "sha256-aWZ/4Q4Wttx37xOdBmTCPGP+eYGhr4CM1UkYq8pC7Qs="; bindingHash = "sha256-ZJlJ9b4kNwzsQrAfMrtqLc5v2f9M1QB1DsiwNlfiIbw="; };
+        };
+        rustyV8 = rustyV8BySystem.${system};
+        rustyV8Url = kind: "https://github.com/denoland/rusty_v8/releases/download/v${rustyV8Version}/${kind}_release_${rustyV8.triple}";
+        # rusty_v8 ships the lib gzip-compressed; RUSTY_V8_ARCHIVE wants the
+        # decompressed .a, so gunzip it into a fixed store path.
+        rustyV8Archive = pkgs.runCommand "librusty_v8_release_${rustyV8.triple}.a" { } ''
+          ${pkgs.gzip}/bin/gzip -dc ${pkgs.fetchurl {
+            url  = "${rustyV8Url "librusty_v8"}.a.gz";
+            hash = rustyV8.archiveHash;
+          }} > $out
+        '';
+        rustyV8Binding = pkgs.fetchurl {
+          url  = "${rustyV8Url "src_binding"}.rs";
+          hash = rustyV8.bindingHash;
+        };
+
         # ── rockboxd derivation ───────────────────────────────────────────────
         # Build order mirrors scripts/build-headless.sh:
         #   0. webui assets (done above, injected via preBuild)
@@ -213,6 +244,7 @@
             zip        # firmware build packages voice/lang zips (tools/buildzip.pl)
             unzip
             protobuf   # protoc for Rust codegen
+            makeWrapper # wrap rockboxd so typesense-server is on its PATH
             # Wires up offline Cargo registry from cargoDeps.
             rustPlatform.cargoSetupHook
           ] ++ darwinPkgs;
@@ -273,6 +305,15 @@
             runHook postInstall
           '';
 
+          # rockboxd spawns `typesense-server` as a subprocess for the search
+          # index (crates/cli/src/lib.rs), falling back to PATH lookup when
+          # ~/.rockbox/bin/typesense-server is absent. Put typesense on PATH so
+          # an installed rockboxd works out of the box.
+          postInstall = ''
+            wrapProgram $out/bin/rockboxd \
+              --prefix PATH : ${lib.makeBinPath [ pkgs.typesense ]}
+          '';
+
           meta = with lib; {
             description = "Rockbox daemon — gRPC / GraphQL / HTTP / MPD audio server";
             homepage    = "https://github.com/tsirysndr/rockboxd";
@@ -317,6 +358,11 @@
           # cmake is present for native deps that use it, but the workspace
           # root has no CMakeLists.txt — skip cmake's default configurePhase.
           dontUseCmakeConfigure = true;
+
+          # Use the pre-fetched V8 static lib + bindings instead of letting the
+          # v8 crate download them at build time (no network in the sandbox).
+          RUSTY_V8_ARCHIVE          = rustyV8Archive;
+          RUSTY_V8_SRC_BINDING_PATH = rustyV8Binding;
 
           buildPhase = ''
             runHook preBuild
@@ -372,6 +418,7 @@
             buf
             grpcurl
             evans
+            typesense  # rockboxd spawns typesense-server as a subprocess
             bun
             deno
             # tools/console — babashka runs bb.edn tasks, clojure runs the
