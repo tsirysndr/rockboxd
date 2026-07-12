@@ -609,11 +609,18 @@ can run or install rockboxd straight from the repo:
 
 ```sh
 # Run the daemon without installing
-nix run github:tsirysndr/rockboxd
+nix run "github:tsirysndr/rockboxd?submodules=1"
 
 # Install into your profile (provides the `rockboxd` binary)
-nix profile install github:tsirysndr/rockboxd
+nix profile install "github:tsirysndr/rockboxd?submodules=1"
 ```
+
+> **`?submodules=1` is required.** rockboxd vendors the `deno` and `rmpc`
+> crates as git submodules; the plain `github:` fetcher uses GitHub's source
+> tarball, which omits submodule contents, so the build fails with
+> `failed to read deno/cli/Cargo.toml`. The `?submodules=1` flag makes Nix
+> clone with submodules instead. (Quote the ref so your shell doesn't eat the
+> `?`.)
 
 **⚡ Speed up the build with Cachix.** A from-source build links the Rockbox C
 firmware, every codec, and — for the `#rockbox` CLI — a full Deno/V8 stack, so
@@ -628,9 +635,9 @@ cachix use rockbox
 Other flake outputs:
 
 ```sh
-nix run   github:tsirysndr/rockboxd#rockbox   # the `rockbox` CLI client
-nix build github:tsirysndr/rockboxd           # → ./result/bin/rockboxd
-nix develop github:tsirysndr/rockboxd         # dev shell: Zig, Rust, typesense, tools/console…
+nix run    "github:tsirysndr/rockboxd?submodules=1#rockbox"  # the `rockbox` CLI client
+nix build  "github:tsirysndr/rockboxd?submodules=1"          # → ./result/bin/rockboxd
+nix develop "github:tsirysndr/rockboxd?submodules=1"         # dev shell: Zig, Rust, typesense, tools/console…
 ```
 
 ---
