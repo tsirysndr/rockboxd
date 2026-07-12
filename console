@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Root launcher for the Rockbox Console (tools/console).
+#
+# Forwards to the babashka task surface so you can drive every
+# build / dev / ops command from the repo root instead of cd'ing in:
+#
+#   ./console                 # command tour (bb help)
+#   ./console build:all       # firmware → crates → zig → rockboxd
+#   ./console run:debug       # RUST_LOG=debug rockboxd
+#   ./console repl            # rich terminal REPL (clj -M:rebel)
+#   ./console nrepl           # nREPL for your editor (clj -M:dev)
+#
+# Any other argument is passed straight through to `bb` in tools/console.
+set -euo pipefail
+
+# Resolve the directory this script lives in (repo root), following symlinks.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+CONSOLE_DIR="$ROOT/tools/console"
+
+if [ ! -d "$CONSOLE_DIR" ]; then
+  echo "console: tools/console not found at $CONSOLE_DIR" >&2
+  exit 1
+fi
+
+cd "$CONSOLE_DIR"
+
+# Versions (java / clojure / babashka) are pinned in tools/console/.mise.toml.
+# Prefer tools already on PATH; otherwise run them through mise.
+run() {
+  local tool="$1"; shift
+  if command -v "$tool" >/dev/null 2>&1; then
+    exec "$tool" "$@"
+  elif command -v mise >/dev/null 2>&1; then
+    exec mise exec -- "$tool" "$@"
+  else
+    echo "console: '$tool' not found and mise is unavailable." >&2
+    echo "         run 'mise install' in tools/console, or install $tool manually." >&2
+    exit 1
+  fi
+}
+
+case "${1:-}" in
+  repl)
+    run clj -M:rebel
+    ;;
+  nrepl)
+    run clj -M:dev
+    ;;
+  "")
+    run bb help
+    ;;
+  *)
+    run bb "$@"
+    ;;
+esac
