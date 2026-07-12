@@ -21,8 +21,9 @@
 
 #ifndef __STRLCAT_H__
 #define __STRLCAT_H__
-/* bionic <string.h> already declares strlcat with FORTIFY_SOURCE wrappers. */
-#ifndef __ANDROID__
+/* bionic <string.h> already declares strlcat with FORTIFY_SOURCE wrappers.
+ * macOS SDKs (with _FORTIFY_SOURCE) do the same, so skip Darwin too. */
+#if !defined(__ANDROID__) && !defined(__APPLE__)
 size_t  strlcat(char *dst, const char *src, size_t siz);
 #endif
 #endif
