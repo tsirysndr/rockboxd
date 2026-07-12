@@ -4580,7 +4580,7 @@ fi
     memory=32
     armcortexm7cc
     appextra="recorder:gui"
-    plugins="no"
+    plugins="yes"
     tool="cp "
     boottool="cp "
     output="rockbox.echo"
