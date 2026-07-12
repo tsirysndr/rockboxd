@@ -2,6 +2,12 @@
   description = "Rockbox Daemon — rockboxd daemon (gRPC/GraphQL/HTTP/MPD audio server)";
 
   inputs = {
+    # The Rust workspace depends on path crates under the `deno` git
+    # submodule (deno/cli, deno/runtime, deno/ext/*, …). Pull the flake's
+    # own submodules into `self` so `src = ./.` carries them; without this
+    # `cargo build` fails with "failed to read deno/cli/Cargo.toml".
+    self.submodules = true;
+
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay = {
