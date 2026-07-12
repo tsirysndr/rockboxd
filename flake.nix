@@ -282,13 +282,71 @@
           };
         };
 
+        # ── rockbox CLI derivation ────────────────────────────────────────────
+        # The `rockbox` gRPC client / CLI (cli/, cargo package "rockbox").
+        # Pure Rust (tonic client, no C firmware linkage) — its build.rs only
+        # runs tonic_build protoc codegen. Depends on the `deno` (deno/cli) and
+        # `rmpc` (rmpc/) path crates, both git submodules carried into the
+        # source via inputs.self.submodules; their transitive registry deps are
+        # already covered by cargoDeps.
+        rockbox = pkgs.stdenv.mkDerivation {
+          pname   = "rockbox";
+          version = "0.1.0";
+          src     = ./.;
+
+          nativeBuildInputs = with pkgs; [
+            rustToolchain
+            pkg-config
+            cmake
+            perl
+            python3
+            protobuf   # protoc for tonic_build codegen
+            # Wires up offline Cargo registry from cargoDeps.
+            rustPlatform.cargoSetupHook
+          ] ++ darwinPkgs;
+
+          # Native libs pulled in by the deno extensions (libffi → deno_ffi,
+          # zlib → __vendored_zlib_ng / flate2).
+          buildInputs = with pkgs; [
+            zlib zlib.dev
+            libffi libffi.dev
+          ] ++ linuxPkgs;
+
+          inherit cargoDeps;
+
+          # cmake is present for native deps that use it, but the workspace
+          # root has no CMakeLists.txt — skip cmake's default configurePhase.
+          dontUseCmakeConfigure = true;
+
+          buildPhase = ''
+            runHook preBuild
+            cargo build -p rockbox --release
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/bin
+            cp target/release/rockbox $out/bin/rockbox
+            runHook postInstall
+          '';
+
+          meta = with lib; {
+            description = "rockbox — gRPC client / CLI for the Rockbox daemon";
+            homepage    = "https://github.com/tsirysndr/rockboxd";
+            license     = licenses.lgpl21;
+            platforms   = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+            mainProgram = "rockbox";
+          };
+        };
+
       in
       {
         # ── packages ────────────────────────────────────────────────────────────
         # nix build / nix shell / nix profile install all use packages.default.
         packages = {
           default        = rockboxd;       # ← what gets installed
-          inherit rockboxd;
+          inherit rockboxd rockbox;
           webui-assets   = webuiAssets;    # exposed separately to ease hash updates
           s3webui-assets = s3webuiAssets;  # exposed separately to ease hash updates
         };
