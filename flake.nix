@@ -290,6 +290,8 @@
             cmake
             perl
             python3
+            zip        # firmware build packages voice/lang zips (tools/buildzip.pl)
+            unzip
             SDL2 SDL2.dev
             freetype freetype.dev
             zlib zlib.dev
