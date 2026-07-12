@@ -223,6 +223,14 @@
           # (scripts/build-headless.sh). Skip cmake's default configurePhase.
           dontUseCmakeConfigure = true;
 
+          # The Rockbox build invokes helper scripts under tools/ (genlang,
+          # *.pl, *.py) whose shebangs hardcode /usr/bin/perl and /usr/bin/python,
+          # absent in the nix sandbox. Rewrite them to the nativeBuildInputs
+          # interpreters so `make` can execute them.
+          postPatch = ''
+            patchShebangs tools
+          '';
+
           preBuild = ''
             # Inject compiled webui where rockbox-server's build.rs expects it.
             mkdir -p webui/rockbox/dist
