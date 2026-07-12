@@ -54,6 +54,12 @@ pub fn build(b: *std.Build) void {
     // Required when Zig cross-links for a target whose system libs aren't in
     // the host's default library search paths.
     const syslibs_dir = b.option([]const u8, "syslibs-dir", "Directory with cross-target system .so/.a files (e.g. ../build-armhf/syslibs)") orelse "";
+    // -Dmacos-sdk=/path/to/MacOSX.sdk: macOS SDK sysroot for framework/lib
+    // search. On a normal dev mac Zig finds the SDK via `xcrun`, but in a
+    // hermetic sandbox (Nix) xcrun is absent and the framework search path is
+    // empty, so linking CoreFoundation/CoreAudio/… fails. When set, add the
+    // SDK's Frameworks and usr/lib dirs to the search paths.
+    const macos_sdk = b.option([]const u8, "macos-sdk", "macOS SDK sysroot (e.g. .../MacOSX.sdk) for framework/lib search in hermetic builds") orelse "";
 
     const fw_dir = if (fw_dir_opt.len > 0) fw_dir_opt
                    else if (headless) "../build-headless"
@@ -143,6 +149,11 @@ pub fn build(b: *std.Build) void {
             exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
         } else {
             exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+        }
+        // Hermetic builds (Nix): point Zig at the SDK's frameworks + libSystem.
+        if (macos_sdk.len > 0) {
+            exe.root_module.addFrameworkPath(.{ .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{macos_sdk}) });
+            exe.root_module.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib", .{macos_sdk}) });
         }
         exe.root_module.linkFramework("CoreFoundation", .{});
         exe.root_module.linkFramework("Security", .{});
@@ -372,6 +383,11 @@ pub fn build(b: *std.Build) void {
                 embed_lib.root_module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
             } else {
                 embed_lib.root_module.addLibraryPath(.{ .cwd_relative = "/usr/local/lib" });
+            }
+            // Hermetic builds (Nix): point Zig at the SDK's frameworks + libSystem.
+            if (macos_sdk.len > 0) {
+                embed_lib.root_module.addFrameworkPath(.{ .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{macos_sdk}) });
+                embed_lib.root_module.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib", .{macos_sdk}) });
             }
             embed_lib.root_module.linkFramework("CoreFoundation", .{});
             embed_lib.root_module.linkFramework("Security", .{});

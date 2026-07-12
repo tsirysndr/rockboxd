@@ -73,10 +73,21 @@
 
         # macOS: llvm-objcopy for codec --redefine-sym inside build-headless.sh.
         # Use .llvm (not .bintools — bintools wraps Apple ld and needs the
-        # removed apple_sdk_11_0 stub).  System frameworks are ambient via CLT.
+        # removed apple_sdk_11_0 stub).
         darwinPkgs = lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
           llvmPackages_18.llvm
         ]);
+
+        # macOS SDK sysroot for Zig's final link. The C/Rust builds use the
+        # nix cc wrapper (which injects -isysroot), but the `zig build` link
+        # step bypasses it and, with no `xcrun` in the sandbox, has an empty
+        # framework/lib search path — so linking CoreFoundation/CoreAudio/…
+        # fails with "unable to find framework". build.zig's -Dmacos-sdk adds
+        # `-F <sdk>/System/Library/Frameworks` + `-L <sdk>/usr/lib` (the SDK's
+        # .tbd stubs + libSystem). Lazy, so pkgs.apple-sdk is never forced on
+        # Linux.
+        appleSdkRoot = lib.optionalString pkgs.stdenv.isDarwin
+          "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
 
         # ── PKG_CONFIG_PATH / LD_LIBRARY_PATH helpers (devShell only) ────────
 
@@ -270,6 +281,11 @@
           # has no CMakeLists.txt — rockboxd builds via make + cargo + zig
           # (scripts/build-headless.sh). Skip cmake's default configurePhase.
           dontUseCmakeConfigure = true;
+
+          # On macOS, hand Zig's link step the SDK framework/lib dirs (see
+          # appleSdkRoot). build-headless.sh appends $ZIG_EXTRA_ARGS to
+          # `zig build`. Empty on Linux, so it's a harmless no-op there.
+          ZIG_EXTRA_ARGS = lib.optionalString pkgs.stdenv.isDarwin "-Dmacos-sdk=${appleSdkRoot}";
 
           # The Rockbox build invokes helper scripts under tools/ (genlang,
           # *.pl, *.py) whose shebangs hardcode /usr/bin/perl and /usr/bin/python,
