@@ -298,6 +298,11 @@
             evans
             bun
             deno
+            # tools/console — babashka runs bb.edn tasks, clojure runs the
+            # deps.edn REPL aliases (clj -M:rebel / nREPL); both need a JDK.
+            jdk
+            clojure
+            babashka
           ] ++ linuxPkgs ++ darwinPkgs;
 
           shellHook = ''
