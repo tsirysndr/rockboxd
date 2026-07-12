@@ -22,13 +22,13 @@ def main() -> None:
 
     player = Player(volume=0.8)
     player.set_queue([file])
-    # DSP: Bass Boost preset + a +3 dB bass/treble lift.
+    # DSP: Bass Boost preset + a +7 dB bass / +4 dB treble lift.
     player.set_eq_preset(EqPreset.BASS_BOOST)
-    player.set_bass(3)
-    player.set_treble(3)
+    player.set_bass(7)
+    player.set_treble(4)
     player.play()
     print(f"▶ playing {file}")
-    print("eq: BassBoost preset, bass +3 dB, treble +3 dB")
+    print("eq: BassBoost preset, bass +7 dB, treble +4 dB")
 
     # Reinstall a SIGINT handler AFTER the player boots: the native audio
     # engine installs its own signal handler while starting the output

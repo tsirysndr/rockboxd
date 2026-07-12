@@ -19,14 +19,14 @@ do {
     var cfg = Player.Config()
     cfg.volume = 0.8
     let player = try Player(config: cfg)
-    // DSP: Bass Boost preset + a +3 dB bass/treble lift, then play — fluent chain.
+    // DSP: Bass Boost preset + a +7 dB bass / +4 dB treble lift, then play — fluent chain.
     try player.setQueue([file])
         .setEqPreset(.bassBoost)
-        .setBass(3)
-        .setTreble(3)
+        .setBass(7)
+        .setTreble(4)
         .play()
     print("▶ playing \(file)")
-    print("eq: BassBoost preset, bass +3 dB, treble +3 dB")
+    print("eq: BassBoost preset, bass +7 dB, treble +4 dB")
 
     // The native audio engine installs its own SIGINT handler while starting
     // the output device; reinstall ours so Ctrl-C exits promptly. We _exit
