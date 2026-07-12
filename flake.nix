@@ -395,7 +395,16 @@
           # `splash(HZ/2, ID2P(LANG_TIMEOUT))`), which trips that check and
           # turns every such call into a hard error. Upstream Rockbox never
           # sets this flag; disable it so the firmware compiles as designed.
-          hardeningDisable = [ "format" ];
+          # "fortify" too: the macOS SDK's <string.h> turns strlcpy/strlcat into
+          # __builtin___str*_chk fortify macros at _USE_FORTIFY_LEVEL>0, which
+          # mangle Rockbox's own strlcpy.c/strlcat.c definitions and call sites.
+          hardeningDisable = [ "format" "fortify" ];
+
+          # macOS defaults _USE_FORTIFY_LEVEL to 2 in the SDK even without the
+          # nixpkgs hardening flag, so force it off explicitly for the firmware
+          # C compile (the nix cc-wrapper appends NIX_CFLAGS_COMPILE; zig has
+          # its own driver and ignores it). Restores the pre-26.05 behavior.
+          NIX_CFLAGS_COMPILE = lib.optionalString pkgs.stdenv.isDarwin "-D_FORTIFY_SOURCE=0";
 
           # cmake is present for sub-builds that need it, but the top level
           # has no CMakeLists.txt — rockboxd builds via make + zig
