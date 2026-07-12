@@ -42,12 +42,12 @@
     "koffi": "^2.9.0"
   },
   "optionalDependencies": {
-    "@rockbox-ffi/darwin-arm64": "0.1.2",
-    "@rockbox-ffi/darwin-x64": "0.1.2",
-    "@rockbox-ffi/linux-x64": "0.1.2",
-    "@rockbox-ffi/linux-arm64": "0.1.2",
-    "@rockbox-ffi/freebsd-x64": "0.1.2",
-    "@rockbox-ffi/netbsd-x64": "0.1.2"
+    "@rockbox-ffi/darwin-arm64": "0.2.0",
+    "@rockbox-ffi/darwin-x64": "0.2.0",
+    "@rockbox-ffi/linux-x64": "0.2.0",
+    "@rockbox-ffi/linux-arm64": "0.2.0",
+    "@rockbox-ffi/freebsd-x64": "0.2.0",
+    "@rockbox-ffi/netbsd-x64": "0.2.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
