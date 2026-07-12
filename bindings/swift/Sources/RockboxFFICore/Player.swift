@@ -8,6 +8,11 @@ import Foundation
 ///
 /// ReplayGain `mode` here uses the *player* values: OFF=0, TRACK=1, ALBUM=2
 /// (`ReplayGainMode`) — distinct from the DSP encoding.
+///
+/// Mutating setters are `@discardableResult` and return `self`, so they can be
+/// chained fluently — e.g.
+/// `try player.setQueue([file]).setShuffle(true).setRepeat(.all).play()` —
+/// while existing statement-style calls still compile without warnings.
 public final class Player {
     /// Overridable construction parameters (see `rb_player_new_with_config`).
     public struct Config {
@@ -87,22 +92,28 @@ public final class Player {
     /// Replace the queue. Each entry may be a local file path, an
     /// `http(s)://` URL to a finite remote file, or a live-radio /
     /// streaming URL.
-    public func setQueue(_ paths: [String]) throws {
+    @discardableResult
+    public func setQueue(_ paths: [String]) throws -> Self {
         let json = String(data: try JSONSerialization.data(withJSONObject: paths), encoding: .utf8)!
         json.withCString { lib.playerSetQueueJson(ptr, $0) }
+        return self
     }
 
     /// Append one track to the queue. `path` may be a local file path, an
     /// `http(s)://` URL to a finite remote file, or a live-radio / streaming
     /// URL.
-    public func enqueue(_ path: String) {
+    @discardableResult
+    public func enqueue(_ path: String) -> Self {
         path.withCString { lib.playerEnqueue(ptr, $0) }
+        return self
     }
 
     /// Insert paths/URLs into the queue at `position` (`index` used for `.index`).
-    public func insert(_ paths: [String], position: InsertPosition, index: Int = 0) throws {
+    @discardableResult
+    public func insert(_ paths: [String], position: InsertPosition, index: Int = 0) throws -> Self {
         let json = String(data: try JSONSerialization.data(withJSONObject: paths), encoding: .utf8)!
         json.withCString { lib.playerInsertJson(ptr, $0, position.rawValue, index) }
+        return self
     }
 
     /// The current queue as an array of paths/URLs.
@@ -116,32 +127,52 @@ public final class Player {
 
     // MARK: - transport
 
-    public func play() { lib.playerPlay(ptr) }
-    public func pause() { lib.playerPause(ptr) }
-    public func toggle() { lib.playerToggle(ptr) }
-    public func stop() { lib.playerStop(ptr) }
-    public func next() { lib.playerNext(ptr) }
-    public func previous() { lib.playerPrevious(ptr) }
-    public func skip(to index: Int) { lib.playerSkipTo(ptr, index) }
-    public func seek(ms: UInt64) { lib.playerSeekMs(ptr, ms) }
+    @discardableResult public func play() -> Self { lib.playerPlay(ptr); return self }
+    @discardableResult public func pause() -> Self { lib.playerPause(ptr); return self }
+    @discardableResult public func toggle() -> Self { lib.playerToggle(ptr); return self }
+    @discardableResult public func stop() -> Self { lib.playerStop(ptr); return self }
+    @discardableResult public func next() -> Self { lib.playerNext(ptr); return self }
+    @discardableResult public func previous() -> Self { lib.playerPrevious(ptr); return self }
+    @discardableResult public func skip(to index: Int) -> Self { lib.playerSkipTo(ptr, index); return self }
+    @discardableResult public func seek(ms: UInt64) -> Self { lib.playerSeekMs(ptr, ms); return self }
 
     // MARK: - settings
 
-    public func setVolume(_ vol: Float) { lib.playerSetVolume(ptr, vol) }
+    @discardableResult public func setVolume(_ vol: Float) -> Self { lib.playerSetVolume(ptr, vol); return self }
     public var volume: Float { lib.playerVolume(ptr) }
     public var sampleRate: UInt32 { lib.playerSampleRate(ptr) }
 
+    @discardableResult
     public func setCrossfade(_ mode: CrossfadeMode, fadeOutDelayMs: UInt32 = 0,
                              fadeOutDurationMs: UInt32 = 2000, fadeInDelayMs: UInt32 = 0,
-                             fadeInDurationMs: UInt32 = 2000, mixMode: MixMode = .crossfade) {
+                             fadeInDurationMs: UInt32 = 2000, mixMode: MixMode = .crossfade) -> Self {
         lib.playerSetCrossfade(ptr, mode.rawValue, fadeOutDelayMs, fadeOutDurationMs,
                                fadeInDelayMs, fadeInDurationMs, mixMode.rawValue)
+        return self
     }
 
     /// `mode`: `ReplayGainMode` (OFF=0, TRACK=1, ALBUM=2).
-    public func setReplaygain(_ mode: ReplayGainMode, preampDb: Float, preventClipping: Bool) {
+    @discardableResult
+    public func setReplaygain(_ mode: ReplayGainMode, preampDb: Float, preventClipping: Bool) -> Self {
         lib.playerSetReplaygain(ptr, mode.rawValue, preampDb, preventClipping)
+        return self
     }
+
+    // MARK: - shuffle / repeat
+
+    /// Enable or disable shuffle.
+    @discardableResult
+    public func setShuffle(_ enabled: Bool) -> Self { lib.playerSetShuffle(ptr, enabled); return self }
+
+    /// Whether shuffle is currently enabled.
+    public func isShuffleEnabled() -> Bool { lib.playerIsShuffleEnabled(ptr) }
+
+    /// Set the repeat mode (`RepeatMode`: off=0, one=1, all=2).
+    @discardableResult
+    public func setRepeat(_ mode: RepeatMode) -> Self { lib.playerSetRepeat(ptr, mode.rawValue); return self }
+
+    /// The current repeat mode. Falls back to `.off` for an unknown value.
+    public func `repeat`() -> RepeatMode { RepeatMode(rawValue: lib.playerRepeat(ptr)) ?? .off }
 
     // MARK: - status
 
@@ -156,55 +187,72 @@ public final class Player {
     // MARK: - DSP
 
     /// Enable or disable the parametric EQ.
-    public func setEqEnabled(_ enabled: Bool) { lib.playerSetEqEnabled(ptr, enabled) }
+    @discardableResult
+    public func setEqEnabled(_ enabled: Bool) -> Self { lib.playerSetEqEnabled(ptr, enabled); return self }
 
     /// Whether the parametric EQ is currently enabled.
     public func isEqEnabled() -> Bool { lib.playerIsEqEnabled(ptr) }
 
     /// Configure one EQ band. `gainDb` is plain dB, `q` a plain Q factor.
-    public func setEqBand(_ band: Int, cutoffHz: Int32, q: Float, gainDb: Float) {
+    @discardableResult
+    public func setEqBand(_ band: Int, cutoffHz: Int32, q: Float, gainDb: Float) -> Self {
         lib.playerSetEqBand(ptr, band, cutoffHz, q, gainDb)
+        return self
     }
 
     /// EQ pre-cut (headroom) in plain dB.
-    public func setEqPrecut(_ db: Float) { lib.playerSetEqPrecut(ptr, db) }
+    @discardableResult
+    public func setEqPrecut(_ db: Float) -> Self { lib.playerSetEqPrecut(ptr, db); return self }
 
     /// Apply a built-in EQ preset.
-    public func setEqPreset(_ preset: EqPreset) { lib.playerSetEqPreset(ptr, preset.rawValue) }
+    @discardableResult
+    public func setEqPreset(_ preset: EqPreset) -> Self { lib.playerSetEqPreset(ptr, preset.rawValue); return self }
 
     /// Bass/treble tone control with explicit cutoffs (all in dB / Hz).
-    public func setTone(bassDb: Int32, trebleDb: Int32, bassCutoffHz: Int32, trebleCutoffHz: Int32) {
+    @discardableResult
+    public func setTone(bassDb: Int32, trebleDb: Int32, bassCutoffHz: Int32, trebleCutoffHz: Int32) -> Self {
         lib.playerSetTone(ptr, bassDb, trebleDb, bassCutoffHz, trebleCutoffHz)
+        return self
     }
 
     /// Bass gain in dB.
-    public func setBass(_ bassDb: Int32) { lib.playerSetBass(ptr, bassDb) }
+    @discardableResult
+    public func setBass(_ bassDb: Int32) -> Self { lib.playerSetBass(ptr, bassDb); return self }
 
     /// Treble gain in dB.
-    public func setTreble(_ trebleDb: Int32) { lib.playerSetTreble(ptr, trebleDb) }
+    @discardableResult
+    public func setTreble(_ trebleDb: Int32) -> Self { lib.playerSetTreble(ptr, trebleDb); return self }
 
     /// Surround effect (delay in ms, balance, and low/high cutoffs in Hz).
-    public func setSurround(delayMs: Int32, balance: Int32, cutoffLowHz: Int32, cutoffHighHz: Int32) {
+    @discardableResult
+    public func setSurround(delayMs: Int32, balance: Int32, cutoffLowHz: Int32, cutoffHighHz: Int32) -> Self {
         lib.playerSetSurround(ptr, delayMs, balance, cutoffLowHz, cutoffHighHz)
+        return self
     }
 
     /// Channel mixing mode.
-    public func setChannelMode(_ mode: ChannelMode) { lib.playerSetChannelMode(ptr, mode.rawValue) }
+    @discardableResult
+    public func setChannelMode(_ mode: ChannelMode) -> Self { lib.playerSetChannelMode(ptr, mode.rawValue); return self }
 
     /// Stereo width as a percentage.
-    public func setStereoWidth(_ percent: Int32) { lib.playerSetStereoWidth(ptr, percent) }
+    @discardableResult
+    public func setStereoWidth(_ percent: Int32) -> Self { lib.playerSetStereoWidth(ptr, percent); return self }
 
     /// Dynamic-range compressor (threshold/makeup in dB, times in ms).
+    @discardableResult
     public func setCompressor(thresholdDb: Int32, makeupGain: Int32, ratio: Int32,
-                              knee: Int32, attackMs: Int32, releaseMs: Int32) {
+                              knee: Int32, attackMs: Int32, releaseMs: Int32) -> Self {
         lib.playerSetCompressor(ptr, thresholdDb, makeupGain, ratio, knee, attackMs, releaseMs)
+        return self
     }
 
     /// Enable or disable output dithering.
-    public func setDither(_ enabled: Bool) { lib.playerSetDither(ptr, enabled) }
+    @discardableResult
+    public func setDither(_ enabled: Bool) -> Self { lib.playerSetDither(ptr, enabled); return self }
 
     /// Playback pitch as a ratio (native Rockbox units).
-    public func setPitch(_ ratio: Int32) { lib.playerSetPitch(ptr, ratio) }
+    @discardableResult
+    public func setPitch(_ ratio: Int32) -> Self { lib.playerSetPitch(ptr, ratio); return self }
 
     /// A snapshot of the current DSP settings as a dictionary.
     public func dspSettings() throws -> [String: Any] {

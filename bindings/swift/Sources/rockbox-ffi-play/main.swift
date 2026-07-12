@@ -19,12 +19,12 @@ do {
     var cfg = Player.Config()
     cfg.volume = 0.8
     let player = try Player(config: cfg)
+    // DSP: Bass Boost preset + a +3 dB bass/treble lift, then play — fluent chain.
     try player.setQueue([file])
-    // DSP: Bass Boost preset + a +3 dB bass/treble lift.
-    player.setEqPreset(.bassBoost)
-    player.setBass(3)
-    player.setTreble(3)
-    player.play()
+        .setEqPreset(.bassBoost)
+        .setBass(3)
+        .setTreble(3)
+        .play()
     print("▶ playing \(file)")
     print("eq: BassBoost preset, bass +3 dB, treble +3 dB")
 

@@ -8,7 +8,7 @@ import type { makeApi } from "./api.ts";
 
 export * from "./enums.ts";
 export { sineStereo } from "./api.ts";
-export type { M3uEntry, Metadata, PlayerConfig, PlayerStatus, ResumeState } from "./types.ts";
+export type { M3uEntry, Metadata, PlayerConfig, PlayerStatus, RepeatName, ResumeState } from "./types.ts";
 
 type Api = ReturnType<typeof makeApi>;
 

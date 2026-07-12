@@ -13,12 +13,14 @@ FIXTURE = File.join(REPO, "crates", "rocksky", "fixtures", "08 - Internet Money 
 file = ARGV[0] || FIXTURE
 
 player = RockboxFFI::Player.new(volume: 0.8)
-player.set_queue([file])
+# Mutating setters return self, so the setup reads as one fluent chain.
 # DSP: Bass Boost preset + a +3 dB bass/treble lift.
-player.set_eq_preset(RockboxFFI::EqPreset::BASS_BOOST)
-player.set_bass(3)
-player.set_treble(3)
-player.play
+player
+  .set_queue([file])
+  .set_eq_preset(RockboxFFI::EqPreset::BASS_BOOST)
+  .set_bass(3)
+  .set_treble(3)
+  .play
 puts "▶ playing #{file}"
 puts "eq: BassBoost preset, bass +3 dB, treble +3 dB"
 

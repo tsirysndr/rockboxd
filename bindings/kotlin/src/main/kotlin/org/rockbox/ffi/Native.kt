@@ -109,6 +109,10 @@ internal object Native {
     val playerVolume = h("rb_player_volume", FunctionDescriptor.of(F32, PTR))
     val playerSampleRate = h("rb_player_sample_rate", FunctionDescriptor.of(I32, PTR))
     val playerStatusJson = h("rb_player_status_json", FunctionDescriptor.of(PTR, PTR))
+    val playerSetShuffle = h("rb_player_set_shuffle", FunctionDescriptor.ofVoid(PTR, BOOL))
+    val playerIsShuffleEnabled = h("rb_player_is_shuffle_enabled", FunctionDescriptor.of(BOOL, PTR))
+    val playerSetRepeat = h("rb_player_set_repeat", FunctionDescriptor.ofVoid(PTR, I32))
+    val playerRepeat = h("rb_player_repeat", FunctionDescriptor.of(I32, PTR))
 
     // ---- player DSP ---------------------------------------------------
     val playerSetEqEnabled = h("rb_player_set_eq_enabled", FunctionDescriptor.ofVoid(PTR, BOOL))

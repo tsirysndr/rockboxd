@@ -23,6 +23,16 @@ const (
 	ReplayGainAlbum ReplayGainMode = 2
 )
 
+// RepeatMode selects the repeat behaviour for [Player.SetRepeat] and
+// [Player.Repeat].
+type RepeatMode int32
+
+const (
+	RepeatOff RepeatMode = 0
+	RepeatOne RepeatMode = 1
+	RepeatAll RepeatMode = 2
+)
+
 // CrossfadeMode selects the crossfade behaviour for [Player.SetCrossfade] and
 // [Config.CrossfadeMode].
 type CrossfadeMode int32

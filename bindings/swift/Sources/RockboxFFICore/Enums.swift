@@ -29,6 +29,13 @@ public enum MixMode: Int32 {
     case mix = 1
 }
 
+/// Repeat mode for `Player.setRepeat` / `Player.repeat()`.
+public enum RepeatMode: Int32 {
+    case off = 0
+    case one = 1
+    case all = 2
+}
+
 /// Where to place inserted / imported tracks in the queue.
 public enum InsertPosition: Int32 {
     case prepend = 0

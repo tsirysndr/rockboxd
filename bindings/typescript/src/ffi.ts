@@ -119,6 +119,11 @@ export const SPEC: Record<string, SymSpec> = {
   rb_player_set_pitch: { args: ["ptr", "i32"], ret: "void" },
   rb_player_dsp_settings_json: { args: ["ptr"], ret: "ptr" },
 
+  rb_player_set_shuffle: { args: ["ptr", "bool"], ret: "void" },
+  rb_player_is_shuffle_enabled: { args: ["ptr"], ret: "bool" },
+  rb_player_set_repeat: { args: ["ptr", "i32"], ret: "void" },
+  rb_player_repeat: { args: ["ptr"], ret: "i32" },
+
   rb_player_resume: { args: ["ptr"], ret: "ptr" },
   rb_player_save_resume: { args: ["ptr"], ret: "void" },
   rb_player_clear_resume: { args: ["ptr"], ret: "void" },

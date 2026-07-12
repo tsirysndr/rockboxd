@@ -128,6 +128,14 @@ void  rb_player_set_crossfade(RbPlayer *p, int32_t mode, uint32_t fo_delay_ms,
 void  rb_player_set_replaygain(RbPlayer *p, int32_t mode, float preamp_db,
                                bool prevent_clipping);
 
+/* ---- shuffle / repeat ------------------------------------------------- */
+/* Enable or disable shuffle playback. */
+void  rb_player_set_shuffle(RbPlayer *p, bool enabled);
+bool  rb_player_is_shuffle_enabled(RbPlayer *p);
+/* Repeat mode: 0 off, 1 one (current track), 2 all (whole queue). */
+void  rb_player_set_repeat(RbPlayer *p, int32_t mode);
+int32_t rb_player_repeat(RbPlayer *p);
+
 /* ---- DSP chain (EQ / tone / surround / channel / compressor / …) ------ */
 /* 10-band parametric equalizer. */
 void  rb_player_set_eq_enabled(RbPlayer *p, bool enabled);

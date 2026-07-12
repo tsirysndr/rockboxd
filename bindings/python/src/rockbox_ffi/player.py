@@ -10,7 +10,7 @@ import json
 from typing import List, Optional
 
 from ._ffi import ffi, lib, take_string
-from .enums import CrossfadeMode, InsertPosition, MixMode, ReplayGainMode
+from .enums import CrossfadeMode, InsertPosition, MixMode, RepeatMode, ReplayGainMode
 
 
 class Player:
@@ -165,6 +165,21 @@ class Player:
     def set_replaygain(self, mode: int, preamp_db: float, prevent_clipping: bool) -> None:
         """mode: :class:`rockbox_ffi.enums.ReplayGainMode` (OFF=0, TRACK=1, ALBUM=2)."""
         lib.rb_player_set_replaygain(self._p, int(mode), float(preamp_db), bool(prevent_clipping))
+
+    # -- shuffle / repeat -------------------------------------------------
+    def set_shuffle(self, enabled: bool) -> None:
+        lib.rb_player_set_shuffle(self._p, bool(enabled))
+
+    def is_shuffle_enabled(self) -> bool:
+        return bool(lib.rb_player_is_shuffle_enabled(self._p))
+
+    def set_repeat(self, mode: int) -> None:
+        """mode: :class:`rockbox_ffi.enums.RepeatMode` (OFF=0, ONE=1, ALL=2)."""
+        lib.rb_player_set_repeat(self._p, int(mode))
+
+    def repeat(self) -> int:
+        """Current repeat mode as an int (0 off, 1 one, 2 all)."""
+        return int(lib.rb_player_repeat(self._p))
 
     # -- dsp / eq ---------------------------------------------------------
     def set_eq_enabled(self, enabled: bool) -> None:

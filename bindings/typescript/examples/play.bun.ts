@@ -13,13 +13,14 @@ const fixture = join(
 
 const file = process.argv[2] ?? fixture;
 
-const player = new api.Player({ volume: 0.8 });
-player.setQueue([file]);
-// DSP: Bass Boost preset + a +3 dB bass/treble lift.
-player.setEqPreset(api.EqPreset.BassBoost);
-player.setBass(3);
-player.setTreble(3);
-player.play();
+// DSP: Bass Boost preset + a +3 dB bass/treble lift. Setters return `this`,
+// so the whole setup chains fluently into a single expression.
+const player = new api.Player({ volume: 0.8 })
+  .setQueue([file])
+  .setEqPreset(api.EqPreset.BassBoost)
+  .setBass(3)
+  .setTreble(3)
+  .play();
 
 console.log(`▶ playing ${file}`);
 console.log("eq: BassBoost preset, bass +3 dB, treble +3 dB");

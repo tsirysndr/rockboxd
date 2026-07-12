@@ -18,6 +18,7 @@ from .enums import (
     EqPreset,
     InsertPosition,
     MixMode,
+    RepeatMode,
     ReplayGainMode,
 )
 from .player import Player
@@ -34,6 +35,7 @@ __all__ = [
     "EqPreset",
     "InsertPosition",
     "MixMode",
+    "RepeatMode",
     "ReplayGainMode",
     "abi_version",
     "load_resume",

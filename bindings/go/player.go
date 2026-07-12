@@ -88,6 +88,87 @@ func NewDefaultPlayer() (*Player, error) {
 	return &Player{ptr: ptr}, nil
 }
 
+// Option mutates a [Config] as part of the functional-options constructor
+// [New]. Use the With* helpers to build one.
+type Option func(*Config)
+
+// WithSampleRate sets the output sample rate in Hz. 0 (the default) means the
+// output device default.
+func WithSampleRate(hz uint32) Option {
+	return func(c *Config) { c.SampleRate = hz }
+}
+
+// WithBufferSeconds sets the audio buffer size in seconds.
+func WithBufferSeconds(seconds float32) Option {
+	return func(c *Config) { c.BufferSeconds = seconds }
+}
+
+// WithVolume sets the initial linear output volume (0.0..=1.0).
+func WithVolume(vol float32) Option {
+	return func(c *Config) { c.Volume = vol }
+}
+
+// WithReplayGain configures ReplayGain: the mode (player encoding — see
+// [ReplayGainMode], Off=0, Track=1, Album=2), the pre-amp in dB, and whether
+// clipping prevention is applied.
+func WithReplayGain(mode ReplayGainMode, preampDb float32, preventClipping bool) Option {
+	return func(c *Config) {
+		c.ReplayGainMode = mode
+		c.ReplayGainPreampDb = preampDb
+		c.ReplayGainPreventClipping = preventClipping
+	}
+}
+
+// WithCrossfade configures crossfading: the mode (see [CrossfadeMode]), the
+// fade-out delay/duration and fade-in delay/duration in milliseconds, and the
+// mix mode (see [MixMode]).
+func WithCrossfade(mode CrossfadeMode, foDelayMs, foDurationMs, fiDelayMs, fiDurationMs uint32, mix MixMode) Option {
+	return func(c *Config) {
+		c.CrossfadeMode = mode
+		c.FadeOutDelayMs = foDelayMs
+		c.FadeOutDurationMs = foDurationMs
+		c.FadeInDelayMs = fiDelayMs
+		c.FadeInDurationMs = fiDurationMs
+		c.MixMode = mix
+	}
+}
+
+// WithResumeFile sets the .m3u8 path the player auto-persists the queue and
+// exact playback position to, enabling [Player.Resume]. See [Config.ResumeFile].
+func WithResumeFile(path string) Option {
+	return func(c *Config) { c.ResumeFile = path }
+}
+
+// WithResumeSaveIntervalMs sets how often the resume file is rewritten while
+// playing. 0 uses the Rockbox default (5 s). Ignored when no resume file is
+// set. See [Config.ResumeSaveIntervalMs].
+func WithResumeSaveIntervalMs(ms uint32) Option {
+	return func(c *Config) { c.ResumeSaveIntervalMs = ms }
+}
+
+// New creates a player on the default device using the functional-options
+// style: it starts from [DefaultConfig], applies each Option, and delegates to
+// [NewPlayer]. It is a convenience wrapper — for full control over the [Config]
+// struct, use [NewPlayer] directly.
+//
+//	p, err := rockbox.New(
+//		rockbox.WithVolume(0.8),
+//		rockbox.WithReplayGain(rockbox.ReplayGainTrack, 0.0, true),
+//		rockbox.WithCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade),
+//		rockbox.WithResumeFile("state.m3u8"),
+//	)
+//	if err != nil {
+//		// ...
+//	}
+//	defer p.Close()
+func New(opts ...Option) (*Player, error) {
+	cfg := DefaultConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return NewPlayer(cfg)
+}
+
 // Close frees the native player and stops its engine thread. Safe to call more
 // than once.
 func (p *Player) Close() {
@@ -181,6 +262,18 @@ func (p *Player) SetCrossfade(mode CrossfadeMode, fadeOutDelayMs, fadeOutDuratio
 func (p *Player) SetReplaygain(mode ReplayGainMode, preampDb float32, preventClipping bool) {
 	rbPlayerSetReplaygain(p.ptr, int32(mode), preampDb, preventClipping)
 }
+
+// SetShuffle turns queue shuffling on or off.
+func (p *Player) SetShuffle(enabled bool) { rbPlayerSetShuffle(p.ptr, enabled) }
+
+// IsShuffleEnabled reports whether queue shuffling is currently enabled.
+func (p *Player) IsShuffleEnabled() bool { return rbPlayerIsShuffleEnabled(p.ptr) }
+
+// SetRepeat sets the repeat mode (see [RepeatMode], Off=0, One=1, All=2).
+func (p *Player) SetRepeat(mode RepeatMode) { rbPlayerSetRepeat(p.ptr, int32(mode)) }
+
+// Repeat reports the current repeat mode (see [RepeatMode]).
+func (p *Player) Repeat() RepeatMode { return RepeatMode(rbPlayerRepeat(p.ptr)) }
 
 // SetEqEnabled turns the parametric equalizer on or off.
 func (p *Player) SetEqEnabled(enabled bool) { rbPlayerSetEqEnabled(p.ptr, enabled) }
@@ -370,6 +463,8 @@ type Status struct {
 	DurationMs uint64 `json:"duration_ms"`
 	QueueLen   int    `json:"queue_len"`
 	Metadata   *Meta  `json:"metadata"`
+	Shuffle    bool   `json:"shuffle"`
+	Repeat     string `json:"repeat"` // "off" | "one" | "all"
 }
 
 // Status returns a snapshot of the player's status.

@@ -9,8 +9,8 @@ use crate::meta::MetadataJson;
 use crate::util::{cstr, into_cstring};
 use rockbox_playback::{
     m3u, ChannelMode, Compressor, CrossfadeMode, CrossfadeSettings, DspSettings, EqBand, EqPreset,
-    InsertPosition, MixMode, PlaybackState, Player, PlayerConfig, ReplayGainMode, ResumeState,
-    Status, Surround, ToneControls,
+    InsertPosition, MixMode, PlaybackState, Player, PlayerConfig, RepeatMode, ReplayGainMode,
+    ResumeState, Status, Surround, ToneControls,
 };
 use serde::Serialize;
 use std::os::raw::c_char;
@@ -122,6 +122,8 @@ pub extern "C" fn rb_player_new_with_config(
         replaygain_preamp_db: rg_preamp_db,
         replaygain_prevent_clipping: rg_prevent_clipping,
         dsp: DspSettings::default(),
+        shuffle: false,
+        repeat: RepeatMode::Off,
         volume,
         resume_file: None,
         resume_save_interval: Duration::from_secs(5),
@@ -178,6 +180,8 @@ pub extern "C" fn rb_player_new_with_config_ex(
         replaygain_preamp_db: rg_preamp_db,
         replaygain_prevent_clipping: rg_prevent_clipping,
         dsp: DspSettings::default(),
+        shuffle: false,
+        repeat: RepeatMode::Off,
         volume,
         resume_file,
         resume_save_interval: interval,
@@ -345,6 +349,43 @@ pub extern "C" fn rb_player_set_replaygain(
     prevent_clipping: bool,
 ) {
     player!(p).set_replaygain(rg_mode(mode), preamp_db, prevent_clipping);
+}
+
+fn repeat_mode(v: i32) -> RepeatMode {
+    match v {
+        1 => RepeatMode::One,
+        2 => RepeatMode::All,
+        _ => RepeatMode::Off,
+    }
+}
+
+/// Enable or disable shuffle playback.
+#[no_mangle]
+pub extern "C" fn rb_player_set_shuffle(p: *mut Player, enabled: bool) {
+    player!(p).set_shuffle(enabled);
+}
+
+/// Whether shuffle playback is currently enabled (false on a null handle).
+#[no_mangle]
+pub extern "C" fn rb_player_is_shuffle_enabled(p: *mut Player) -> bool {
+    player_or!(p, false).shuffle()
+}
+
+/// Set the repeat mode: 0 off, 1 one (repeat current track), 2 all
+/// (repeat the whole queue).
+#[no_mangle]
+pub extern "C" fn rb_player_set_repeat(p: *mut Player, mode: i32) {
+    player!(p).set_repeat(repeat_mode(mode));
+}
+
+/// The current repeat mode: 0 off, 1 one, 2 all (0 on a null handle).
+#[no_mangle]
+pub extern "C" fn rb_player_repeat(p: *mut Player) -> i32 {
+    match player_or!(p, 0).repeat() {
+        RepeatMode::Off => 0,
+        RepeatMode::One => 1,
+        RepeatMode::All => 2,
+    }
 }
 
 fn channel_mode(v: i32) -> ChannelMode {
@@ -651,6 +692,14 @@ pub extern "C" fn rb_player_sample_rate(p: *mut Player) -> u32 {
     unsafe { &*p }.sample_rate()
 }
 
+fn repeat_name(mode: RepeatMode) -> &'static str {
+    match mode {
+        RepeatMode::Off => "off",
+        RepeatMode::One => "one",
+        RepeatMode::All => "all",
+    }
+}
+
 #[derive(Serialize)]
 struct StatusJson {
     /// "stopped" | "playing" | "paused"
@@ -659,6 +708,9 @@ struct StatusJson {
     position_ms: u64,
     duration_ms: u64,
     queue_len: usize,
+    shuffle: bool,
+    /// "off" | "one" | "all"
+    repeat: &'static str,
     metadata: Option<MetadataJson>,
 }
 
@@ -674,6 +726,8 @@ impl From<&Status> for StatusJson {
             position_ms: s.position.as_millis() as u64,
             duration_ms: s.duration.as_millis() as u64,
             queue_len: s.queue_len,
+            shuffle: s.shuffle,
+            repeat: repeat_name(s.repeat),
             metadata: s.metadata.as_ref().map(Into::into),
         }
     }

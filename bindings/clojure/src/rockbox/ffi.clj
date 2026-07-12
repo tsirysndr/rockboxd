@@ -149,6 +149,10 @@
    :player-set-volume          (dc "rb_player_set_volume" (fd-void [PTR F32]))
    :player-set-crossfade       (dc "rb_player_set_crossfade" (fd-void [PTR I32 I32 I32 I32 I32 I32]))
    :player-set-replaygain      (dc "rb_player_set_replaygain" (fd-void [PTR I32 F32 BOOL]))
+   :player-set-shuffle         (dc "rb_player_set_shuffle" (fd-void [PTR BOOL]))
+   :player-is-shuffle-enabled  (dc "rb_player_is_shuffle_enabled" (fd-of BOOL [PTR]))
+   :player-set-repeat          (dc "rb_player_set_repeat" (fd-void [PTR I32]))
+   :player-repeat              (dc "rb_player_repeat" (fd-of I32 [PTR]))
    ;; ---- player DSP ----
    :player-set-eq-enabled      (dc "rb_player_set_eq_enabled" (fd-void [PTR BOOL]))
    :player-is-eq-enabled       (dc "rb_player_is_eq_enabled" (fd-of BOOL [PTR]))
