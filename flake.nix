@@ -181,7 +181,7 @@
         # then paste the printed hash below.
         cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
           src  = ./.;
-          hash = lib.fakeHash;
+          hash = "sha256-wjTaGAZrpgPGnmwe9nwsOLULQHc5wjoltu+D+LPrwNw=";
         };
 
         # ── rockboxd derivation ───────────────────────────────────────────────
