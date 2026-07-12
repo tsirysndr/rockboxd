@@ -17,7 +17,15 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, rust-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
+    # x86_64-darwin is intentionally omitted: nixpkgs 26.05 is the last
+    # release to support it, and some dev-shell deps (e.g. babashka) already
+    # drop it from meta.platforms, which breaks whole-flake evaluation
+    # (e.g. FlakeHub's cross-system `nix eval`).
+    flake-utils.lib.eachSystem [
+      "x86_64-linux"
+      "aarch64-linux"
+      "aarch64-darwin"
+    ] (system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs    = import nixpkgs { inherit system overlays; };
