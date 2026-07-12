@@ -218,6 +218,11 @@
 
           inherit cargoDeps;
 
+          # cmake is present for sub-builds that need it, but the top level
+          # has no CMakeLists.txt — rockboxd builds via make + cargo + zig
+          # (scripts/build-headless.sh). Skip cmake's default configurePhase.
+          dontUseCmakeConfigure = true;
+
           preBuild = ''
             # Inject compiled webui where rockbox-server's build.rs expects it.
             mkdir -p webui/rockbox/dist
