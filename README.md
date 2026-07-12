@@ -49,6 +49,7 @@ and Squeezelite.
 - [📦 Downloads](#-downloads)
 - [🧙‍♂️ Systemd Service](#️-systemd-service)
 - [🏗️ Compiling from Source](#️-compiling-from-source)
+  - [🎛️ Console — one entry point for every build/dev/ops command](#️-console--one-entry-point-for-every-builddevops-command)
 - [🧑‍🔬 Architecture](#-architecture)
 - [📚 APIs](#-apis)
   - [GraphQL](#graphql)
@@ -727,6 +728,31 @@ The binary is at `zig/zig-out/bin/rockboxd`.
 > **Rebuilding after changes**: after editing C code run `make lib` in
 > `build-lib`; after editing Rust run `cargo build --release`. Then re-run
 > `zig build`. Zig only re-links when the `.a` files are newer than the binary.
+
+### 🎛️ Console — one entry point for every build/dev/ops command
+
+Rather than remembering the exact `make`, `cargo`, `zig`, `bun`, and
+`bash scripts/*.sh` incantations, the repo ships a REPL-driven console
+([babashka](https://babashka.org) / Clojure) that wraps them all. The
+`./console` launcher at the repo root forwards to it — no need to `cd` in:
+
+```sh
+./console                 # command tour (all available commands)
+./console build:all       # firmware → crates → zig → rockboxd
+./console run:debug       # RUST_LOG=debug rockboxd
+./console wasm:build      # bash scripts/build-wasm.sh
+./console verify:stale    # check the stale-binary pitfall
+./console repl            # rich terminal REPL (clj -M:rebel)
+./console nrepl           # nREPL for your editor (CIDER / Calva)
+```
+
+Any other argument is passed straight through to the underlying `bb <task>`.
+Tool versions (Java / Clojure / babashka) are pinned in
+[`tools/console/.mise.toml`](tools/console/.mise.toml); with
+[mise](https://mise.jdx.dev) installed the launcher resolves them
+automatically, otherwise install `bb` + `clj` yourself. See
+[`tools/console/README.md`](tools/console/README.md) for the full command
+reference and how to add your own commands.
 
 ### Build the GTK4 desktop app
 
