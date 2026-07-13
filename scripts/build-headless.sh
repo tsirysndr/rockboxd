@@ -100,6 +100,27 @@ NCPU="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || sysctl -n hw.ncpuo
     fi
 }
 
+echo "==> Step 2.05: Add __isoc23_* compat shim to libfirmware.a (Linux only)"
+# On glibc >= 2.38 hosts (e.g. Ubuntu 24.04 native runners) the firmware
+# objects reference __isoc23_strtol/__isoc23_fscanf/... because the headers
+# redirect strtol/fscanf/etc. to those C23 variants. The native link succeeds,
+# but the binary then requires glibc >= 2.38 at RUNTIME and won't run on older
+# devices (Debian bullseye 2.31, Raspberry Pi OS bookworm 2.36). Bake in a
+# shim that forwards __isoc23_* to the classic functions: every reference binds
+# to this strong archive definition instead of glibc, so the binary depends
+# only on the classic symbols and stays portable to glibc >= 2.31. macOS has no
+# __isoc23_* symbols, so this is Linux-only.
+if [[ "$(uname)" == "Linux" ]]; then
+    LIBFW="$ROOTDIR/build-headless/firmware/libfirmware.a"
+    ISOC23_O="$(mktemp --suffix=.o)"
+    "${CC:-cc}" -c -O2 -std=gnu11 "$ROOTDIR/scripts/isoc23-compat.c" -o "$ISOC23_O"
+    ar r "$LIBFW" "$ISOC23_O"
+    rm -f "$ISOC23_O"
+    echo "    __isoc23_* shim archived into libfirmware.a"
+else
+    echo "    Skipped (not Linux — no __isoc23_* symbols)"
+fi
+
 echo "==> Step 2.1: Build libcodec.a (codeclib.c — codec_init, bs_*, ff_*)"
 # libcodec.a is excluded from per-codec archives in CODECS_STATIC mode but
 # must still be linked into the final binary.

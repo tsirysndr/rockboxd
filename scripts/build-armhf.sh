@@ -98,6 +98,29 @@ docker run --rm --platform linux/amd64 \
 
         (cd $BUILD_DIR && make -j\"\$NCPU\" TOOLSDIR=\"\$HOSTTOOLS\" lib)
 
+        echo '==> Step 2.05: Add __isoc23_* compat shim to libfirmware.a'
+        # The cross-rs image ships glibc >= 2.38, whose headers redirect
+        # strtol/strtoul/strtoll/fscanf/sscanf/scanf to __isoc23_* variants
+        # (enabled by the -D_GNU_SOURCE=1 the ARMHFHOST config sets). Real
+        # ARMv6 targets run older glibc (< 2.38) that lacks those symbols, so
+        # forward them to the classic functions and bake the shim into
+        # libfirmware.a. Keeps the binary runnable on glibc >= 2.31.
+        LIBFW=\"/src/$BUILD_DIR/firmware/libfirmware.a\"
+        # Match the ARMHFHOST firmware's exact ARM flags (armhfhostcc in
+        # tools/configure): ARMv6 + ARM mode + hard-float VFP ABI. The hard
+        # float-abi is the gnueabihf default (so gnu/stubs-hard.h resolves) and
+        # tags the object with the same EF_ARM_ABI_FLOAT_HARD flag as the rest
+        # of libfirmware.a, avoiding a float-ABI-mismatch link error.
+        arm-linux-gnueabihf-gcc -c -O2 -std=gnu11 \
+            -march=armv6 -marm -mfpu=vfp -mfloat-abi=hard \
+            /src/scripts/isoc23-compat.c -o /tmp/isoc23-compat.o
+        # Match the firmware objects' ARMv6 attributes (see Step 2.7 notes on
+        # LLD taking the MAX arch and emitting ARMv7 thunks otherwise).
+        arm-linux-gnueabihf-objcopy --remove-section=.ARM.attributes \
+            /tmp/isoc23-compat.o 2>/dev/null || true
+        arm-linux-gnueabihf-ar r \"\$LIBFW\" /tmp/isoc23-compat.o
+        echo '    __isoc23_* shim archived into libfirmware.a'
+
         echo '==> Step 2.1: Build libcodec.a'
         LIBCODEC=\"/src/$BUILD_DIR/lib/rbcodec/codecs/libcodec.a\"
         if [ ! -f \"\$LIBCODEC\" ]; then
