@@ -125,6 +125,21 @@ defmodule Rockbox.Player do
   def enqueue(p, path),
     do: then_self(:rockbox_ffi_nif.player_enqueue(p, IO.iodata_to_binary([path])), p)
 
+  @doc """
+  Remove the track at zero-based `index` from the queue. An out-of-range index
+  is ignored. Removing a track before the current one keeps the current track
+  playing; removing the currently-playing track hard-cuts to the track that
+  slides into its place; removing the last remaining track stops playback.
+  """
+  @spec remove(t(), non_neg_integer()) :: t()
+  def remove(p, index), do: then_self(:rockbox_ffi_nif.player_remove(p, index), p)
+
+  @doc """
+  Empty the queue and stop playback (also clears any saved resume state).
+  """
+  @spec clear_queue(t()) :: t()
+  def clear_queue(p), do: then_self(:rockbox_ffi_nif.player_clear_queue(p), p)
+
   @spec play(t()) :: t()
   def play(p), do: then_self(:rockbox_ffi_nif.player_play(p), p)
   @spec pause(t()) :: t()

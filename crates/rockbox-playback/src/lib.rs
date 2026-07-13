@@ -706,6 +706,10 @@ enum Command {
     Enqueue(PathBuf),
     /// Insert one or more tracks at a Rockbox insertion position.
     Insert(Vec<PathBuf>, InsertPosition),
+    /// Remove the track at the given queue index (0-based).
+    Remove(usize),
+    /// Empty the queue and stop playback.
+    Clear,
     /// Restore a persisted queue + exact position (does not auto-play).
     Resume(ResumeState),
     /// Force an immediate resume-file save.
@@ -1024,6 +1028,21 @@ impl Player {
         P: Into<PathBuf>,
     {
         self.insert_tracks(tracks, InsertPosition::InsertLastShuffled);
+    }
+
+    /// Remove the track at `index` (0-based) from the queue. An out-of-range
+    /// index is ignored. Removing a track *before* the current one keeps the
+    /// current track playing (the cursor shifts with it); removing the
+    /// currently-playing track hard-cuts to the track that slides into its
+    /// place; removing the last remaining track stops playback.
+    pub fn remove(&self, index: usize) {
+        let _ = self.tx.send(Command::Remove(index));
+    }
+
+    /// Empty the queue and stop playback. Also clears any saved resume state
+    /// so the next launch starts fresh.
+    pub fn clear_queue(&self) {
+        let _ = self.tx.send(Command::Clear);
     }
 
     // ---- resume (auto-persist / restore) --------------------------------
@@ -1776,6 +1795,8 @@ impl Engine {
                 self.sync_queue();
             }
             Command::Insert(tracks, position) => self.insert_tracks(tracks, position),
+            Command::Remove(index) => self.remove_track(index),
+            Command::Clear => self.clear_queue(),
             Command::Resume(state) => {
                 self.queue = state.tracks;
                 self.index = state.index.min(self.queue.len().saturating_sub(1));
@@ -2235,6 +2256,55 @@ impl Engine {
         self.sync_queue();
     }
 
+    /// Remove the track at `at` (Rockbox `playlist_delete`). Delegates the
+    /// queue/index bookkeeping to the pure [`perform_remove`] model, then
+    /// reconciles engine-side state: an emptied queue stops playback, and
+    /// dropping the currently-playing track hard-cuts to whatever slid into
+    /// its slot (a crossfade would need the track we just removed).
+    fn remove_track(&mut self, at: usize) {
+        if at >= self.queue.len() {
+            return;
+        }
+        let removed_current = perform_remove(
+            &mut self.queue,
+            &mut self.index,
+            &mut self.last_insert_pos,
+            at,
+        );
+        if self.queue.is_empty() {
+            self.clear_queue();
+            return;
+        }
+        if removed_current {
+            self.finishing = false;
+            self.pending_seek = None;
+            self.reset_current();
+        }
+        self.sync_queue();
+    }
+
+    /// Empty the queue and stop playback, mirroring [`Engine::stop_playback`]'s
+    /// shared-state teardown. Also deletes the resume file — a cleared queue
+    /// has nothing to resume.
+    fn clear_queue(&mut self) {
+        self.queue.clear();
+        self.index = 0;
+        self.last_insert_pos = None;
+        self.pending_seek = None;
+        self.finishing = false;
+        self.playing = false;
+        self.paused = false;
+        self.reset_current();
+        self.clear_resume();
+        self.set_state(ST_STOPPED);
+        self.shared
+            .target_amp
+            .store(0f32.to_bits(), Ordering::Relaxed);
+        self.shared.decode_pos_ms.store(0, Ordering::Relaxed);
+        self.shared.index.store(usize::MAX, Ordering::Relaxed);
+        self.sync_queue();
+    }
+
     // ---- resume persistence ---------------------------------------------
 
     /// Mirror the queue (len + contents) into `Shared` for the handle.
@@ -2421,6 +2491,45 @@ fn insert_one(
     if sets_last {
         *last_insert_pos = Some(at);
     }
+}
+
+/// Pure Rockbox `playlist_delete` model: remove the track at `at` from
+/// `queue` and reconcile `index` / `last_insert_pos` in place. Returns `true`
+/// when the removed track was the currently-playing one (`at == index`), so
+/// the caller can re-cue playback. `at` is assumed in range (the caller
+/// bounds-checks); index bookkeeping:
+///
+/// * `at < index` — a track before the current one went away, so the cursor
+///   shifts back one to keep pointing at the same track.
+/// * `at == index` — the current track is gone; the cursor stays put (the
+///   next track slides into the slot) but is clamped to the new last index
+///   when the tail was removed.
+/// * `at > index` — the current track is unaffected.
+///
+/// Kept free of engine/audio state so it is unit-testable in isolation.
+fn perform_remove(
+    queue: &mut Vec<PathBuf>,
+    index: &mut usize,
+    last_insert_pos: &mut Option<usize>,
+    at: usize,
+) -> bool {
+    let removed_current = at == *index;
+    queue.remove(at);
+
+    if at < *index {
+        *index -= 1;
+    } else if removed_current && *index >= queue.len() {
+        *index = queue.len().saturating_sub(1);
+    }
+
+    // Keep the "insert here next" anchor consistent with the shifted queue.
+    match *last_insert_pos {
+        Some(lp) if at == lp => *last_insert_pos = None,
+        Some(lp) if at < lp => *last_insert_pos = Some(lp - 1),
+        _ => {}
+    }
+
+    removed_current
 }
 
 /// Resolve the start index for an ordered-block insertion and whether it
@@ -2748,6 +2857,78 @@ mod insertion_tests {
         assert_eq!(queue, "XYZ");
         assert_eq!(idx, 0);
         assert_eq!(lip, None);
+    }
+
+    /// Run one removal against a fresh state and return
+    /// `(queue_string, index, last_insert_pos, removed_current)`.
+    fn rm(
+        start: &str,
+        index: usize,
+        last: Option<usize>,
+        at: usize,
+    ) -> (String, usize, Option<usize>, bool) {
+        let mut queue = q(start);
+        let mut idx = index;
+        let mut lip = last;
+        let removed_current = perform_remove(&mut queue, &mut idx, &mut lip, at);
+        (s(&queue), idx, lip, removed_current)
+    }
+
+    #[test]
+    fn remove_before_current_shifts_cursor_back() {
+        // Playing "C" (index 2) in A B C D; delete "A" → B C D, still on "C".
+        let (queue, idx, _, cur) = rm("ABCD", 2, None, 0);
+        assert_eq!(queue, "BCD");
+        assert_eq!(idx, 1);
+        assert!(!cur);
+    }
+
+    #[test]
+    fn remove_after_current_leaves_cursor() {
+        // Playing "B" (index 1); delete "D" (index 3) → A B C, still on "B".
+        let (queue, idx, _, cur) = rm("ABCD", 1, None, 3);
+        assert_eq!(queue, "ABC");
+        assert_eq!(idx, 1);
+        assert!(!cur);
+    }
+
+    #[test]
+    fn remove_current_keeps_index_so_next_track_slides_in() {
+        // Playing "B" (index 1); delete "B" → A C D, index 1 now points at "C".
+        let (queue, idx, _, cur) = rm("ABCD", 1, None, 1);
+        assert_eq!(queue, "ACD");
+        assert_eq!(idx, 1);
+        assert!(cur);
+    }
+
+    #[test]
+    fn remove_current_at_tail_clamps_to_new_last() {
+        // Playing the final track "D" (index 3); delete it → A B C, cursor
+        // clamps to the new last index 2.
+        let (queue, idx, _, cur) = rm("ABCD", 3, None, 3);
+        assert_eq!(queue, "ABC");
+        assert_eq!(idx, 2);
+        assert!(cur);
+    }
+
+    #[test]
+    fn remove_last_remaining_track_empties_queue() {
+        let (queue, idx, _, cur) = rm("A", 0, None, 0);
+        assert_eq!(queue, "");
+        assert_eq!(idx, 0);
+        assert!(cur);
+    }
+
+    #[test]
+    fn remove_shifts_insert_anchor() {
+        // last_insert_pos tracks a slot; deleting before it shifts it back,
+        // deleting it clears the anchor.
+        let (_, _, lip, _) = rm("ABCD", 0, Some(2), 1);
+        assert_eq!(lip, Some(1));
+        let (_, _, lip, _) = rm("ABCD", 0, Some(2), 2);
+        assert_eq!(lip, None);
+        let (_, _, lip, _) = rm("ABCD", 0, Some(2), 3);
+        assert_eq!(lip, Some(2)); // deletion after the anchor leaves it put
     }
 
     #[test]

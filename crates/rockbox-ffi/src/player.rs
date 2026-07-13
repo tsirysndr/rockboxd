@@ -266,6 +266,22 @@ pub extern "C" fn rb_player_insert_json(
     }
 }
 
+/// Remove the track at `index` (0-based) from the queue. An out-of-range
+/// index is ignored. Removing a track before the current one keeps the
+/// current track playing; removing the currently-playing track hard-cuts to
+/// the track that slides into its place; removing the last remaining track
+/// stops playback.
+#[no_mangle]
+pub extern "C" fn rb_player_remove(p: *mut Player, index: usize) {
+    player!(p).remove(index);
+}
+
+/// Empty the queue and stop playback (also clears any saved resume state).
+#[no_mangle]
+pub extern "C" fn rb_player_clear_queue(p: *mut Player) {
+    player!(p).clear_queue();
+}
+
 /// The current queue as a JSON array of path/URL strings. Free with
 /// `rb_string_free`; null on a null handle or a serialization error.
 #[no_mangle]

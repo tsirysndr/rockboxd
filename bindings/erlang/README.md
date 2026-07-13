@@ -112,6 +112,10 @@ rockbox_ffi_nif:player_play(P),
 rockbox_ffi_nif:player_next(P),
 rockbox_ffi_nif:player_seek_ms(P, 15000),
 
+%% Queue editing: drop the entry at index 0, or wipe the queue entirely.
+rockbox_ffi_nif:player_remove(P, 0),
+rockbox_ffi_nif:player_clear_queue(P),
+
 %% Poll playback state.
 Status = json:decode(rockbox_ffi_nif:player_status_json(P)),
 

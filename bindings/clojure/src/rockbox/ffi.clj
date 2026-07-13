@@ -145,6 +145,8 @@
    :player-set-queue-json      (dc "rb_player_set_queue_json" (fd-void [PTR PTR]))
    :player-enqueue             (dc "rb_player_enqueue" (fd-void [PTR PTR]))
    :player-insert-json         (dc "rb_player_insert_json" (fd-void [PTR PTR I32 I64]))
+   :player-remove              (dc "rb_player_remove" (fd-void [PTR I64]))
+   :player-clear-queue         (dc "rb_player_clear_queue" (fd-void [PTR]))
    :player-queue-json          (dc "rb_player_queue_json" (fd-of PTR [PTR]))
    :player-play                (dc "rb_player_play" (fd-void [PTR]))
    :player-pause               (dc "rb_player_pause" (fd-void [PTR]))

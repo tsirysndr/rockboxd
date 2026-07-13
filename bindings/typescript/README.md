@@ -181,6 +181,7 @@ const player = new Player(config?: PlayerConfig);
 | Method                                                         | Description                              |
 | -------------------------------------------------------------- | ---------------------------------------- |
 | `setQueue(paths)` / `enqueue(path)`                            | Replace / append (files or `http(s)://`) |
+| `remove(index)` / `clearQueue()`                               | Drop one track / empty the queue         |
 | `play()` `pause()` `toggle()` `stop()`                         | Transport                                |
 | `next()` `previous()` `skipTo(index)` `seekMs(ms)`             | Navigation                               |
 | `setVolume(v)` / `volume()`                                    | Volume, `0.0`–`1.0`                      |

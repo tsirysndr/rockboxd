@@ -118,6 +118,11 @@ try player.setQueue([
     "http://radio.example/stream",
 ])
 player.play()
+
+// Queue editing
+player.enqueue("/music/c.flac")   // append one track
+player.remove(0)                  // drop a track by 0-based index
+player.clearQueue()               // empty the queue + stop playback
 ```
 
 - Rich values (metadata, player status) come back as `[String: Any]`, parsed

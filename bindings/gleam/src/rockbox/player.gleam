@@ -389,6 +389,28 @@ pub fn enqueue(player: Player, path: String) -> Player {
 @external(erlang, "rockbox_ffi_nif", "player_enqueue")
 fn ffi_enqueue(player: Player, path: String) -> Nil
 
+/// Remove the track at zero-based `index` from the queue. An out-of-range
+/// index is ignored. Removing a track before the current one keeps the current
+/// track playing; removing the currently-playing track hard-cuts to the track
+/// that slides into its place; removing the last remaining track stops
+/// playback.
+pub fn remove(player: Player, index: Int) -> Player {
+  ffi_remove(player, index)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_remove")
+fn ffi_remove(player: Player, index: Int) -> Nil
+
+/// Empty the queue and stop playback (also clears any saved resume state).
+pub fn clear_queue(player: Player) -> Player {
+  ffi_clear_queue(player)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_clear_queue")
+fn ffi_clear_queue(player: Player) -> Nil
+
 /// Start (or resume) playback.
 pub fn play(player: Player) -> Player {
   ffi_play(player)

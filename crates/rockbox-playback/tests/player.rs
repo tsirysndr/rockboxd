@@ -236,6 +236,46 @@ fn insertions_update_queue_length() {
 }
 
 #[test]
+fn remove_and_clear_update_queue() {
+    let _serial = serial();
+    let Some(player) = player_or_skip() else {
+        return;
+    };
+    let a = wav("rm_a.wav", 0.4, 330.0);
+    let b = wav("rm_b.wav", 0.4, 440.0);
+    let c = wav("rm_c.wav", 0.4, 550.0);
+
+    player.set_queue(vec![a.0.clone(), b.0.clone(), c.0.clone()]);
+    assert!(wait_until(&player, Duration::from_secs(2), |p| {
+        p.status().queue_len == 3
+    }));
+
+    // Remove the middle track → A C remain.
+    player.remove(1);
+    assert!(
+        wait_until(&player, Duration::from_secs(2), |p| {
+            p.queue() == vec![a.0.clone(), c.0.clone()]
+        }),
+        "remove(1) should drop the middle track"
+    );
+
+    // Out-of-range removal is a no-op.
+    player.remove(42);
+    assert!(wait_until(&player, Duration::from_secs(1), |p| {
+        p.status().queue_len == 2
+    }));
+
+    // Clear empties the queue and stops.
+    player.clear_queue();
+    assert!(
+        wait_until(&player, Duration::from_secs(2), |p| {
+            p.status().queue_len == 0
+        }),
+        "clear_queue should empty the queue"
+    );
+}
+
+#[test]
 fn insert_next_plays_before_the_rest() {
     let _serial = serial();
     let Some(player) = player_or_skip() else {

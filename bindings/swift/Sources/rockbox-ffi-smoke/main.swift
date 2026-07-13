@@ -75,6 +75,20 @@ do {
     print("Player status: state=\(state) queue_len=\(queueLen)")
     if state != "stopped" { fail("expected stopped, got \(state)") }
     if queueLen != 1 { fail("expected queue_len 1, got \(queueLen)") }
+
+    // enqueue a second track, remove the first, then clear the queue.
+    player.enqueue(fixture)
+    Thread.sleep(forTimeInterval: 0.1)
+    if player.queue().count != 2 { fail("expected queue count 2 after enqueue, got \(player.queue().count)") }
+
+    player.remove(0)
+    Thread.sleep(forTimeInterval: 0.1)
+    if player.queue().count != 1 { fail("expected queue count 1 after remove, got \(player.queue().count)") }
+
+    player.clearQueue()
+    Thread.sleep(forTimeInterval: 0.1)
+    if !player.queue().isEmpty { fail("expected empty queue after clearQueue, got \(player.queue().count)") }
+    print("Player queue ops (remove/clearQueue) OK")
 } catch {
     fail("player: \(error)")
 }

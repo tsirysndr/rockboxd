@@ -101,6 +101,8 @@ internal object Native {
     val playerSetQueueJson = h("rb_player_set_queue_json", FunctionDescriptor.ofVoid(PTR, PTR))
     val playerEnqueue = h("rb_player_enqueue", FunctionDescriptor.ofVoid(PTR, PTR))
     val playerInsertJson = h("rb_player_insert_json", FunctionDescriptor.ofVoid(PTR, PTR, I32, I64))
+    val playerRemove = h("rb_player_remove", FunctionDescriptor.ofVoid(PTR, I64))
+    val playerClearQueue = h("rb_player_clear_queue", FunctionDescriptor.ofVoid(PTR))
     val playerQueueJson = h("rb_player_queue_json", FunctionDescriptor.of(PTR, PTR))
     val playerPlay = h("rb_player_play", FunctionDescriptor.ofVoid(PTR))
     val playerPause = h("rb_player_pause", FunctionDescriptor.ofVoid(PTR))

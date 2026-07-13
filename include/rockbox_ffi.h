@@ -131,6 +131,13 @@ void  rb_player_enqueue(RbPlayer *p, const char *path);
 /* Insert a JSON array of paths/URLs at `position` (`index` used for pos 7). */
 void  rb_player_insert_json(RbPlayer *p, const char *json, int32_t position,
                             size_t index);
+/* Remove the track at `index` (0-based) from the queue; out-of-range ignored.
+ * Removing a track before the current one keeps it playing; removing the
+ * current track hard-cuts to the one that slides in; removing the last track
+ * stops playback. */
+void  rb_player_remove(RbPlayer *p, size_t index);
+/* Empty the queue and stop playback (also clears saved resume state). */
+void  rb_player_clear_queue(RbPlayer *p);
 /* Current queue as a JSON array of strings; free with rb_string_free. */
 char *rb_player_queue_json(RbPlayer *p);
 void  rb_player_play(RbPlayer *p);

@@ -114,6 +114,22 @@ module RockboxFFI
       self
     end
 
+    # Remove the track at +index+ (0-based) from the queue. An out-of-range
+    # index is ignored. Removing a track before the current one keeps the
+    # current track playing; removing the currently-playing track hard-cuts to
+    # the track that slides into its place; removing the last remaining track
+    # stops playback.
+    def remove(index)
+      Lib.rb_player_remove(@ptr, Integer(index))
+      self
+    end
+
+    # Empty the queue and stop playback (also clears any saved resume state).
+    def clear_queue
+      Lib.rb_player_clear_queue(@ptr)
+      self
+    end
+
     # The current queue as an Array of String paths/URLs.
     def queue
       s = RockboxFFI.take_string(Lib.rb_player_queue_json(@ptr))

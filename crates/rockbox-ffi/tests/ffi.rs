@@ -6,6 +6,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 use rockbox_ffi::*;
+use rockbox_playback::Player;
 
 /// Call with a C string argument built from `s`.
 fn c(s: &str) -> CString {
@@ -98,5 +99,50 @@ fn player_insert_and_queue_roundtrip() {
     assert!(entries.contains("z.flac"));
 
     let _ = std::fs::remove_file(&out);
+    rb_player_free(p);
+}
+
+/// Poll the queue until it has `want` entries (commands run on the engine
+/// thread). Returns the settled queue, or whatever it last saw.
+fn wait_queue(p: *mut Player, want: usize) -> Vec<String> {
+    let mut paths = Vec::new();
+    for _ in 0..100 {
+        if let Some(json) = take_json(rb_player_queue_json(p)) {
+            if let Ok(v) = serde_json::from_str::<Vec<String>>(&json) {
+                paths = v;
+                if paths.len() == want {
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    paths
+}
+
+#[test]
+fn player_remove_and_clear() {
+    let p = rb_player_new();
+    if p.is_null() {
+        eprintln!("no output device — skipping");
+        return;
+    }
+
+    rb_player_set_queue_json(p, c(r#"["a.flac","b.flac","c.flac"]"#).as_ptr());
+    assert_eq!(wait_queue(p, 3).len(), 3);
+
+    // Remove the middle track.
+    rb_player_remove(p, 1);
+    let paths = wait_queue(p, 2);
+    assert_eq!(paths, vec!["a.flac".to_string(), "c.flac".to_string()]);
+
+    // Out-of-range removal is a no-op.
+    rb_player_remove(p, 99);
+    assert_eq!(wait_queue(p, 2).len(), 2);
+
+    // Clear empties the queue.
+    rb_player_clear_queue(p);
+    assert!(wait_queue(p, 0).is_empty());
+
     rb_player_free(p);
 }
