@@ -20,7 +20,7 @@ Add it to your `mix.exs` and fetch:
 
 ```elixir
 def deps do
-  [{:rockbox_ex_ffi, "~> 0.4"}]
+  [{:rockbox_ex_ffi, "~> 0.5"}]
 end
 ```
 

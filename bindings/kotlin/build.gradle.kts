@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "io.github.tsirysndr"
-version = providers.gradleProperty("libVersion").getOrElse("0.3.0")
+version = providers.gradleProperty("libVersion").getOrElse("0.4.0")
 
 repositories { mavenCentral() }
 
