@@ -137,7 +137,7 @@ jobs:
           shell: sh
           run: |
             set -eux
-            sudo pkgin -y install rust erlang alsa-lib dbus gcc pkgconf gmake
+            sudo pkgin -y install rust erlang alsa-lib dbus pkgconf gmake
             export CARGO_PROFILE_RELEASE_DEBUG=0
             export CARGO_PROFILE_RELEASE_STRIP=symbols
             cd bindings/gleam
