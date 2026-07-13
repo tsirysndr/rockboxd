@@ -12,6 +12,10 @@ BEAM. The [Elixir](https://github.com/tsirysndr/rockboxd/tree/master/bindings/el
 their own copy of the C shim and Erlang loader; the ergonomic wrappers live in
 those packages.
 
+> 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
+> and other DSP controls mirror Rockbox's own. See the official
+> [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
+
 ## What's here
 
 | Path                          | Role                                                            |
