@@ -5,6 +5,7 @@ on:
   #    - "clojure-v*"
   #    - "bindings-v*"
   #    - "erlang-v*"
+  #    - "gleam-v*"
   workflow_dispatch:
     inputs:
       tag:

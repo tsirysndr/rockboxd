@@ -11,6 +11,11 @@ type = "github"
 user = "tsirysndr"
 repo = "rockboxd"
 path = "bindings/gleam"
+# HexDocs source links default to the `v<version>` git tag, which doesn't exist
+# in this monorepo — releases are tagged `gleam-v<version>`. `tag_prefix` is
+# prepended to Gleam's default `v<version>`, so "gleam-" yields the correct
+# `gleam-v<version>` ref (otherwise every "Source" link in the docs 404s).
+tag_prefix = "gleam-"
 
 # The native NIF (c_src/rockbox_ffi_nif.c) is compiled into priv/ by the
 # Makefile; run `make` before `gleam test`. The Erlang loader
