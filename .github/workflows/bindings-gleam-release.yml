@@ -171,8 +171,8 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: ${{ env.OTP_VERSION }}
-          gleam-version: ${{ env.GLEAM_VERSION }}
+          otp-version: 28
+          gleam-version: 1.16.0
 
       - name: Publish to Hex
         working-directory: ${{ env.WORKDIR }}
