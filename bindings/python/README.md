@@ -6,9 +6,9 @@
 ![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
 ![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 
-Python bindings for the Rockbox **DSP**, **metadata**, and **playback**
-engine, via `cffi` (ABI mode) over the prebuilt `librockbox_ffi` shared
-library.
+Python bindings for the Rockbox **DSP**, **metadata**, **codecs**, and
+**playback** engine, via `cffi` (ABI mode) over the prebuilt
+`librockbox_ffi` shared library.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -73,23 +73,35 @@ with Dsp(44100) as dsp:
     dsp.set_replaygain_gains(track_gain_db=-6.02)   # halves amplitude
     processed = dsp.process(samples)                # array('h')
 
+# --- codecs (decode a file to PCM, one chunk at a time) ---------------
+from rockbox_ffi import Decoder
+
+with Decoder("song.flac") as dec:
+    print(dec.metadata()["title"])                  # tags from the open file
+    for samples, sample_rate in dec.chunks():       # array('h'), Hz
+        ...                                          # interleaved-stereo int16 PCM
+    print(dec.finished())                           # (True, 0)  (0 = clean end)
+
 # --- playback (needs an output device) --------------------------------
 with Player(volume=0.8) as player:
     player.set_replaygain(ReplayGainMode.TRACK, preamp_db=0.0, prevent_clipping=True)
     player.set_crossfade(CrossfadeMode.ALWAYS)
-    player.set_queue(["a.flac", "b.mp3", "c.opus"])
+    # Queue entries may be local files, http(s):// URLs to remote media,
+    # or live-radio / streaming URLs — mix and match freely.
+    player.set_queue(["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
     player.play()
     print(player.status())     # {'state': 'playing', 'index': 0, ...}
 ```
 
 ## API
 
-| Module                 | Contents                                                              |
-| ---------------------- | --------------------------------------------------------------------- |
-| `rockbox_ffi.metadata` | `read(path) -> dict`, `probe(filename) -> str \| None`                |
-| `rockbox_ffi.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`    |
-| `rockbox_ffi.Player`   | queue + transport + crossfade + ReplayGain, `status() -> dict`        |
-| `rockbox_ffi.enums`    | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, …  |
+| Module                 | Contents                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `rockbox_ffi.metadata` | `read(path) -> dict`, `probe(filename) -> str \| None`                              |
+| `rockbox_ffi.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`                  |
+| `rockbox_ffi.Decoder`  | codec engine: `metadata()`, `chunks()` / `next_chunk()`, `seek_ms()`, `finished()` |
+| `rockbox_ffi.Player`   | queue + transport + crossfade + ReplayGain, `status() -> dict`                      |
+| `rockbox_ffi.enums`    | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, …                |
 
 ### Two ReplayGain encodings
 
