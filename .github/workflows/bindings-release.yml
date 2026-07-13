@@ -7,9 +7,10 @@ name: bindings-release
 #
 # Manually triggerable (workflow_dispatch, pick a tag) or on a `bindings-v*`
 # tag push. Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64 (native
-# runners); freebsd-x64, netbsd-x64 (vmactions VMs). BSD jobs are
-# continue-on-error and every packaging step skips a target whose artifact is
-# missing, so a flaky BSD build never blocks the macOS/Linux release.
+# runners); freebsd-x64, netbsd-x64 (vmactions VMs); android-arm64, android-x64
+# (NDK cross-compile, bundled into the Kotlin artifact). BSD and Android jobs
+# are continue-on-error and every packaging step skips a target whose artifact
+# is missing, so a flaky build never blocks the macOS/Linux release.
 
 on:
   workflow_dispatch:
@@ -206,6 +207,68 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-ios-${{ matrix.target }}
+          path: out/
+          if-no-files-found: error
+
+  # 1e. Android shared libraries — cross-compiled with the NDK via cargo-ndk.
+  # The Kotlin artifact bundles these so an Android app depending on it gets
+  # arm64-v8a + x86_64 slices packaged into its APK. cpal selects its Oboe
+  # backend on `target_os = "android"`, so the NDK clang/libc++ toolchain (and
+  # libclang for oboe-sys' bindgen) is required. continue-on-error mirrors the
+  # BSD jobs: a flaky Android cross-build never blocks the macOS/Linux release.
+  build-lib-android:
+    name: build-lib-android (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: android-arm64
+            abi: arm64-v8a
+            rust: aarch64-linux-android
+          - target: android-x64
+            abi: x86_64
+            rust: x86_64-linux-android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install oboe-sys build deps (libclang for bindgen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.rust }}
+
+      # GitHub's ubuntu runners ship an NDK under $ANDROID_NDK_LATEST_HOME;
+      # cargo-ndk reads ANDROID_NDK_HOME to locate the toolchain.
+      - name: Point cargo-ndk at the runner's NDK
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # --platform 26 matches the rest of the repo's Android builds (min API 26,
+      # which AAudio/Oboe needs). cargo-ndk writes jniout/<abi>/librockbox_ffi.so.
+      - name: Build librockbox_ffi.so (${{ matrix.abi }})
+        run: |
+          cargo ndk -t ${{ matrix.abi }} --platform 26 -o jniout \
+            build --release -p rockbox-ffi
+
+      - name: Stage binary
+        run: |
+          mkdir -p out
+          cp "jniout/${{ matrix.abi }}/librockbox_ffi.so" out/librockbox_ffi.so
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: librockbox_ffi-${{ matrix.target }}
           path: out/
           if-no-files-found: error
 
@@ -542,7 +605,7 @@ jobs:
 
   # 3. Collect every artifact and attach it to the GitHub Release.
   release:
-    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd, ruby, python, npm, swift]
+    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd, build-lib-android, ruby, python, npm, swift]
     runs-on: ubuntu-latest
     permissions:
       contents: write

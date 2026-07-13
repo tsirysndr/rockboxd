@@ -57,9 +57,11 @@ tasks.register<JavaExec>("play") {
 }
 
 // ---- publishing: Maven Central (Sonatype Central Portal) --------------
-// The jar bundles the prebuilt librockbox_ffi for every OS/arch under
-// src/main/resources/native/<target>/ (staged by scripts/fetch-libs.sh from the
-// GitHub release), so consumers need no Rust toolchain and no separate lib.
+// The jar bundles the prebuilt librockbox_ffi for every desktop OS/arch under
+// src/main/resources/native/<target>/, plus the Android arm64-v8a + x86_64 .so
+// under src/main/resources/lib/<abi>/ (which AGP extracts into a consuming
+// app's APK). Both are staged by scripts/fetch-libs.sh from the GitHub release,
+// so consumers need no Rust toolchain and no separate lib.
 //
 // Credentials (in ~/.gradle/gradle.properties or ORG_GRADLE_PROJECT_* env):
 //   mavenCentralUsername / mavenCentralPassword   (a Central Portal token)

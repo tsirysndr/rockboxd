@@ -91,11 +91,17 @@ Player(Player.Config().apply { volume = 0.8f }).use { player ->
 
 ## Bundled native libraries
 
-The published jar bundles the prebuilt `librockbox_ffi` for every OS/arch under
-`native/<target>/` — `Native.extractBundled()` picks the one matching the
+The published jar bundles the prebuilt `librockbox_ffi` for every desktop OS/arch
+under `native/<target>/` — `Native.extractBundled()` picks the one matching the
 running JVM, extracts it to a temp file, and loads it. So a consumer just adds
 the dependency; no Rust toolchain, no separate `.dylib`/`.so`. `ROCKBOX_FFI_LIB`
 still overrides, and a repo checkout falls back to `target/release`.
+
+**Android:** the jar also ships the NDK-built `librockbox_ffi.so` for
+`arm64-v8a` and `x86_64` under `lib/<abi>/` — the path the Android Gradle Plugin
+extracts native libraries from — so an app depending on this artifact gets the
+`.so` packaged into its APK automatically. (Desktop JVMs ignore `lib/<abi>/`;
+the FFM loader above is not used on Android.)
 
 ## Publishing (Maven Central, `io.github.tsirysndr`)
 

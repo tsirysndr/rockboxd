@@ -18,6 +18,7 @@
 #                        different default repo when several remotes exist.
 #
 #   Targets: darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64
+#   Android (kotlin only): android-arm64 android-x64
 #
 # Staging locations (per target <t>, ext = dylib on macOS, so elsewhere):
 #   ruby       -> bindings/ruby/vendor/librockbox_ffi.<ext>
@@ -27,8 +28,14 @@
 #   kotlin     -> bindings/kotlin/src/main/resources/native/<t>/librockbox_ffi.<ext>
 #   clojure    -> bindings/clojure/resources/native/<t>/librockbox_ffi.<ext>
 #
+# Android is Kotlin-only and staged at the AGP-recognised JAR path
+#   kotlin (android) -> bindings/kotlin/src/main/resources/lib/<abi>/librockbox_ffi.so
+# (abi = arm64-v8a | x86_64), so an Android app depending on the Maven artifact
+# gets the .so extracted into its APK automatically. Desktop JVM ignores it.
+#
 # The JVM bindings (kotlin, clojure) bundle EVERY target in a single jar, so
-# --all stages all targets for them; host mode stages just the host target.
+# --all stages all desktop targets for them (plus the Android ABIs for kotlin);
+# host mode stages just the host target.
 #
 # BEAM bindings (Elixir + Gleam) are NOT staged here: both now depend on the
 # shared `rockbox_ffi_nif` package (bindings/erlang), whose loader downloads the
@@ -48,6 +55,8 @@ TARGET=""
 TAG="${ROCKBOX_BINDINGS_TAG:-}"
 REPO="${GH_REPO:-}"
 ALL_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64"
+# Android is Kotlin-only (bundled into the JAR under lib/<abi>/ for AGP).
+ANDROID_TARGETS="android-arm64 android-x64"
 
 # Print the leading comment block (everything from line 2 up to the first
 # non-comment line) so the usage text stays in sync as the header grows.
@@ -150,6 +159,11 @@ stage_go()      { local t="$1"; stage "$t" "$BINDINGS_DIR/go/lib/librockbox_ffi.
 stage_kotlin()  { local t="$1"; stage "$t" "$BINDINGS_DIR/kotlin/src/main/resources/native/${t}/librockbox_ffi.$(libext "$t")"; }
 stage_clojure() { local t="$1"; stage "$t" "$BINDINGS_DIR/clojure/resources/native/${t}/librockbox_ffi.$(libext "$t")"; }
 
+# Android ABI directory name (as AGP/APK expect) for a fetch target.
+android_abi()   { case "$1" in android-arm64) echo arm64-v8a ;; android-x64) echo x86_64 ;; esac; }
+# Stage an Android .so at the JAR's lib/<abi>/ path so AGP packs it into the APK.
+stage_kotlin_android() { local t="$1"; stage "$t" "$BINDINGS_DIR/kotlin/src/main/resources/lib/$(android_abi "$t")/librockbox_ffi.so"; }
+
 # fetch_asset <tag> <pattern> <dest-dir> — download one release asset into
 # <dest-dir> keeping its original name. Non-zero if the asset is simply absent
 # (skip); any other gh error is surfaced.
@@ -170,6 +184,10 @@ if [ "$ALL" -eq 1 ]; then
     stage_kotlin "$t" || true
     stage_clojure "$t" || true
   done
+  echo "Staging Android ABIs into kotlin (lib/<abi>/ for AGP):"
+  for t in $ANDROID_TARGETS; do
+    stage_kotlin_android "$t" || true
+  done
   host="$(host_target)"
   if [ -n "$host" ]; then
     echo "Staging host ($host) into ruby + python + go (single-slot — rerun with --target for others):"
@@ -180,14 +198,23 @@ if [ "$ALL" -eq 1 ]; then
 else
   t="${TARGET:-$(host_target)}"
   [ -n "$t" ] || { echo "error: unsupported host $(uname -sm); pass --target" >&2; exit 1; }
-  echo "Staging $t into ruby + python + go + typescript/npm/$t + kotlin + clojure:"
-  echo "  (JVM jars bundle every target — use --all before publishing kotlin/clojure)"
-  stage_ruby "$t"
-  stage_python "$t"
-  stage_go "$t"
-  stage_npm "$t"
-  stage_kotlin "$t"
-  stage_clojure "$t"
+  case "$t" in
+    android-*)
+      # Android is Kotlin-only — it has no Ruby/Python/npm/clojure slot.
+      echo "Staging $t into kotlin (lib/$(android_abi "$t")/):"
+      stage_kotlin_android "$t"
+      ;;
+    *)
+      echo "Staging $t into ruby + python + go + typescript/npm/$t + kotlin + clojure:"
+      echo "  (JVM jars bundle every target — use --all before publishing kotlin/clojure)"
+      stage_ruby "$t"
+      stage_python "$t"
+      stage_go "$t"
+      stage_npm "$t"
+      stage_kotlin "$t"
+      stage_clojure "$t"
+      ;;
+  esac
 fi
 
 echo

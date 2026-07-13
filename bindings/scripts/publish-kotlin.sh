@@ -3,8 +3,10 @@
 # Publish the Kotlin artifact to Maven Central (Sonatype Central Portal). Built
 # from source here with the vanniktech maven-publish plugin
 # (`gradle publishToMavenCentral`). The jar bundles the prebuilt librockbox_ffi
-# for every OS/arch under src/main/resources/native/<target>/ — staged from the
-# GitHub Release by fetch-libs.sh — so no local Rust build is involved.
+# for every desktop OS/arch under src/main/resources/native/<target>/, plus the
+# Android arm64-v8a + x86_64 .so under src/main/resources/lib/<abi>/ (so an
+# Android consumer gets them packed into its APK by AGP) — all staged from the
+# GitHub Release by fetch-libs.sh, so no local Rust build is involved.
 #
 # Credentials (in ~/.gradle/gradle.properties or ORG_GRADLE_PROJECT_* env):
 #   mavenCentralUsername / mavenCentralPassword      (a Central Portal token)
