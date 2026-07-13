@@ -39,7 +39,8 @@
 #             `rockbox-ffi-nif` release; extracted from the per-target tarball)
 # <triple> is the Rust target triple (e.g. aarch64-apple-darwin). Like the JVM
 # bindings, gleam bundles every target in priv, so --all stages them all; host
-# mode stages just the host triple. Both are best-effort — a missing gleam/elixir
+# mode stages just the host triple. (gleam skips the FreeBSD/NetBSD NIFs — only
+# elixir stages those.) Both are best-effort — a missing gleam/elixir
 # release only warns, it does not abort the librockbox_ffi staging. Override the
 # tags with ROCKBOX_GLEAM_TAG / ROCKBOX_ELIXIR_TAG if needed.
 #
@@ -201,6 +202,7 @@ fetch_asset() {
 # in priv/ (raw .so assets on the gleam-v<ver> release).
 stage_gleam() {  # stage_gleam <target>
   local t="$1" triple dest
+  case "$t" in freebsd-*|netbsd-*) echo "  skip gleam ${t}: BSD gleam NIFs not fetched"; return 1 ;; esac
   [ -n "$GLEAM_TAG" ] || { echo "  skip gleam ${t}: no gleam release resolved"; return 1; }
   triple="$(nif_triple "$t")"; [ -n "$triple" ] || { echo "  skip gleam ${t}: no triple mapping"; return 1; }
   dest="$BINDINGS_DIR/gleam/priv/rockbox_ffi_nif-${triple}.so"
