@@ -57,22 +57,18 @@ echo "Release: $TAG"
 [ "$DRY" -eq 1 ] && echo "Mode:    DRY RUN (nothing will be pushed)"
 echo
 
-# Download the macOS/Linux NIFs to a TEMP dir purely to compute their checksums
-# (the BSD NIFs are not shipped for gleam). Listed explicitly rather than via a
-# `rockbox_ffi_nif-*.so` wildcard so the BSD ones aren't pulled. Tolerate a
-# missing/empty release so the guard below gives an actionable message.
+# Download EVERY release NIF to a TEMP dir purely to compute its checksum — the
+# NIFs are downloaded on first use, never bundled, so size no longer matters and
+# we cover all platforms (macOS, Linux, FreeBSD, NetBSD) via the wildcard.
+# Tolerate a missing/empty release so the guard below gives an actionable message.
 mkdir -p "$GLEAM_DIR/priv"
-# NIFs are downloaded on first use, never bundled — drop any left in priv/ so
-# `gleam publish` can't sweep them into the (8 MB-capped) tarball.
+# Never bundled — drop any .so left in priv/ so `gleam publish` can't sweep them
+# into the (8 MB-capped) tarball.
 rm -f "$GLEAM_DIR/priv"/rockbox_ffi_nif*.so
 NIFTMP="$(mktemp -d)"
 trap 'rm -rf "$NIFTMP"' EXIT
-echo "  downloading release NIFs to hash them (macOS/Linux only)"
-download_assets "$NIFTMP" \
-  'rockbox_ffi_nif-aarch64-apple-darwin.so' \
-  'rockbox_ffi_nif-x86_64-apple-darwin.so' \
-  'rockbox_ffi_nif-x86_64-linux-gnu.so' \
-  'rockbox_ffi_nif-aarch64-linux-gnu.so' || true
+echo "  downloading all release NIFs to hash them (macOS, Linux, FreeBSD, NetBSD)"
+download_assets "$NIFTMP" 'rockbox_ffi_nif-*.so' || true
 shopt -s nullglob
 sos=("$NIFTMP"/rockbox_ffi_nif-*.so)
 [ ${#sos[@]} -gt 0 ] || {
