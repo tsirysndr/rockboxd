@@ -69,13 +69,50 @@ Player(Player.Config().apply { volume = 0.8f }).use { player ->
   each setter on its own line.
 </Note>
 
+## Decode a file to PCM
+
+`Decoder` streams a file through the Rockbox codec engine, yielding
+interleaved-stereo S16LE chunks one at a time — no output device required.
+
+```kotlin
+import org.rockbox.ffi.*
+
+Decoder("/music/song.flac").use { dec ->
+    println(dec.metadata()["title"])            // same shape as Metadata.read
+
+    while (true) {
+        val chunk = dec.nextChunk() ?: break     // null at end of track
+        val (samples: ShortArray, rate: Int) = chunk
+        // feed `samples` (interleaved stereo int16) at `rate` Hz to your sink
+    }
+
+    val (done, code) = dec.finished()            // code 0 = clean end, <0 = codec error
+    check(done && code == 0) { "decode failed: $code" }
+}
+
+// seeking is supported mid-stream
+Decoder("/music/song.flac").use { dec ->
+    dec.seekMs(30_000)
+    dec.nextChunk()
+    println(dec.elapsedMs())
+}
+```
+
+<Warning>
+  Codec state is **process-wide — only one `Decoder` decodes at a time**.
+  Constructing a second `Decoder` blocks until the first is closed, so always
+  keep decoders inside a `use { }` block (or call `close()`) before opening the
+  next one.
+</Warning>
+
 ## API surface
 
 | Type       | Selected members                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Metadata` | `read(path)` → `Map<String, Any?>`, `probe(path)` → codec name                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `Dsp`      | `eqEnable(on)`, `setEqBand(band, cutoffHz, q, gainDb)`, `process(samples)`, `setReplaygain(mode, …)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `Player`   | **Sources / queue**: `setQueue(paths)`, `enqueue(path)`, `insert(paths, position, index)`, `queue()`, `loadM3u` / `importM3u` / `exportM3u` — every path may be a local file, an `http(s)://` URL, or a live-radio / streaming URL. **Transport**: `play`, `pause`, `toggle`, `stop`, `next`, `previous`, `skipTo`, `seekMs`. **Volume / crossfade / replaygain**: `setVolume`, `setCrossfade`, `setReplaygain`. **Shuffle / repeat**: `setShuffle(on)`, `isShuffleEnabled()`, `setRepeat(mode)`, `repeat()`. **DSP chain**: `setEqEnabled` / `isEqEnabled`, `setEqPreset`, `setEqBand`, `setEqPrecut`, `setTone`, `setBass`, `setTreble`, `setBassCutoff`, `setTrebleCutoff`, `setCrossfeed`, `setSurround`, `setChannelMode`, `setStereoWidth`, `setBassEnhancement`, `setFatigueReduction`, `setCompressor`, `setDither`, `setPitch`, `dspSettings()` → `Map`. **Status / resume**: `status()`, `resume`, `saveResume`, `clearResume`. |
+| `Dsp`      | `eqEnable(on)`, `setEqBand(band, cutoffHz, q, gainDb)`, `process(samples)`, `setReplaygain(mode, …)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `Decoder`  | `Decoder(path)` (AutoCloseable), `metadata()` → `Map<String, Any?>`, `nextChunk()` → `Pair<ShortArray, Int>?`, `seekMs(ms)`, `elapsedMs()`, `finished()` → `Pair<Boolean, Int>`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Player`   | **Sources / queue**: `setQueue(paths)`, `enqueue(path)`, `insert(paths, position, index)`, `queue()`, `loadM3u` / `importM3u` / `exportM3u` — every path may be a local file, an `http(s)://` URL, or a live-radio / streaming URL. **Transport**: `play`, `pause`, `toggle`, `stop`, `next`, `previous`, `skipTo`, `seekMs`. **Volume / balance / crossfade / replaygain**: `setVolume`, `setBalance(balance)` / `balance` (−100 … +100, 0 = centre), `setCrossfade`, `setReplaygain`. **Shuffle / repeat**: `setShuffle(on)`, `isShuffleEnabled()`, `setRepeat(mode)`, `repeat()`. **DSP chain**: `setEqEnabled` / `isEqEnabled`, `setEqPreset`, `setEqBand`, `setEqPrecut`, `setTone`, `setBass`, `setTreble`, `setBassCutoff`, `setTrebleCutoff`, `setCrossfeed`, `setSurround`, `setChannelMode`, `setStereoWidth`, `setBassEnhancement`, `setFatigueReduction`, `setCompressor`, `setDither`, `setPitch`, `dspSettings()` → `Map`. **Status / resume**: `status()`, `resume`, `saveResume`, `clearResume`. |
 
 ### Enums
 

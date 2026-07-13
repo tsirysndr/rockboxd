@@ -81,6 +81,34 @@ console.log(player.status()); // { state: "playing", index: 0, ... }
 console.log(player.dspSettings()); // full DSP-chain snapshot
 ```
 
+## Decode a file to PCM
+
+`Decoder` streams one audio file through the Rockbox codec engine, yielding
+interleaved-stereo S16LE PCM (`Int16Array`) one chunk at a time — no output
+device required. Same `Metadata` shape as `metadata.read`.
+
+```ts
+import { Decoder } from "rockbox-ffi/bun"; // or /node, or npm:rockbox-ffi/deno
+
+using dec = new Decoder("song.flac"); // freed at end of scope
+console.log(dec.metadata().title);
+
+for (let chunk; (chunk = dec.nextChunk()) !== null; ) {
+  // chunk.samples: interleaved-stereo Int16Array; chunk.sampleRate: Hz
+  writePcm(chunk.samples);
+}
+
+const { done, code } = dec.finished(); // code 0 = clean end, negative = codec error
+```
+
+Seek with `dec.seekMs(ms)` and read the codec's position with `dec.elapsedMs()`.
+
+<Warning>
+  Codec state is **process-wide — only one `Decoder` decodes at a time**.
+  Constructing a second `Decoder` blocks until the first is closed (via
+  `close()`, or automatically at the end of a `using` scope).
+</Warning>
+
 ## API
 
 Everything is fully typed — your editor has the details.
@@ -102,6 +130,17 @@ feed it `Int16Array`s, and `close()` (or `using`) when done.
 | `eqEnable(on)` / `setEqBand(band, cutoffHz, q, gainDb)` | 10-band EQ (band 0 low-shelf, 9 high-shelf) |
 | `setEqPrecut(db)`                                       | Negative pre-gain to avoid EQ clipping      |
 
+**`Decoder`** — streaming file decoder. Construct with a path, pull PCM with
+`nextChunk()`, and `close()` (or `using`) when done. Only one may decode at a
+time (see [Decode a file to PCM](#decode-a-file-to-pcm)).
+
+| Method                                                   | Description                                                     |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| `metadata()`                                             | Tags + stream properties (same shape as `metadata.read`)       |
+| `nextChunk(): { samples, sampleRate } \| null`           | Next interleaved-stereo `Int16Array`; `null` at end of track   |
+| `finished(): { done, code }`                             | `done` once ended; `code` 0 = clean end, negative = codec error |
+| `seekMs(ms)` / `elapsedMs()`                             | Seek by / read position in milliseconds                        |
+
 **`Player`** — queue, transport, crossfade, shuffle/repeat, the full DSP
 chain, and `status()`. Every mutating method returns `this`, so calls chain
 fluently (see the quick start); getters and `close()` return their own values.
@@ -114,6 +153,7 @@ fluently (see the quick start); getters and `close()` return their own values.
 | `play()` / `pause()` / `toggle()` / `stop()`                                  | Transport controls                                             |
 | `next()` / `previous()` / `skipTo(index)` / `seekMs(ms)`                      | Navigate within the queue                                      |
 | `setVolume(v)` / `volume()` / `sampleRate()`                                  | Volume + output-rate access                                    |
+| `setBalance(balance)` / `balance()`                                           | Stereo balance, −100 (full left) to +100 (full right); 0 = centre |
 | `setShuffle(on)` / `isShuffleEnabled()`                                       | Queue shuffle                                                  |
 | `setRepeat(mode)` / `repeat()`                                                | `RepeatMode` (Off / One / All)                                 |
 | `setCrossfade(mode, …)` / `setReplaygain(mode, preampDb, noclip)`             | Crossfade + `ReplayGainMode`                                   |

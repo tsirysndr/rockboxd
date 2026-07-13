@@ -63,7 +63,8 @@ Getters/queries (`volume`, `status`, `queue`, `dsp-settings`, `shuffle-enabled?`
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rockbox.ffi.metadata`   | `read`, `probe`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `rockbox.ffi.dsp`        | `with-dsp`, `eq-enable`, `set-eq-band`, `set-replaygain`, `process`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `rockbox.ffi.player`     | **lifecycle** `new-player`, `with-player`, `free` · **queue** `set-queue`, `enqueue`, `insert`, `queue` · **transport** `play`, `pause`, `toggle`, `stop`, `next`, `previous`, `skip-to`, `seek-ms` · **settings** `set-volume`, `volume`, `sample-rate`, `set-crossfade`, `set-replaygain` · **shuffle/repeat** `set-shuffle`, `shuffle-enabled?`, `set-repeat`, `repeat` · **status** `status` · **resume** `resume`, `save-resume`, `clear-resume`, `load-resume` · **playlists** `import-m3u`, `load-m3u`, `export-m3u`, `m3u-read`, `m3u-write`, `is-url?` |
+| `rockbox.ffi.player`     | **lifecycle** `new-player`, `with-player`, `free` · **queue** `set-queue`, `enqueue`, `insert`, `queue` · **transport** `play`, `pause`, `toggle`, `stop`, `next`, `previous`, `skip-to`, `seek-ms` · **settings** `set-volume`, `volume`, `set-balance`, `balance`, `sample-rate`, `set-crossfade`, `set-replaygain` · **shuffle/repeat** `set-shuffle`, `shuffle-enabled?`, `set-repeat`, `repeat` · **status** `status` · **resume** `resume`, `save-resume`, `clear-resume`, `load-resume` · **playlists** `import-m3u`, `load-m3u`, `export-m3u`, `m3u-read`, `m3u-write`, `is-url?` |
+| `rockbox.ffi.decoder`    | `open`, `with-decoder`, `free`, `metadata`, `next-chunk`, `seek-ms`, `elapsed-ms`, `finished`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `rockbox.ffi.player` DSP | `set-eq-enabled`, `eq-enabled?`, `set-eq-preset`, `set-eq-band`, `set-eq-precut`, `set-tone`, `set-bass`, `set-treble`, `set-bass-cutoff`, `set-treble-cutoff`, `set-crossfeed`, `set-surround`, `set-channel-mode`, `set-stereo-width`, `set-bass-enhancement`, `set-fatigue-reduction`, `set-compressor`, `set-dither`, `set-pitch`, `dsp-settings`                                                                                                                                                                                                           |
 
 ### Sources
@@ -72,6 +73,16 @@ Getters/queries (`volume`, `status`, `queue`, `dsp-settings`, `shuffle-enabled?`
 **`http(s)://` URLs**, and **live-radio / streaming URLs** in the same list —
 mix them freely. `dsp-settings` returns a keywordized snapshot of the whole
 chain.
+
+### Stereo balance
+
+`set-balance` / `balance` pan the output between the channels: the value ranges
+from **-100 (full left)** to **+100 (full right)**, with **0 = centre**.
+
+```clojure
+(-> p (player/set-balance -30))   ; shift 30 % toward the left channel
+(player/balance p)                ; => -30
+```
 
 ### Enums
 
@@ -92,6 +103,43 @@ Every enum arg accepts either the keyword or the raw int (`rockbox.ffi.enums`):
   the official
   [Rockbox manual — Sound Settings](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html).
 </Tip>
+
+## Decoder API
+
+`rockbox.ffi.decoder` streams an audio file to **interleaved-stereo S16LE PCM**
+one chunk at a time through the Rockbox codec engine — useful for feeding your
+own output sink, resampler, or analysis pipeline.
+
+- `open` takes a path and returns a handle; `free` (or `with-decoder`) releases
+  it when you're done.
+- `metadata` returns the tags + stream properties as a keyword-keyed map (same
+  shape as `metadata/read`).
+- `next-chunk` yields `[samples sample-rate]` — `samples` is an interleaved
+  stereo `short-array` — or **nil at end of track**.
+- `seek-ms` requests a seek; `elapsed-ms` is the codec's last reported position.
+- `finished` returns `[done code]`: `code` is `0` on a clean end and **negative
+  on a codec error** (valid only once `done` is true).
+
+```clojure
+(require '[rockbox.ffi.decoder :as decoder])
+
+(decoder/with-decoder [d "/music/song.flac"]
+  (:title (decoder/metadata d))              ; => "…"
+  (loop [total 0]
+    (if-let [[samples rate] (decoder/next-chunk d)]
+      (do
+        ;; samples: interleaved stereo short-array at `rate` Hz — write it out
+        (recur (+ total (alength samples))))
+      (let [[done code] (decoder/finished d)]
+        (when (neg? code) (throw (ex-info "codec error" {:code code})))
+        total))))                            ; => total samples decoded
+```
+
+<Warning>
+  Codec state is **process-wide — only one decoder decodes at a time**. Opening
+  a second decoder blocks until the first is freed, so wrap each in
+  `with-decoder` (or `free` it) before starting the next.
+</Warning>
 
 ## Notes
 

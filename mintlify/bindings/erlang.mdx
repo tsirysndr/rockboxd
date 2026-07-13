@@ -1,0 +1,190 @@
+---
+title: "Erlang"
+description: "The shared BEAM native layer — a raw erl_nif surface over the Rockbox C ABI, reused by the Elixir and Gleam bindings."
+icon: 'layer-group'
+---
+
+```erlang
+%% rebar.config
+{deps, [rockbox_ffi_nif]}.
+```
+
+`rockbox_ffi_nif` is the **common native layer** for every binding that runs on
+the BEAM. The [Elixir](/bindings/elixir) (`rockbox_ex_ffi`) and
+[Gleam](/bindings/gleam) (`rockbox_ffi`) packages both depend on it instead of
+vendoring their own copy of the C shim and loader — the ergonomic wrappers live
+in those packages.
+
+Requires **OTP 27+** (JSON is decoded with the built-in `json` module). The Hex
+package ships only a checksum manifest; the loader's `-on_load` hook downloads
+the matching prebuilt `.so` for your platform on first use (see
+[NIF delivery](#nif-delivery)).
+
+<Note>
+  This page documents the **raw NIF surface**. For application code prefer the
+  [Elixir](/bindings/elixir) or [Gleam](/bindings/gleam) wrappers — they add
+  named enums, pipe-friendly setters, and typed return values on top of the same
+  native functions.
+</Note>
+
+Every function is a raw NIF: strings and paths are **UTF-8 binaries**, `*_json`
+functions return raw JSON binaries (decode with OTP 27's `json` module), and
+handles (`RbDecoder`, `RbPlayer`, `RbDsp`) are opaque `reference()`s freed by
+the GC — there is no explicit close.
+
+## Read metadata
+
+```erlang
+%% Guess the codec from the extension (no I/O)…
+<<"FLAC">> = rockbox_ffi_nif:meta_probe(<<"song.flac">>),
+
+%% …or parse the full tag / stream properties.
+Json = rockbox_ffi_nif:meta_read_json(<<"/music/song.flac">>),
+#{<<"title">>       := Title,
+  <<"artist">>      := Artist,
+  <<"duration_ms">> := DurMs,
+  <<"sample_rate">> := Rate} = json:decode(Json).
+```
+
+## Decode a file to PCM
+
+`decoder_next_chunk/1` hands back interleaved-stereo little-endian `int16` PCM
+until it returns `nil` at end of track.
+
+```erlang
+D = rockbox_ffi_nif:decoder_open(<<"/music/song.mp3">>),
+
+%% Metadata is available straight from the open decoder.
+Meta = json:decode(rockbox_ffi_nif:decoder_metadata_json(D)),
+
+%% Pull every chunk into one PCM binary.
+Drain = fun Drain(Acc) ->
+    case rockbox_ffi_nif:decoder_next_chunk(D) of
+        nil          -> lists:reverse(Acc);
+        {Pcm, _Rate} -> Drain([Pcm | Acc])
+    end
+end,
+Pcm = iolist_to_binary(Drain([])),
+
+%% Confirm the track ended cleanly (0 = clean, negative = codec error).
+{true, 0} = rockbox_ffi_nif:decoder_finished(D).
+```
+
+Seek before decoding more:
+
+```erlang
+rockbox_ffi_nif:decoder_seek_ms(D, 30000),   %% jump to 30s
+Ms = rockbox_ffi_nif:decoder_elapsed_ms(D).
+```
+
+<Warning>
+  The codec state is **process-wide** — only one `RbDecoder` can decode at a
+  time. `decoder_open/1` blocks until any previous decoder is freed by the GC.
+</Warning>
+
+## Run PCM through the DSP pipeline
+
+```erlang
+Dsp = rockbox_ffi_nif:dsp_new(44100),
+
+%% Turn on the equalizer and lift a 1 kHz band by 6 dB.
+rockbox_ffi_nif:dsp_eq_enable(Dsp, true),
+rockbox_ffi_nif:dsp_set_eq_band(Dsp, 4, 1000, 1.0, 6.0),
+
+Out = rockbox_ffi_nif:dsp_process(Dsp, Pcm).
+```
+
+## Play a queue
+
+A player owns a live audio device and a background engine thread; dropping the
+last reference to the handle stops playback.
+
+```erlang
+P = rockbox_ffi_nif:player_new(),
+
+%% Queue local files and/or http(s) / stream URLs.
+Queue = json:encode([<<"/music/a.mp3">>, <<"/music/b.flac">>]),
+rockbox_ffi_nif:player_set_queue_json(P, Queue),
+rockbox_ffi_nif:player_enqueue(P, <<"http://host/stream.mp3">>),
+
+rockbox_ffi_nif:player_set_volume(P, 0.8),
+rockbox_ffi_nif:player_set_balance(P, 0),   %% -100 left … +100 right, 0 = centre
+rockbox_ffi_nif:player_play(P),
+
+%% Transport controls.
+rockbox_ffi_nif:player_next(P),
+rockbox_ffi_nif:player_seek_ms(P, 15000),
+
+%% Poll playback state.
+Status = json:decode(rockbox_ffi_nif:player_status_json(P)),
+
+rockbox_ffi_nif:player_pause(P).
+```
+
+The player exposes the same DSP chain as the standalone pipeline —
+`player_set_eq_band/5`, `player_set_tone/5`, `player_set_crossfade/7`,
+`player_set_replaygain/4`, `player_set_balance/2` / `player_balance/1`, and more
+(see the [module docs](https://hexdocs.pm/rockbox_ffi_nif/)).
+
+## API
+
+| Surface           | Functions                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| Metadata          | `meta_probe/1`, `meta_read_json/1`                                                             |
+| `RbDecoder`       | `decoder_open/1`, `decoder_metadata_json/1`, `decoder_next_chunk/1`, `decoder_seek_ms/2`, `decoder_elapsed_ms/1`, `decoder_finished/1` |
+| `RbDsp`           | `dsp_new/1`, `dsp_eq_enable/2`, `dsp_set_eq_band/5`, `dsp_process/2`, ReplayGain / tone / surround / compressor setters |
+| `RbPlayer`        | `player_new/0`, queue + transport, `player_set_volume/2`, `player_set_balance/2` / `player_balance/1`, crossfade, ReplayGain, full DSP chain, `player_status_json/1` |
+
+- Handles (`RbDecoder`, `RbDsp`, `RbPlayer`) are NIF resources freed by the BEAM
+  garbage collector — no explicit close.
+- PCM crosses the boundary as an **int16 LE binary**.
+- Rich values (`*_json`) come back as raw JSON binaries — decode with OTP 27's
+  built-in `json` module.
+- The DSP chain mirrors Rockbox's own; see the
+  [official Rockbox sound-settings manual](https://download.rockbox.org/daily/manual/rockbox-ipodvideo/rockbox-buildch6.html)
+  for what each control does.
+
+<Warning>
+  The DSP and player use **different ReplayGain mode integers**:
+  `dsp_set_replaygain/4` → `0` track, `1` album, `2` shuffle, `3` off;
+  `player_set_replaygain/4` → `0` off, `1` track, `2` album. See
+  [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+## NIF delivery
+
+The compiled NIF statically links the Rust `librockbox_ffi.a`, making it a
+multi-megabyte shared object — too large to bundle in a Hex tarball. So the Hex
+package ships only the checksum manifest, and `rockbox_ffi_nif.erl`'s `-on_load`
+hook downloads the matching `rockbox_ffi_nif-<triple>.so` from the named GitHub
+release into the user cache on first use, verifying it against the manifest
+sha256. Both the Elixir and Gleam bindings get their native code the same way.
+
+Prebuilt targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+`aarch64-linux-gnu`, `x86_64-linux-gnu`, `x86_64-unknown-freebsd`,
+`x86_64-unknown-netbsd`. Other platforms build from source.
+
+## Local development
+
+Inside a full monorepo checkout (needs the Cargo workspace + `include/` header):
+
+```sh
+# 1. Build the Rust static archive.
+cargo build --release -p rockbox-ffi
+
+# 2. Build the NIF into priv/rockbox_ffi_nif.so.
+cd bindings/erlang && make
+
+# 3. Compile the Erlang app.
+rebar3 compile
+```
+
+The Elixir / Gleam bindings pick up this locally-built `.so` via a path
+dependency on `../erlang` — the loader prefers a local `priv/*.so` over any
+cached download.
+
+## Docs
+
+Read the published module docs at
+[hexdocs.pm/rockbox_ffi_nif](https://hexdocs.pm/rockbox_ffi_nif/), or generate
+them locally with `rebar3 ex_doc`.

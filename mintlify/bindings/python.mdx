@@ -66,12 +66,41 @@ with Player(volume=0.8) as player:
     print(player.status())     # {'state': 'playing', 'index': 0, ...}
 ```
 
+## Decode a file to PCM
+
+`Decoder` streams an audio file to interleaved-stereo S16LE PCM one chunk at a
+time through the Rockbox codec engine — the same decoders that power playback,
+without an output device.
+
+```python
+from rockbox_ffi import Decoder
+
+with Decoder("song.flac") as dec:
+    print(dec.metadata()["title"])               # same shape as metadata.read
+    for samples, rate in dec.chunks():            # array('h'), Hz
+        ...                                        # feed samples somewhere
+    print(dec.finished())                          # (True, 0) — clean end
+    # dec.seek_ms(30_000); dec.elapsed_ms()       # seek / query position
+```
+
+`chunks()` (or `next_chunk()`) yields `(samples, sample_rate)` and stops at
+`None` on end of track; `finished()` returns `(done, code)` where `code` is `0`
+for a clean end and negative for a codec error.
+
+<Warning>
+  **One decoder at a time.** The codec state is process-wide (global) — only one
+  `Decoder` can decode at once. Constructing a second one *blocks* until the
+  first is closed. Always use `with Decoder(...)` (or call `close()`) so the
+  native resource is freed; a GC finalizer is the backstop.
+</Warning>
+
 ## API
 
 | Module                 | Contents                                                                                                                                                                                                    |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rockbox_ffi.metadata` | `read(path) -> dict`, `probe(filename) -> str \| None`                                                                                                                                                      |
 | `rockbox_ffi.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`                                                                                                                                          |
+| `rockbox_ffi.Decoder`  | streaming file → S16LE PCM via the codec engine: `metadata()`, `next_chunk()` / `chunks()`, `seek_ms(ms)`, `elapsed_ms()`, `finished() -> (done, code)` (one decoder at a time — codec state is global)      |
 | `rockbox_ffi.Player`   | queue + transport + crossfade + ReplayGain + shuffle/repeat + full live DSP chain (10-band EQ, tone, crossfeed, surround, PBE/AFR, compressor, dither, pitch), `dsp_settings() -> dict`, `status() -> dict` |
 | `rockbox_ffi.enums`    | `DspReplayGainMode`, `ReplayGainMode`, `CrossfadeMode`, `MixMode`, `RepeatMode`, `EqPreset`, `ChannelMode`, `CrossfeedMode`, `InsertPosition`, …                                                            |
 
@@ -89,7 +118,8 @@ with Player(volume=0.8) as player:
   `set_eq_precut`. **Tone** — `set_tone`, `set_bass`, `set_treble`,
   `set_bass_cutoff`, `set_treble_cutoff`. **Spatial** —
   `set_crossfeed(CrossfeedMode)`, `set_surround`, `set_channel_mode(ChannelMode)`,
-  `set_stereo_width`. **Enhancers** — `set_bass_enhancement` (PBE),
+  `set_stereo_width`, `set_balance(balance)` / `balance()` (stereo balance,
+  `-100` full left … `+100` full right, `0` = centre). **Enhancers** — `set_bass_enhancement` (PBE),
   `set_fatigue_reduction` (AFR), `set_compressor`, `set_dither`, `set_pitch`.
   **Shuffle / repeat** — `set_shuffle` / `is_shuffle_enabled`,
   `set_repeat(RepeatMode)` / `repeat()`.

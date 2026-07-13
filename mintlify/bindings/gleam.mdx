@@ -67,6 +67,7 @@ player.dsp_settings(p)   // DspSettings(equalizer:, tone:, crossfeed:, ...)
 | Module             | Contents                                                                     |
 | ------------------ | ---------------------------------------------------------------------------- |
 | `rockbox/metadata` | `read(path) -> Result(Metadata, _)`, `probe(name) -> Option(String)`         |
+| `rockbox/decoder`  | decode a file to interleaved-stereo S16LE PCM one chunk at a time            |
 | `rockbox/dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(d, pcm)`            |
 | `rockbox/player`   | queue + transport + crossfade + ReplayGain + full DSP chain + shuffle/repeat |
 
@@ -83,6 +84,7 @@ setters below apply the full Rockbox DSP chain live, mid-playback.
 | `play` / `pause` / `toggle` / `stop`                                  | Transport                                                                        |
 | `next` / `previous` / `skip_to(i)` / `seek_ms(ms)`                    | Navigation within the queue / track                                              |
 | `set_volume(f)` / `volume()` / `sample_rate()`                        | Output volume and device sample rate                                             |
+| `set_balance(bal)` / `balance()`                                      | Stereo balance, `-100` (full left) … `+100` (full right); `0` = centre           |
 | `set_shuffle(Bool)` / `is_shuffle_enabled()`                          | Shuffle playback                                                                 |
 | `set_repeat(RepeatMode)` / `repeat()`                                 | Repeat mode — `Off` / `One` / `All`                                              |
 | `set_crossfade(...)` / `set_replaygain(...)`                          | Crossfade behaviour; ReplayGain (player mode ints)                               |
@@ -120,6 +122,52 @@ setters below apply the full Rockbox DSP chain live, mid-playback.
   `0` track, `1` album, `2` shuffle, `3` off; `player.set_replaygain` → `0`
   off, `1` track, `2` album. See
   [the overview](/bindings/overview#the-one-thing-to-know-two-replaygain-encodings).
+</Warning>
+
+### `rockbox/decoder`
+
+Decode an audio file to interleaved-stereo **S16LE** PCM (a `BitArray`), one
+chunk at a time, straight through the Rockbox codec engine — no output device
+needed.
+
+| Function                                            | Purpose                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `open(path) -> Decoder`                             | Open a decoder for a local audio file                                          |
+| `metadata(decoder) -> Metadata`                     | Tags + stream properties (same shape as `metadata.read`)                       |
+| `next_chunk(decoder) -> Option(#(BitArray, Int))`   | Next PCM buffer + sample rate; `None` at end of track                          |
+| `seek_ms(decoder, ms)` / `elapsed_ms(decoder)`      | Request a seek; read the codec's last-reported position                        |
+| `finished(decoder) -> #(Bool, Int)`                 | `#(done, code)` — `code` `0` = clean end, negative = codec error (when `done`) |
+
+**Decode a file to PCM**
+
+```gleam
+import rockbox/decoder
+import gleam/option.{None, Some}
+
+let d = decoder.open("song.flac")
+decoder.metadata(d).duration_ms      // 122324
+
+// Pull chunks until the track ends.
+fn drain(d) {
+  case decoder.next_chunk(d) {
+    Some(#(pcm, rate)) -> {
+      // `pcm` is interleaved-stereo little-endian int16 at `rate` Hz.
+      drain(d)
+    }
+    None -> Nil
+  }
+}
+drain(d)
+
+let #(done, code) = decoder.finished(d)   // #(True, 0) on a clean end
+```
+
+- `Decoder` is an opaque NIF resource, freed by the BEAM garbage collector —
+  no explicit close.
+
+<Warning>
+  Codec state is **process-wide — only one `Decoder` decodes at a time.**
+  Opening a second decoder blocks until the first has been garbage-collected.
 </Warning>
 
 <Note>

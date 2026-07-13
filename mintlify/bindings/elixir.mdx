@@ -61,12 +61,36 @@ Player.status(p)         # %{state: "playing", index: 0, ...}
 Player.dsp_settings(p)   # %{eq_enabled: true, bass: 6, ...} full DSP chain
 ```
 
+### Decode a file to PCM
+
+`Rockbox.Decoder` runs the Rockbox codec engine directly, yielding interleaved
+stereo S16LE PCM one chunk at a time — no output device required.
+
+```elixir
+d = Rockbox.Decoder.open("song.flac")   # nil if no codec recognises it
+Rockbox.Decoder.metadata(d)             # same map shape as Rockbox.Metadata.read/1
+
+# Pull chunks until end of track.
+Stream.repeatedly(fn -> Rockbox.Decoder.next_chunk(d) end)
+|> Enum.take_while(&(&1 != :eof))       # {pcm_binary, sample_rate} per chunk
+
+Rockbox.Decoder.seek_ms(d, 30_000)      # jump to 30 s
+Rockbox.Decoder.elapsed_ms(d)           # last position reported by the codec
+Rockbox.Decoder.finished(d)             # {done, code}: 0 = clean end, <0 = error
+```
+
+<Warning>
+  Codec state is **process-wide — only one `Rockbox.Decoder` decodes at a
+  time**. Opening a second decoder blocks until the first is freed by the GC.
+</Warning>
+
 ## API
 
 | Module             | Contents                                                                                        |
 | ------------------ | ----------------------------------------------------------------------------------------------- |
 | `Rockbox.Metadata` | `read/1 -> {:ok, map}`, `probe/1 -> String.t()`                                                 |
 | `Rockbox.Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process/2`                                     |
+| `Rockbox.Decoder`  | `open/1`, `metadata/1`, `next_chunk/1 -> {pcm, rate} \| :eof`, `seek_ms/2`, `elapsed_ms/1`, `finished/1` |
 | `Rockbox.Player`   | queue + transport + crossfade + ReplayGain + full DSP chain + shuffle/repeat, `status/1 -> map` |
 
 `Rockbox.Player` — every mutating function returns the handle (pipe-friendly),
@@ -74,7 +98,8 @@ so setup chains with `|>`; getters/queries return their values:
 
 - **Transport**: `play/1`, `pause/1`, `toggle/1`, `stop/1`, `next/1`,
   `previous/1`, `skip_to/2`, `seek_ms/2`, `set_volume/2` / `volume/1`,
-  `sample_rate/1`, `status/1`.
+  `set_balance/2` / `balance/1` (stereo balance, `-100` full left …
+  `+100` full right, `0` = centre), `sample_rate/1`, `status/1`.
 - **Sources / queue**: `set_queue/2` and `enqueue/2` accept local file paths,
   `http(s)://` URLs, and live-radio / streaming URLs; plus `insert/4`,
   `queue/1`, `import_m3u/4`, `load_m3u/2`, `export_m3u/2`, and resume via

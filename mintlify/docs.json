@@ -140,6 +140,7 @@
               "bindings/go",
               "bindings/typescript",
               "bindings/ruby",
+              "bindings/erlang",
               "bindings/elixir",
               "bindings/gleam",
               "bindings/swift",

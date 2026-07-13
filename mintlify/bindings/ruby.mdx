@@ -42,6 +42,7 @@ RockboxFFI::Player.open(volume: 0.8) do |player|
     .set_eq_preset(RockboxFFI::EqPreset::BASS_BOOST)
     .set_shuffle(true)
     .set_repeat(RockboxFFI::RepeatMode::ALL)
+    .set_balance(0)                     # -100 full left … +100 full right, 0 = centre
     .play
 
   # --- DSP chain (all setters chainable) ------------------------------
@@ -59,7 +60,27 @@ RockboxFFI::Player.open(volume: 0.8) do |player|
   player.dsp_settings     # => {eq_enabled: true, ...}
   player.status           # => {state: "playing", index: 0, ...}
 end
+
+# --- decode a file to PCM (interleaved stereo int16) ------------------
+RockboxFFI::Decoder.open("song.flac") do |dec|
+  dec.metadata[:title]                # same shape as Metadata.read
+  dec.seek_ms(30_000)                 # optional: jump 30 s in
+
+  dec.each_chunk do |samples, sample_rate|
+    # samples: Array<Integer> S16LE stereo; sample_rate: Hz
+    handle(samples, sample_rate)
+  end
+
+  done, code = dec.finished            # code: 0 = clean end, negative = codec error
+  warn "codec error #{code}" if done && code.negative?
+end
 ```
+
+<Warning>
+  The Rockbox codec engine is **process-wide — only one `Decoder` decodes at a
+  time**. A second `Decoder.open` blocks until the first is freed (via `#close`
+  or the block form). Drive a decoder from a single thread.
+</Warning>
 
 ## API
 
@@ -67,7 +88,8 @@ end
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RockboxFFI::Metadata` | `read(path) => Hash`, `probe(filename) => String \| nil`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `RockboxFFI::Dsp`      | EQ / tone / surround / compressor / ReplayGain, `process(samples)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `RockboxFFI::Player`   | queue (`set_queue` / `enqueue` / `insert` — local paths, `http(s)://` URLs, live-radio / streaming URLs), transport, `set_shuffle` / `shuffle_enabled?`, `set_repeat` / `repeat`, crossfade, ReplayGain, full DSP chain (`set_eq_enabled` / `eq_enabled?`, `set_eq_preset`, `set_eq_band`, `set_eq_precut`, `set_tone` / `set_bass` / `set_treble` / `set_bass_cutoff` / `set_treble_cutoff`, `set_crossfeed`, `set_surround`, `set_channel_mode` / `set_stereo_width`, `set_bass_enhancement`, `set_fatigue_reduction`, `set_compressor`, `set_dither`, `set_pitch`, `dsp_settings`), m3u/resume, `status => Hash`. Mutating setters return `self` for chaining. |
+| `RockboxFFI::Player`   | queue (`set_queue` / `enqueue` / `insert` — local paths, `http(s)://` URLs, live-radio / streaming URLs), transport, `set_volume` / `set_balance` / `balance`, `set_shuffle` / `shuffle_enabled?`, `set_repeat` / `repeat`, crossfade, ReplayGain, full DSP chain (`set_eq_enabled` / `eq_enabled?`, `set_eq_preset`, `set_eq_band`, `set_eq_precut`, `set_tone` / `set_bass` / `set_treble` / `set_bass_cutoff` / `set_treble_cutoff`, `set_crossfeed`, `set_surround`, `set_channel_mode` / `set_stereo_width`, `set_bass_enhancement`, `set_fatigue_reduction`, `set_compressor`, `set_dither`, `set_pitch`, `dsp_settings`), m3u/resume, `status => Hash`. Mutating setters return `self` for chaining. |
+| `RockboxFFI::Decoder`  | streaming file decoder: `open(path)` / `close`, `metadata => Hash`, `next_chunk` / `each_chunk => [samples, sample_rate]`, `seek_ms`, `elapsed_ms`, `finished => [done, code]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `RockboxFFI::*Mode`    | `DspReplayGainMode`, `ReplayGainMode`, `RepeatMode`, `CrossfadeMode`, `MixMode`, `CrossfeedMode`, `ChannelMode`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `RockboxFFI::EqPreset` | 21 built-in EQ presets (`FLAT`, `BASS_BOOST`, `ROCK`, `JAZZ`, `VOCAL_BOOST`, …) for `Player#set_eq_preset`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 

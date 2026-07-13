@@ -68,13 +68,51 @@ func main() {
 }
 ```
 
+## Decode a file to PCM
+
+`OpenDecoder` runs a file through the Rockbox codec engine and hands back
+interleaved-stereo S16LE PCM one chunk at a time — decode without an output
+device.
+
+```go
+dec, err := rockbox.OpenDecoder("song.flac")
+if err != nil {
+	log.Fatal(err)
+}
+defer dec.Close() // safe to call twice
+
+meta, _ := dec.Metadata() // map[string]any, same shape as Metadata.Read
+fmt.Println(meta["title"])
+
+for {
+	samples, rate, ok := dec.NextChunk() // []int16, sample rate, ok=false at EOF
+	if !ok {
+		break
+	}
+	_ = samples
+	_ = rate
+	// dec.SeekMs(30_000); dec.ElapsedMs()
+}
+
+if done, code := dec.Finished(); done && code < 0 {
+	log.Printf("codec error: %d", code) // 0 = clean end, negative = codec error
+}
+```
+
+<Warning>
+  The codec engine is **process-wide**: only one `Decoder` may decode at a
+  time, and always from a single goroutine. A second `OpenDecoder` blocks until
+  the first is closed.
+</Warning>
+
 ## API
 
 | Symbol                                          | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rockbox.Metadata`                              | `Read(path) (*Meta, error)`, `Probe(name) (string, bool)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `rockbox.NewDsp` → `*Dsp`                       | EQ / tone / surround / compressor / ReplayGain, `Process([]int16)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `rockbox.New` / `rockbox.NewPlayer` → `*Player` | **Construct:** `New(WithVolume, WithReplayGain, WithCrossfade, WithResumeFile, …)` (functional options) or `NewPlayer(Config)`. **Transport:** `Play` / `Pause` / `Toggle` / `Stop` / `Next` / `Previous` / `SkipTo` / `SeekMs`. **Queue:** `SetQueue` / `Enqueue` / `Insert` / `Queue` (local paths, `http(s)://`, live-radio / streaming URLs). **Shuffle & repeat:** `SetShuffle` / `IsShuffleEnabled`, `SetRepeat` / `Repeat`. **DSP chain:** `SetEqEnabled` / `IsEqEnabled` / `SetEqPreset` / `SetEqBand` / `SetEqPrecut`, `SetTone` / `SetBass` / `SetTreble` / `SetBassCutoff` / `SetTrebleCutoff`, `SetCrossfeed`, `SetSurround`, `SetChannelMode` / `SetStereoWidth`, `SetBassEnhancement`, `SetFatigueReduction`, `SetCompressor`, `SetDither`, `SetPitch`, `DSPSettings()`. **Volume/ReplayGain/crossfade:** `SetVolume` / `Volume`, `SetReplaygain`, `SetCrossfade`. **Resume / m3u:** `Resume` / `SaveResume` / `ClearResume`, `LoadM3u` / `ImportM3u` / `ExportM3u`. **State:** `Status()`. |
+| `rockbox.New` / `rockbox.NewPlayer` → `*Player` | **Construct:** `New(WithVolume, WithReplayGain, WithCrossfade, WithResumeFile, …)` (functional options) or `NewPlayer(Config)`. **Transport:** `Play` / `Pause` / `Toggle` / `Stop` / `Next` / `Previous` / `SkipTo` / `SeekMs`. **Queue:** `SetQueue` / `Enqueue` / `Insert` / `Queue` (local paths, `http(s)://`, live-radio / streaming URLs). **Shuffle & repeat:** `SetShuffle` / `IsShuffleEnabled`, `SetRepeat` / `Repeat`. **DSP chain:** `SetEqEnabled` / `IsEqEnabled` / `SetEqPreset` / `SetEqBand` / `SetEqPrecut`, `SetTone` / `SetBass` / `SetTreble` / `SetBassCutoff` / `SetTrebleCutoff`, `SetCrossfeed`, `SetSurround`, `SetChannelMode` / `SetStereoWidth`, `SetBassEnhancement`, `SetFatigueReduction`, `SetCompressor`, `SetDither`, `SetPitch`, `DSPSettings()`. **Volume/balance/ReplayGain/crossfade:** `SetVolume` / `Volume`, `SetBalance` / `Balance`, `SetReplaygain`, `SetCrossfade`. **Resume / m3u:** `Resume` / `SaveResume` / `ClearResume`, `LoadM3u` / `ImportM3u` / `ExportM3u`. **State:** `Status()`. |
+| `rockbox.OpenDecoder` → `*Decoder`              | Stream-decode a file to interleaved-stereo S16LE PCM via the Rockbox codec engine: `Metadata()`, `NextChunk() ([]int16, uint32, bool)`, `SeekMs` / `ElapsedMs`, `Finished() (bool, int32)`. **Codec state is process-wide** — only one Decoder decodes at a time, from one goroutine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `rockbox.*` consts                              | `DspReplayGainMode`, `ReplayGainMode`, `RepeatMode` (Off/One/All), `EqPreset` (21 presets), `CrossfeedMode`, `ChannelMode`, `CrossfadeMode`, `MixMode`, `InsertPosition`, `ChannelConfig`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 - **Handles** own native resources — `defer dsp.Close()` / `defer player.Close()`

@@ -1,13 +1,13 @@
 ---
 title: "Native engine bindings"
-description: "Call the Rockbox DSP, metadata, and playback engine in-process from nine languages, all over one shared C ABI."
+description: "Call the Rockbox DSP, metadata, decoding, and playback engine in-process from ten languages, all over one shared C ABI."
 icon: 'plug'
 ---
 
 The **bindings** embed the Rockbox audio engine directly in your process. They
 wrap `rockbox-ffi` — a flat **C ABI** (`crates/rockbox-ffi`) — so you can parse
-tags, run PCM through the DSP pipeline, and drive a queue-based player without
-running a daemon or talking to any network port.
+tags, decode files to PCM, run PCM through the DSP pipeline, and drive a
+queue-based player without running a daemon or talking to any network port.
 
 <Note>
   Looking to **remote-control a running `rockboxd`** over the network instead?
@@ -25,15 +25,20 @@ running a daemon or talking to any network port.
 | Best for       | Apps that control a music server     | Embedding DSP / metadata / playback |
 | Package family | `rockbox-sdk`, `@rockbox-zig/sdk`, … | `rockbox-ffi` and friends           |
 
-## Three surfaces
+## Four surfaces
 
-Every binding exposes the same three namespaces with matching method names:
+Every binding exposes the same namespaces with matching method names:
 
-<CardGroup cols={3}>
+<CardGroup cols={2}>
   <Card title="metadata" icon="tags">
     `read(path)` returns parsed tags, duration, ReplayGain, album-art and
     cuesheet offsets. `probe(filename)` guesses the codec from the extension —
     no I/O.
+  </Card>
+  <Card title="Decoder" icon="file-audio">
+    Open a file and pull decoded **interleaved-stereo int16 PCM** one chunk at
+    a time through the Rockbox codec engine — `metadata()`, `next_chunk()`,
+    `seek_ms()`, `elapsed_ms()`, `finished()`. No audio device needed.
   </Card>
   <Card title="Dsp" icon="sliders">
     Construct with a sample rate, then the whole pipeline — EQ, tone,
@@ -41,11 +46,17 @@ Every binding exposes the same three namespaces with matching method names:
     ReplayGain, … — and `process(samples)` over interleaved stereo int16.
   </Card>
   <Card title="Player" icon="play">
-    Queue + transport, **shuffle / repeat**, crossfade, ReplayGain, the full
-    **DSP chain** (EQ + presets, tone, crossfeed, surround, compressor, …),
-    and `status()`. Needs an audio output device.
+    Queue + transport, **shuffle / repeat**, crossfade, ReplayGain, **stereo
+    balance**, the full **DSP chain** (EQ + presets, tone, crossfeed, surround,
+    compressor, …), and `status()`. Needs an audio output device.
   </Card>
 </CardGroup>
+
+<Note>
+  The codec state is **process-wide** — only one `Decoder` can decode at a time.
+  Opening a second one blocks until the first is freed (closed explicitly, or
+  by GC / a context manager).
+</Note>
 
 ## What the Player exposes
 
@@ -63,7 +74,8 @@ every setter is live and reflected back by `dsp_settings()` / `status()`:
   </Card>
   <Card title="Tone & spatial" icon="wave-sine">
     Bass/treble (with cutoffs), **crossfeed**, Haas **surround**, channel
-    mixing (mono / karaoke / swap) and custom stereo width.
+    mixing (mono / karaoke / swap), custom stereo width and **stereo balance**
+    (−100 full-left … +100 full-right).
   </Card>
   <Card title="Enhancement & output" icon="volume-high">
     **Perceptual bass enhancement**, **auditory fatigue reduction**, a
@@ -96,6 +108,9 @@ remote files, streamed on demand), or **live-radio / streaming URLs**.
   <Card title="Ruby" icon="gem" href="/bindings/ruby">
     `gem install rockbox_ffi` — fiddle
   </Card>
+  <Card title="Erlang" icon="layer-group" href="/bindings/erlang">
+    `{rockbox_ffi_nif, …}` — erl_nif (shared)
+  </Card>
   <Card title="Elixir" icon="droplet" href="/bindings/elixir">
     `{:rockbox_ex_ffi, "~> 0.1"}` — erl_nif
   </Card>
@@ -112,6 +127,13 @@ remote files, streamed on demand), or **live-radio / streaming URLs**.
     `io.github.tsirysndr/rockbox-clj-ffi` — Java FFM
   </Card>
 </CardGroup>
+
+<Note>
+  On the BEAM, [Erlang](/bindings/erlang) (`rockbox_ffi_nif`) is the shared
+  native layer — a raw `erl_nif` surface over the C ABI. The
+  [Elixir](/bindings/elixir) and [Gleam](/bindings/gleam) packages depend on it
+  for their native code and add the ergonomic wrappers on top.
+</Note>
 
 ## The one thing to know: two ReplayGain encodings
 
