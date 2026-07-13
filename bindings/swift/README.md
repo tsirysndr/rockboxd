@@ -1,7 +1,8 @@
 # rockbox-ffi — Swift
 
-Swift bindings for the Rockbox **DSP**, **metadata**, and **playback** engine,
-over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
+Swift bindings for the Rockbox **DSP**, **metadata**, **codecs**, and
+**playback** engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi)
+C ABI.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -97,10 +98,25 @@ dsp.eqEnable(true)
 dsp.setEqBand(0, cutoffHz: 100, q: 0.7, gainDb: 3.0)
 let out = try dsp.process(samples)
 
+// Codecs (decode a file to PCM, one chunk at a time)
+let dec = try Decoder(path: "/music/song.flac")
+defer { dec.close() }
+let tags = try dec.metadata()                        // [String: Any]
+while let (pcm, sampleRate) = dec.nextChunk() {      // interleaved-stereo int16
+    _ = (pcm, sampleRate)
+}
+let (done, code) = dec.finished()                    // (true, 0)  (0 = clean end)
+
 // Player (queue + transport)
 var cfg = Player.Config(); cfg.volume = 0.8
 let player = try Player(config: cfg)
-try player.setQueue(["/music/a.flac", "/music/b.mp3"])
+// Queue entries may be local files, http(s):// URLs to remote media,
+// or live-radio / streaming URLs — mix and match freely.
+try player.setQueue([
+    "/music/a.flac",
+    "https://example.com/b.mp3",
+    "http://radio.example/stream",
+])
 player.play()
 ```
 
@@ -108,6 +124,8 @@ player.play()
   from the ABI's JSON with `JSONSerialization`.
 - Native memory is freed inside the binding (`close()` / `deinit` for handles;
   every `char*` / `int16*` return is freed after copying).
+- The `Decoder` codec engine is process-wide — only one may decode at a time;
+  constructing a second one blocks until the first is closed.
 - **Two ReplayGain encodings** — `DspReplayGainMode` (track 0, album 1,
   shuffle 2, off 3) for `Dsp`, `ReplayGainMode` (off 0, track 1, album 2) for
   `Player`.
