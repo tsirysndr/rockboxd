@@ -37,7 +37,7 @@ The package ships **no** Rust source and **no** static archive. On `mix compile`
 [`elixir_make`](https://hex.pm/packages/elixir_make) +
 [`cc_precompiler`](https://hex.pm/packages/cc_precompiler) download a prebuilt
 `priv/rockbox_ffi_nif.so` matching your OS/arch from the project's GitHub
-releases and verify it against the shipped `checksum-rockbox_ex_ffi.exs`.
+releases and verify it against the shipped `checksum.exs`.
 
 Prebuilt targets:
 

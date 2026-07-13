@@ -248,7 +248,7 @@ jobs:
           mix deps.get
 
       # Downloads every target's tarball from the rolling release and writes
-      # checksum-rockbox_ex_ffi.exs (shipped in the package, verified on install).
+      # checksum.exs (shipped in the package, verified on install).
       # --ignore-unavailable: a best-effort BSD target that failed to build is
       # skipped rather than blocking the release. The four tier-1 targets are
       # guaranteed present (their jobs are not continue-on-error, so a failure
