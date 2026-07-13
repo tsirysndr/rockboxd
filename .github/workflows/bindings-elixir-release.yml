@@ -1,0 +1,232 @@
+# Publishes the `rockbox_ex_ffi` Hex package with PRECOMPILED NIF binaries.
+#
+# Consumers of the Hex package never build from source (they have no Cargo
+# workspace and the 30 MB static archive isn't shipped). Instead elixir_make +
+# cc_precompiler download a prebuilt `priv/rockbox_ffi_nif.so` matching their
+# OS/arch. This workflow builds those .so's — one per native runner, since the
+# Rust static archive `librockbox_ffi.a` is arch-specific and can't be
+# cross-tarred — uploads them to a single rolling GitHub release, then generates
+# the checksum file and publishes to Hex.
+#
+# Required secret: HEX_API_KEY (a Hex API key with publish scope).
+
+name: bindings-elixir-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to Hex after building (uncheck for a dry run)"
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "elixir-v*"
+
+permissions:
+  contents: write
+
+env:
+  # OTP 26/27/28 all report NIF version 2.17, which is what mix.exs targets.
+  # NOTE: the Linux .so inherits ubuntu-latest's glibc floor — consumers on an
+  # older glibc than the runner must build from source (ROCKBOX_FFI_BUILD=1).
+  OTP_VERSION: "27"
+  ELIXIR_VERSION: "1.17"
+  PRECOMPILED_TAG: rockbox-ffi-nif
+  WORKDIR: bindings/elixir
+
+jobs:
+  # Ensure the rolling release exists before the matrix uploads to it (avoids a
+  # create-race between concurrent matrix jobs).
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure rolling release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$PRECOMPILED_TAG" >/dev/null 2>&1; then
+            gh release create "$PRECOMPILED_TAG" \
+              --title "Precompiled Elixir NIFs (rockbox_ex_ffi)" \
+              --notes "Rolling release hosting precompiled rockbox_ffi_nif artifacts for every published version. Managed by bindings-elixir-release.yml." \
+              --prerelease
+          fi
+
+  precompile:
+    needs: prepare-release
+    name: precompile (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: x86_64-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-linux-gnu
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The NIF link step needs alsa/unwind/dbus dev libs (Makefile LDFLAGS);
+      # the cargo build needs alsa + pkg-config.
+      - name: Install Linux deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libunwind-dev libdbus-1-dev pkg-config
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      - name: Build librockbox_ffi.a
+        run: cargo build --release -p rockbox-ffi
+
+      - name: Precompile NIF (native target only)
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          MIX_ENV: prod
+          # Together with `only_listed_targets: true` in mix.exs, this collapses
+          # the compile set to exactly this runner's native target.
+          CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL: "true"
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix elixir_make.precompile
+
+      - name: Stage artifact
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          mkdir -p dist
+          # elixir_make caches the tarball under the OS user-cache dir.
+          find "$HOME/.cache/elixir_make" "$HOME/Library/Caches/elixir_make" \
+            -name '*.tar.gz' -exec cp {} dist/ \; 2>/dev/null || true
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nif-${{ matrix.target }}
+          path: ${{ env.WORKDIR }}/dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload to rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$PRECOMPILED_TAG" ${{ env.WORKDIR }}/dist/*.tar.gz --clobber
+
+  # FreeBSD amd64 — best-effort, built in a VM (no native GitHub runner). The
+  # canonical triple is pinned via TARGET_* so the artifact name is stable
+  # across FreeBSD releases; MAKE=gmake because the Makefile is GNU-make syntax.
+  precompile-freebsd:
+    needs: prepare-release
+    name: precompile (x86_64-unknown-freebsd)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build + precompile in FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y rust erlang-runtime27 elixir alsa-lib dbus pkgconf gmake
+          run: |
+            export PATH="/usr/local/lib/erlang27/bin:$PATH"
+            export MAKE=gmake MIX_ENV=prod CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL=true
+            export TARGET_ARCH=x86_64 TARGET_OS=unknown TARGET_ABI=freebsd
+            cd bindings/elixir
+            mix local.hex --force
+            mix local.rebar --force
+            mix deps.get
+            mix elixir_make.precompile
+            mkdir -p dist
+            find "$HOME" -name 'rockbox_ex_ffi-*.tar.gz' -exec cp {} dist/ \;
+            ls -l dist
+      - name: Upload to rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$PRECOMPILED_TAG" ${{ env.WORKDIR }}/dist/*.tar.gz --clobber
+
+  # NetBSD amd64 — best-effort (see FreeBSD job notes).
+  precompile-netbsd:
+    needs: prepare-release
+    name: precompile (x86_64-unknown-netbsd)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build + precompile in NetBSD VM
+        uses: vmactions/netbsd-vm@v1
+        with:
+          prepare: |
+            /usr/sbin/pkg_add rust erlang elixir alsa-lib dbus pkgconf gmake
+          run: |
+            export MAKE=gmake MIX_ENV=prod CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL=true
+            export TARGET_ARCH=x86_64 TARGET_OS=unknown TARGET_ABI=netbsd
+            cd bindings/elixir
+            mix local.hex --force
+            mix local.rebar --force
+            mix deps.get
+            mix elixir_make.precompile
+            mkdir -p dist
+            find "$HOME" -name 'rockbox_ex_ffi-*.tar.gz' -exec cp {} dist/ \;
+            ls -l dist
+      - name: Upload to rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$PRECOMPILED_TAG" ${{ env.WORKDIR }}/dist/*.tar.gz --clobber
+
+  publish:
+    # BSD jobs are continue-on-error, so they gate ordering (checksum runs after
+    # they finish) without their failure blocking the release.
+    needs: [precompile, precompile-freebsd, precompile-netbsd]
+    # Only publish on tag pushes or when the dispatch `publish` input is true.
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      - name: Fetch deps
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+
+      # Downloads every target's tarball from the rolling release and writes
+      # checksum-rockbox_ex_ffi.exs (shipped in the package, verified on install).
+      # --ignore-unavailable: a best-effort BSD target that failed to build is
+      # skipped rather than blocking the release. The four tier-1 targets are
+      # guaranteed present (their jobs are not continue-on-error, so a failure
+      # skips publish entirely).
+      - name: Generate checksum file
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          MIX_ENV: prod
+        run: mix elixir_make.checksum --all --ignore-unavailable
+
+      - name: Publish to Hex
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish --yes

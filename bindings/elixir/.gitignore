@@ -4,3 +4,7 @@
 /priv/*.so
 erl_crash.dump
 *.ez
+
+# Precompiled-NIF checksum file — generated at release time by
+# `mix elixir_make.checksum`, shipped in the Hex package, not committed.
+/checksum-*.exs
