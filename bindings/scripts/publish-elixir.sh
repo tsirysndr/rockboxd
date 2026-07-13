@@ -9,9 +9,10 @@
 #
 # The published tarball must depend on the RELEASED rockbox_ffi_nif Hex version
 # (Hex rejects the `../erlang` path dep used for monorepo dev). mix.exs reads the
-# ROCKBOX_NIF_HEX env var: when set, the dep becomes `{:rockbox_ffi_nif, "~> X"}`.
-# This script exports it from the shared package's version so the two always
-# match. Hex publishing is done locally — Hex 2FA/OTP is interactive.
+# ROCKBOX_NIF_HEX env var: when set, the dep becomes
+# `{:rockbox_ffi_nif, ">= X and < <nextmajor>.0.0"}` (same range as the Gleam
+# binding). This script exports it from the shared package's version so the two
+# always match. Hex publishing is done locally — Hex 2FA/OTP is interactive.
 #
 # Authenticate first:  mix hex.user auth   (or export HEX_API_KEY=...)
 #
@@ -35,8 +36,9 @@ NIF_VERSION="$(sed -n 's/.*{vsn, *"\([^"]*\)".*/\1/p' \
 [ -n "$NIF_VERSION" ] || { echo "error: could not read rockbox_ffi_nif version from app.src" >&2; exit 1; }
 export ROCKBOX_NIF_HEX="$NIF_VERSION"
 
+NIF_MAJOR="${NIF_VERSION%%.*}"
 echo "== Elixir -> Hex =="
-echo "rockbox_ffi_nif dep: ~> $NIF_VERSION (publish that package first if you haven't)"
+echo "rockbox_ffi_nif dep: >= $NIF_VERSION and < $((NIF_MAJOR + 1)).0.0 (publish that package first if you haven't)"
 [ "$DRY" -eq 1 ] && echo "Mode:    DRY RUN (nothing will be pushed)"
 echo
 

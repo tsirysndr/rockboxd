@@ -38,8 +38,16 @@ defmodule RockboxFfi.MixProject do
   defp nif_dep do
     case System.get_env("ROCKBOX_NIF_HEX") do
       nil -> [path: "../erlang"]
-      ver -> "~> #{ver}"
+      # Floor at the built-against version, ceiling at the next major — so a
+      # minor NIF bump (new functions, no removals) is picked up automatically.
+      # NOTE: a 3-part `~> #{ver}` would cap at < next-MINOR, which is too tight;
+      # this mirrors the Gleam binding's `>= ver and < nextmajor.0.0`.
+      ver -> ">= #{ver} and < #{nif_next_major(ver)}.0.0"
     end
+  end
+
+  defp nif_next_major(ver) do
+    ver |> String.split(".") |> hd() |> String.to_integer() |> Kernel.+(1)
   end
 
   defp docs do
