@@ -68,6 +68,12 @@ pub fn probe(filename: String) -> Option(String) {
 
 // -- decoders -----------------------------------------------------------
 
+/// The `Metadata` JSON decoder, shared with `rockbox/decoder` (which reads the
+/// same JSON shape straight from an open codec).
+pub fn decoder() -> Decoder(Metadata) {
+  metadata_decoder()
+}
+
 fn metadata_decoder() -> Decoder(Metadata) {
   use codec <- decode.field("codec", decode.string)
   use codec_id <- decode.field("codec_id", decode.int)

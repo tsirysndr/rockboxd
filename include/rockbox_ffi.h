@@ -24,6 +24,7 @@ extern "C" {
 
 typedef struct RbDsp RbDsp;
 typedef struct RbPlayer RbPlayer;
+typedef struct RbDecoder RbDecoder;
 
 /* ABI version; bump major on any breaking change. */
 uint32_t rb_ffi_abi_version(void);
@@ -69,6 +70,25 @@ int16_t *rb_dsp_process(RbDsp *p, const int16_t *input, size_t in_len,
 /* ---- metadata -------------------------------------------------------- */
 char *rb_meta_read_json(const char *path);
 char *rb_meta_probe(const char *filename);
+
+/* ---- codecs (decode a file to interleaved-stereo i16 PCM) ------------ */
+/* The codec state is global: only one RbDecoder can decode at a time; a
+ * second rb_decoder_open blocks until the first is freed. */
+RbDecoder *rb_decoder_open(const char *path);       /* NULL on error */
+void       rb_decoder_free(RbDecoder *d);            /* NULL-safe */
+/* Tags/stream props as JSON (same shape as rb_meta_read_json); free with
+ * rb_string_free. */
+char      *rb_decoder_metadata_json(RbDecoder *d);
+/* Next PCM buffer: writes sample count (frames*2) to *out_len and the codec's
+ * current rate (Hz) to *out_sample_rate. NULL at end of track (or on error —
+ * see rb_decoder_finished). Free a non-NULL buffer with rb_buffer_free. */
+int16_t   *rb_decoder_next_chunk(RbDecoder *d, size_t *out_len,
+                                 uint32_t *out_sample_rate);
+void       rb_decoder_seek_ms(RbDecoder *d, uint64_t ms);
+uint64_t   rb_decoder_elapsed_ms(RbDecoder *d);
+/* true once the track has ended; then *out_code (if non-NULL) gets the exit
+ * code: 0 = clean end, negative = codec error. */
+bool       rb_decoder_finished(RbDecoder *d, int32_t *out_code);
 
 /* ---- playback -------------------------------------------------------- */
 /* Crossfade mode: 0 off, 1 auto-skip, 2 manual-skip, 3 shuffle,

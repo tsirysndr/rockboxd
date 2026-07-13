@@ -23,6 +23,8 @@ const TOK: Record<Tok, string> = {
   strbuf: "buffer",
   i16in: "buffer",
   outsize: "buffer",
+  outu32: "buffer",
+  outi32: "buffer",
 };
 
 function makeRaw(): Raw {
@@ -57,6 +59,16 @@ function makeRaw(): Raw {
       const view = new DataView(buf.buffer);
       return { arg: buf, value: () => Number(view.getBigUint64(0, true)) };
     },
+    u32Out() {
+      const buf = new Uint8Array(4);
+      const view = new DataView(buf.buffer);
+      return { arg: buf, value: () => view.getUint32(0, true) };
+    },
+    i32Out() {
+      const buf = new Uint8Array(4);
+      const view = new DataView(buf.buffer);
+      return { arg: buf, value: () => view.getInt32(0, true) };
+    },
     takeString(p: unknown) {
       if (p === null) return null;
       const str = new D.UnsafePointerView(p).getCString();
@@ -77,7 +89,7 @@ function makeRaw(): Raw {
 }
 
 const api = makeApi(makeRaw());
-export const { abiVersion, metadata, Dsp, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
+export const { abiVersion, metadata, Dsp, Decoder, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
 export { sineStereo };
 export * from "./enums.ts";
 export type { M3uEntry, Metadata, PlayerConfig, PlayerStatus, ResumeState } from "./types.ts";

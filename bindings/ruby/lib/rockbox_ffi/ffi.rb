@@ -98,6 +98,15 @@ module RockboxFFI
     extern "void* rb_meta_read_json(void*)"
     extern "void* rb_meta_probe(void*)"
 
+    # ---- decoder ------------------------------------------------------
+    extern "void* rb_decoder_open(void*)"
+    extern "void rb_decoder_free(void*)"
+    extern "void* rb_decoder_metadata_json(void*)"
+    extern "int16_t* rb_decoder_next_chunk(void*, void*, void*)"
+    extern "void rb_decoder_seek_ms(void*, uint64_t)"
+    extern "uint64_t rb_decoder_elapsed_ms(void*)"
+    extern "bool rb_decoder_finished(void*, void*)"
+
     # ---- player -------------------------------------------------------
     extern "void* rb_player_new()"
     extern "void* rb_player_new_with_config(uint32_t, float, float, int32_t, float, bool, int32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t)"

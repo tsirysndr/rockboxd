@@ -18,6 +18,7 @@
 
 static ErlNifResourceType *DSP_RES;
 static ErlNifResourceType *PLAYER_RES;
+static ErlNifResourceType *DECODER_RES;
 
 static ERL_NIF_TERM am_nil;
 static ERL_NIF_TERM am_true;
@@ -33,6 +34,11 @@ static void player_dtor(ErlNifEnv *env, void *obj) {
   (void)env;
   RbPlayer *p = *(RbPlayer **)obj;
   if (p) rb_player_free(p);
+}
+static void decoder_dtor(ErlNifEnv *env, void *obj) {
+  (void)env;
+  RbDecoder *d = *(RbDecoder **)obj;
+  if (d) rb_decoder_free(d);
 }
 
 /* ---- small decode helpers ------------------------------------------- */
@@ -73,6 +79,11 @@ static RbPlayer *get_player(ErlNifEnv *env, ERL_NIF_TERM t) {
   void *obj;
   if (!enif_get_resource(env, t, PLAYER_RES, &obj)) return NULL;
   return *(RbPlayer **)obj;
+}
+static RbDecoder *get_decoder(ErlNifEnv *env, ERL_NIF_TERM t) {
+  void *obj;
+  if (!enif_get_resource(env, t, DECODER_RES, &obj)) return NULL;
+  return *(RbDecoder **)obj;
 }
 
 /* Copy a NUL-terminated C string from an Erlang binary (caller frees). */
@@ -127,6 +138,79 @@ static ERL_NIF_TERM nif_meta_probe(ErlNifEnv *env, int argc,
   char *label = rb_meta_probe(name);
   enif_free(name);
   return take_cstr(env, label);
+}
+
+/* ===================================================================== */
+/* Decoder (codec engine)                                                */
+/* ===================================================================== */
+static ERL_NIF_TERM nif_decoder_open(ErlNifEnv *env, int argc,
+                                     const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  char *path = binary_to_cstr(env, argv[0]);
+  if (!path) return enif_make_badarg(env);
+  RbDecoder *d = rb_decoder_open(path);
+  enif_free(path);
+  if (!d) return am_nil;
+  void *obj = enif_alloc_resource(DECODER_RES, sizeof(RbDecoder *));
+  *(RbDecoder **)obj = d;
+  ERL_NIF_TERM term = enif_make_resource(env, obj);
+  enif_release_resource(obj);
+  return term;
+}
+
+static ERL_NIF_TERM nif_decoder_metadata_json(ErlNifEnv *env, int argc,
+                                              const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbDecoder *d = get_decoder(env, argv[0]);
+  if (!d) return enif_make_badarg(env);
+  return take_cstr(env, rb_decoder_metadata_json(d));
+}
+
+/* Next PCM buffer: {binary, sample_rate}, or `nil` at end of track. */
+static ERL_NIF_TERM nif_decoder_next_chunk(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbDecoder *d = get_decoder(env, argv[0]);
+  if (!d) return enif_make_badarg(env);
+  size_t out_len = 0;
+  uint32_t rate = 0;
+  int16_t *out = rb_decoder_next_chunk(d, &out_len, &rate);
+  if (!out) return am_nil;
+  ERL_NIF_TERM bin;
+  unsigned char *dst = enif_make_new_binary(env, out_len * 2, &bin);
+  memcpy(dst, out, out_len * 2);
+  rb_buffer_free(out, out_len);
+  return enif_make_tuple2(env, bin, enif_make_uint(env, rate));
+}
+
+static ERL_NIF_TERM nif_decoder_seek_ms(ErlNifEnv *env, int argc,
+                                        const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbDecoder *d = get_decoder(env, argv[0]);
+  ErlNifUInt64 ms;
+  if (!d || !enif_get_uint64(env, argv[1], &ms)) return enif_make_badarg(env);
+  rb_decoder_seek_ms(d, ms);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_decoder_elapsed_ms(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbDecoder *d = get_decoder(env, argv[0]);
+  if (!d) return enif_make_badarg(env);
+  return enif_make_uint64(env, rb_decoder_elapsed_ms(d));
+}
+
+/* {done, code}: `code` valid only when `done` is true. */
+static ERL_NIF_TERM nif_decoder_finished(ErlNifEnv *env, int argc,
+                                         const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbDecoder *d = get_decoder(env, argv[0]);
+  if (!d) return enif_make_badarg(env);
+  int32_t code = 0;
+  bool done = rb_decoder_finished(d, &code);
+  return enif_make_tuple2(env, done ? am_true : am_false,
+                          enif_make_int(env, code));
 }
 
 /* ===================================================================== */
@@ -942,7 +1026,9 @@ static int load(ErlNifEnv *env, void **priv, ERL_NIF_TERM info) {
   DSP_RES = enif_open_resource_type(env, NULL, "rockbox_dsp", dsp_dtor, fl, NULL);
   PLAYER_RES =
       enif_open_resource_type(env, NULL, "rockbox_player", player_dtor, fl, NULL);
-  if (!DSP_RES || !PLAYER_RES) return -1;
+  DECODER_RES = enif_open_resource_type(env, NULL, "rockbox_decoder",
+                                        decoder_dtor, fl, NULL);
+  if (!DSP_RES || !PLAYER_RES || !DECODER_RES) return -1;
   return 0;
 }
 
@@ -950,6 +1036,15 @@ static ErlNifFunc funcs[] = {
     {"abi_version", 0, nif_abi_version, 0},
     {"meta_read_json", 1, nif_meta_read_json, ERL_NIF_DIRTY_JOB_IO_BOUND},
     {"meta_probe", 1, nif_meta_probe, 0},
+
+    {"decoder_open", 1, nif_decoder_open, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"decoder_metadata_json", 1, nif_decoder_metadata_json,
+     ERL_NIF_DIRTY_JOB_IO_BOUND},
+    {"decoder_next_chunk", 1, nif_decoder_next_chunk,
+     ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"decoder_seek_ms", 2, nif_decoder_seek_ms, 0},
+    {"decoder_elapsed_ms", 1, nif_decoder_elapsed_ms, 0},
+    {"decoder_finished", 1, nif_decoder_finished, 0},
 
     {"dsp_new", 1, nif_dsp_new, 0},
     {"dsp_set_input_frequency", 2, nif_dsp_set_input_frequency, 0},

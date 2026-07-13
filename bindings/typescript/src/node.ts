@@ -46,6 +46,8 @@ const TOK: Record<Tok, string> = {
   strbuf: "str", // koffi marshals a JS string to a NUL-terminated char*
   i16in: "void *", // we pass a Buffer view of the Int16Array
   outsize: "void *", // we pass a Buffer.alloc(8) and read it back
+  outu32: "void *", // we pass a Buffer.alloc(4) and read it back
+  outi32: "void *", // we pass a Buffer.alloc(4) and read it back
 };
 
 function makeRaw(): Raw {
@@ -78,6 +80,14 @@ function makeRaw(): Raw {
       const buf = Buffer.alloc(8);
       return { arg: buf, value: () => Number(buf.readBigUInt64LE(0)) };
     },
+    u32Out() {
+      const buf = Buffer.alloc(4);
+      return { arg: buf, value: () => buf.readUInt32LE(0) };
+    },
+    i32Out() {
+      const buf = Buffer.alloc(4);
+      return { arg: buf, value: () => buf.readInt32LE(0) };
+    },
     takeString(p: unknown) {
       if (p === null || p === undefined) return null;
       // Read a NUL-terminated char* of unknown length. (koffi's "str" type
@@ -99,7 +109,7 @@ function makeRaw(): Raw {
 }
 
 const api = makeApi(makeRaw());
-export const { abiVersion, metadata, Dsp, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
+export const { abiVersion, metadata, Dsp, Decoder, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
 export { sineStereo };
 export * from "./enums.ts";
 export type { M3uEntry, Metadata, PlayerConfig, PlayerStatus, ResumeState } from "./types.ts";

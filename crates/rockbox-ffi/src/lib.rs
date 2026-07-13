@@ -1,7 +1,7 @@
-//! `rockbox-ffi` — a flat C ABI over [`rockbox-dsp`], [`rockbox-metadata`]
-//! and [`rockbox-playback`], built as a `cdylib`/`staticlib` so it can be
-//! driven from any language with a C FFI (Python via cffi, TypeScript via
-//! Bun/Deno FFI, Elixir/Gleam via an `erl_nif` shim, …).
+//! `rockbox-ffi` — a flat C ABI over [`rockbox-dsp`], [`rockbox-metadata`],
+//! [`rockbox-codecs`] and [`rockbox-playback`], built as a `cdylib`/`staticlib`
+//! so it can be driven from any language with a C FFI (Python via cffi,
+//! TypeScript via Bun/Deno FFI, Elixir/Gleam via an `erl_nif` shim, …).
 //!
 //! Conventions across the whole surface:
 //! - Handles are opaque pointers; each `*_new` has a matching `*_free`.
@@ -13,11 +13,13 @@
 //!
 //! The public C declarations live in `include/rockbox_ffi.h`.
 
+mod codecs;
 mod dsp;
 mod meta;
 mod player;
 mod util;
 
+pub use codecs::*;
 pub use dsp::*;
 pub use meta::*;
 pub use player::*;

@@ -16,6 +16,7 @@ categories = ["multimedia::audio", "external-ffi-bindings"]
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
+rockbox-codecs = { version = "0.2.0", path = "../rockbox-codecs" }
 rockbox-dsp = { version = "0.3.0", path = "../rockbox-dsp" }
 rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
 rockbox-playback = { version = "0.3.0", path = "../rockbox-playback" }

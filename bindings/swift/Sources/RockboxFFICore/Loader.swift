@@ -78,6 +78,14 @@ typealias FnDspProcess = @convention(c) (OpaquePointer?, UnsafePointer<Int16>?, 
 
 typealias FnMetaFn = @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?
 
+typealias FnDecoderOpen = @convention(c) (UnsafePointer<CChar>?) -> OpaquePointer?
+typealias FnDecoderFree = @convention(c) (OpaquePointer?) -> Void
+typealias FnDecoderMetaJson = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
+typealias FnDecoderNextChunk = @convention(c) (OpaquePointer?, UnsafeMutablePointer<Int>?, UnsafeMutablePointer<UInt32>?) -> UnsafeMutablePointer<Int16>?
+typealias FnDecoderSeekMs = @convention(c) (OpaquePointer?, UInt64) -> Void
+typealias FnDecoderElapsedMs = @convention(c) (OpaquePointer?) -> UInt64
+typealias FnDecoderFinished = @convention(c) (OpaquePointer?, UnsafeMutablePointer<Int32>?) -> Bool
+
 typealias FnPlayerNew = @convention(c) () -> OpaquePointer?
 typealias FnPlayerNewCfg = @convention(c) (UInt32, Float, Float, Int32, Float, Bool, Int32, UInt32, UInt32, UInt32, UInt32, Int32) -> OpaquePointer?
 typealias FnPlayerFree = @convention(c) (OpaquePointer?) -> Void
@@ -158,6 +166,15 @@ final class Lib {
     // metadata
     let metaReadJson: FnMetaFn
     let metaProbe: FnMetaFn
+
+    // decoder
+    let decoderOpen: FnDecoderOpen
+    let decoderFree: FnDecoderFree
+    let decoderMetadataJson: FnDecoderMetaJson
+    let decoderNextChunk: FnDecoderNextChunk
+    let decoderSeekMs: FnDecoderSeekMs
+    let decoderElapsedMs: FnDecoderElapsedMs
+    let decoderFinished: FnDecoderFinished
 
     // player
     let playerNew: FnPlayerNew
@@ -261,6 +278,14 @@ final class Lib {
 
         metaReadJson = try sym("rb_meta_read_json", FnMetaFn.self)
         metaProbe = try sym("rb_meta_probe", FnMetaFn.self)
+
+        decoderOpen = try sym("rb_decoder_open", FnDecoderOpen.self)
+        decoderFree = try sym("rb_decoder_free", FnDecoderFree.self)
+        decoderMetadataJson = try sym("rb_decoder_metadata_json", FnDecoderMetaJson.self)
+        decoderNextChunk = try sym("rb_decoder_next_chunk", FnDecoderNextChunk.self)
+        decoderSeekMs = try sym("rb_decoder_seek_ms", FnDecoderSeekMs.self)
+        decoderElapsedMs = try sym("rb_decoder_elapsed_ms", FnDecoderElapsedMs.self)
+        decoderFinished = try sym("rb_decoder_finished", FnDecoderFinished.self)
 
         playerNew = try sym("rb_player_new", FnPlayerNew.self)
         playerNewWithConfig = try sym("rb_player_new_with_config", FnPlayerNewCfg.self)

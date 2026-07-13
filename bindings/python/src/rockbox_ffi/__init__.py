@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from . import metadata
 from ._ffi import lib, take_string
+from .codecs import Decoder
 from .dsp import Dsp, sine_stereo
 from .enums import (
     ChannelConfig,
@@ -27,6 +28,7 @@ from .player import Player
 __all__ = [
     "metadata",
     "Dsp",
+    "Decoder",
     "Player",
     "sine_stereo",
     "ChannelConfig",

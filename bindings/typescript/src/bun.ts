@@ -47,6 +47,8 @@ const TOK: Record<Tok, FFIType> = {
   strbuf: FFIType.ptr,
   i16in: FFIType.ptr,
   outsize: FFIType.ptr,
+  outu32: FFIType.ptr,
+  outi32: FFIType.ptr,
 };
 
 function makeRaw(): Raw {
@@ -88,6 +90,14 @@ function makeRaw(): Raw {
       const arr = new BigUint64Array(1);
       return { arg: ptr(arr), value: () => Number(arr[0]) };
     },
+    u32Out() {
+      const arr = new Uint32Array(1);
+      return { arg: ptr(arr), value: () => arr[0] };
+    },
+    i32Out() {
+      const arr = new Int32Array(1);
+      return { arg: ptr(arr), value: () => arr[0] };
+    },
     takeString(p: unknown) {
       if (p === null || p === 0) return null;
       // Bun pointers are numbers at runtime; the typed API wants `Pointer`.
@@ -109,7 +119,7 @@ function makeRaw(): Raw {
 }
 
 const api = makeApi(makeRaw());
-export const { abiVersion, metadata, Dsp, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
+export const { abiVersion, metadata, Dsp, Decoder, Player, loadResume, m3uRead, m3uWrite, isUrl } = api;
 export { sineStereo };
 export * from "./enums.ts";
 export type { M3uEntry, Metadata, PlayerConfig, PlayerStatus, ResumeState } from "./types.ts";

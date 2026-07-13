@@ -26,6 +26,7 @@ export async function load(): Promise<Api> {
     abiVersion: Api["abiVersion"];
     metadata: Api["metadata"];
     Dsp: Api["Dsp"];
+    Decoder: Api["Decoder"];
     Player: Api["Player"];
     loadResume: Api["loadResume"];
     m3uRead: Api["m3uRead"];
@@ -45,6 +46,7 @@ export async function load(): Promise<Api> {
     abiVersion: mod.abiVersion,
     metadata: mod.metadata,
     Dsp: mod.Dsp,
+    Decoder: mod.Decoder,
     Player: mod.Player,
     loadResume: mod.loadResume,
     m3uRead: mod.m3uRead,

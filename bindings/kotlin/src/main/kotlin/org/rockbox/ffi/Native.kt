@@ -76,6 +76,15 @@ internal object Native {
     val metaReadJson = h("rb_meta_read_json", FunctionDescriptor.of(PTR, PTR))
     val metaProbe = h("rb_meta_probe", FunctionDescriptor.of(PTR, PTR))
 
+    // ---- decoder ------------------------------------------------------
+    val decoderOpen = h("rb_decoder_open", FunctionDescriptor.of(PTR, PTR))
+    val decoderFree = h("rb_decoder_free", FunctionDescriptor.ofVoid(PTR))
+    val decoderMetadataJson = h("rb_decoder_metadata_json", FunctionDescriptor.of(PTR, PTR))
+    val decoderNextChunk = h("rb_decoder_next_chunk", FunctionDescriptor.of(PTR, PTR, PTR, PTR))
+    val decoderSeekMs = h("rb_decoder_seek_ms", FunctionDescriptor.ofVoid(PTR, I64))
+    val decoderElapsedMs = h("rb_decoder_elapsed_ms", FunctionDescriptor.of(I64, PTR))
+    val decoderFinished = h("rb_decoder_finished", FunctionDescriptor.of(BOOL, PTR, PTR))
+
     // ---- player -------------------------------------------------------
     val playerNew = h("rb_player_new", FunctionDescriptor.of(PTR))
     val playerNewWithConfig = h(

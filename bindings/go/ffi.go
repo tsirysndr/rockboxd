@@ -10,8 +10,9 @@
 // Three surfaces mirror the other language bindings:
 //
 //   - [Metadata.Read] / [Metadata.Probe] — audio file tags & codec probing.
-//   - [Dsp]    — EQ / tone / surround / compressor / ReplayGain over int16 PCM.
-//   - [Player] — queue + transport with crossfade and ReplayGain.
+//   - [Dsp]     — EQ / tone / surround / compressor / ReplayGain over int16 PCM.
+//   - [Player]  — queue + transport with crossfade and ReplayGain.
+//   - [Decoder] — decode a file to interleaved-stereo int16 PCM, chunk by chunk.
 package rockbox
 
 import (
@@ -56,6 +57,15 @@ var (
 	// ---- metadata -----------------------------------------------------
 	rbMetaReadJSON func(string) uintptr
 	rbMetaProbe    func(string) uintptr
+
+	// ---- decoder ------------------------------------------------------
+	rbDecoderOpen         func(string) uintptr
+	rbDecoderFree         func(uintptr)
+	rbDecoderMetadataJSON func(uintptr) uintptr
+	rbDecoderNextChunk    func(uintptr, unsafe.Pointer, unsafe.Pointer) uintptr
+	rbDecoderSeekMs       func(uintptr, uint64)
+	rbDecoderElapsedMs    func(uintptr) uint64
+	rbDecoderFinished     func(uintptr, unsafe.Pointer) bool
 
 	// ---- player -------------------------------------------------------
 	rbPlayerNew             func() uintptr
@@ -155,6 +165,14 @@ func init() {
 
 	purego.RegisterLibFunc(&rbMetaReadJSON, handle, "rb_meta_read_json")
 	purego.RegisterLibFunc(&rbMetaProbe, handle, "rb_meta_probe")
+
+	purego.RegisterLibFunc(&rbDecoderOpen, handle, "rb_decoder_open")
+	purego.RegisterLibFunc(&rbDecoderFree, handle, "rb_decoder_free")
+	purego.RegisterLibFunc(&rbDecoderMetadataJSON, handle, "rb_decoder_metadata_json")
+	purego.RegisterLibFunc(&rbDecoderNextChunk, handle, "rb_decoder_next_chunk")
+	purego.RegisterLibFunc(&rbDecoderSeekMs, handle, "rb_decoder_seek_ms")
+	purego.RegisterLibFunc(&rbDecoderElapsedMs, handle, "rb_decoder_elapsed_ms")
+	purego.RegisterLibFunc(&rbDecoderFinished, handle, "rb_decoder_finished")
 
 	purego.RegisterLibFunc(&rbPlayerNew, handle, "rb_player_new")
 	purego.RegisterLibFunc(&rbPlayerNewWithConfig, handle, "rb_player_new_with_config")

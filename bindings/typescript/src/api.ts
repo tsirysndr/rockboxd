@@ -142,6 +142,69 @@ export function makeApi(raw: Raw) {
   }
 
   /**
+   * Streaming decoder for one audio file. Decodes to interleaved-stereo S16
+   * PCM, one chunk at a time.
+   *
+   * The codec state is process-wide, so only one `Decoder` may decode at a
+   * time — constructing a second one blocks until the first is closed. Call
+   * `close()` (or use `using`) when done.
+   */
+  class Decoder {
+    #h: unknown;
+    constructor(path: string) {
+      this.#h = s.rb_decoder_open(raw.cstr(path));
+      if (raw.isNull(this.#h)) throw new Error(`could not open decoder for ${path}`);
+    }
+    close(): void {
+      if (!raw.isNull(this.#h)) {
+        s.rb_decoder_free(this.#h);
+        this.#h = null;
+      }
+    }
+    [Symbol.dispose](): void {
+      this.close();
+    }
+
+    /** Tags and stream properties (same shape as `metadata.read`). */
+    metadata(): Metadata {
+      const json = raw.takeString(s.rb_decoder_metadata_json(this.#h));
+      if (json === null) throw new Error("rb_decoder_metadata_json returned NULL");
+      return JSON.parse(json) as Metadata;
+    }
+    /**
+     * Next buffer of decoded PCM as `{ samples, sampleRate }`, where `samples`
+     * is interleaved stereo Int16. Returns `null` at end of track (or after a
+     * codec error — see `finished`).
+     */
+    nextChunk(): { samples: Int16Array; sampleRate: number } | null {
+      const outLen = raw.sizeOut();
+      const outRate = raw.u32Out();
+      const ptr = s.rb_decoder_next_chunk(this.#h, outLen.arg, outRate.arg);
+      const n = outLen.value();
+      if (raw.isNull(ptr) || n === 0) return null;
+      return { samples: raw.takeI16(ptr, n), sampleRate: outRate.value() };
+    }
+    /** Request a seek to `ms` milliseconds. */
+    seekMs(ms: number | bigint): void {
+      s.rb_decoder_seek_ms(this.#h, BigInt(ms));
+    }
+    /** Playback position last reported by the codec, in milliseconds. */
+    elapsedMs(): number {
+      return Number(s.rb_decoder_elapsed_ms(this.#h));
+    }
+    /**
+     * `{ done, code }`: `done` is true once the track has ended; `code` is the
+     * exit status (0 = clean end, negative = codec error), valid only when
+     * `done`.
+     */
+    finished(): { done: boolean; code: number } {
+      const outCode = raw.i32Out();
+      const done = Boolean(s.rb_decoder_finished(this.#h, outCode.arg));
+      return { done, code: outCode.value() };
+    }
+  }
+
+  /**
    * Queue-based player. Owns a live output device + engine thread.
    *
    * All mutating methods (setters, transport, DSP) return `this`, so calls
@@ -471,7 +534,7 @@ export function makeApi(raw: Raw) {
   /** Whether a string looks like an http(s):// URL. */
   const isUrl = (str: string): boolean => Boolean(s.rb_is_url(raw.cstr(str)));
 
-  return { abiVersion, metadata, Dsp, Player, loadResume, m3uRead, m3uWrite, isUrl };
+  return { abiVersion, metadata, Dsp, Decoder, Player, loadResume, m3uRead, m3uWrite, isUrl };
 }
 
 /** Generate `seconds` of a sine as interleaved stereo Int16. */

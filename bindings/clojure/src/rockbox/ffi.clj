@@ -127,6 +127,14 @@
    ;; ---- metadata ----
    :meta-read-json             (dc "rb_meta_read_json" (fd-of PTR [PTR]))
    :meta-probe                 (dc "rb_meta_probe" (fd-of PTR [PTR]))
+   ;; ---- decoder ----
+   :decoder-open               (dc "rb_decoder_open" (fd-of PTR [PTR]))
+   :decoder-free               (dc "rb_decoder_free" (fd-void [PTR]))
+   :decoder-metadata-json      (dc "rb_decoder_metadata_json" (fd-of PTR [PTR]))
+   :decoder-next-chunk         (dc "rb_decoder_next_chunk" (fd-of PTR [PTR PTR PTR]))
+   :decoder-seek-ms            (dc "rb_decoder_seek_ms" (fd-void [PTR I64]))
+   :decoder-elapsed-ms         (dc "rb_decoder_elapsed_ms" (fd-of I64 [PTR]))
+   :decoder-finished           (dc "rb_decoder_finished" (fd-of BOOL [PTR PTR]))
    ;; ---- player ----
    :player-new                 (dc "rb_player_new" (fd-of PTR []))
    :player-new-with-config     (dc "rb_player_new_with_config"

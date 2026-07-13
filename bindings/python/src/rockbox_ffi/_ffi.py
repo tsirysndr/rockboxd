@@ -20,11 +20,20 @@ ffi.cdef(
     """
     typedef struct RbDsp RbDsp;
     typedef struct RbPlayer RbPlayer;
+    typedef struct RbDecoder RbDecoder;
 
     uint32_t rb_ffi_abi_version(void);
 
     void rb_string_free(char *p);
     void rb_buffer_free(int16_t *p, size_t len);
+
+    RbDecoder *rb_decoder_open(const char *path);
+    void       rb_decoder_free(RbDecoder *d);
+    char      *rb_decoder_metadata_json(RbDecoder *d);
+    int16_t   *rb_decoder_next_chunk(RbDecoder *d, size_t *out_len, uint32_t *out_sample_rate);
+    void       rb_decoder_seek_ms(RbDecoder *d, uint64_t ms);
+    uint64_t   rb_decoder_elapsed_ms(RbDecoder *d);
+    bool       rb_decoder_finished(RbDecoder *d, int32_t *out_code);
 
     RbDsp *rb_dsp_new(uint32_t sample_rate);
     void   rb_dsp_free(RbDsp *p);

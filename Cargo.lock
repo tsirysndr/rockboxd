@@ -9745,6 +9745,7 @@ dependencies = [
 name = "rockbox-ffi"
 version = "0.2.0"
 dependencies = [
+ "rockbox-codecs",
  "rockbox-dsp",
  "rockbox-metadata",
  "rockbox-playback",

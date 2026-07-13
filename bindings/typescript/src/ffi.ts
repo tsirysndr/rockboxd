@@ -13,7 +13,9 @@ export type Tok =
   | "bool"
   | "strbuf" // input: a JS string marshalled as `const char *`
   | "i16in" // input: an Int16Array marshalled as `const int16_t *`
-  | "outsize"; // input: a `size_t *` out-parameter
+  | "outsize" // input: a `size_t *` out-parameter
+  | "outu32" // input: a `uint32_t *` out-parameter
+  | "outi32"; // input: an `int32_t *` out-parameter
 
 export interface SymSpec {
   args: Tok[];
@@ -55,6 +57,14 @@ export const SPEC: Record<string, SymSpec> = {
 
   rb_meta_read_json: { args: ["strbuf"], ret: "ptr" },
   rb_meta_probe: { args: ["strbuf"], ret: "ptr" },
+
+  rb_decoder_open: { args: ["strbuf"], ret: "ptr" },
+  rb_decoder_free: { args: ["ptr"], ret: "void" },
+  rb_decoder_metadata_json: { args: ["ptr"], ret: "ptr" },
+  rb_decoder_next_chunk: { args: ["ptr", "outsize", "outu32"], ret: "ptr" },
+  rb_decoder_seek_ms: { args: ["ptr", "u64"], ret: "void" },
+  rb_decoder_elapsed_ms: { args: ["ptr"], ret: "u64" },
+  rb_decoder_finished: { args: ["ptr", "outi32"], ret: "bool" },
 
   rb_player_new: { args: [], ret: "ptr" },
   rb_player_new_with_config: {
@@ -160,6 +170,10 @@ export interface Raw {
   i16in(a: Int16Array): unknown;
   /** Allocate a `size_t` out-parameter; `value()` reads it after the call. */
   sizeOut(): { arg: unknown; value(): number };
+  /** Allocate a `uint32_t` out-parameter; `value()` reads it after the call. */
+  u32Out(): { arg: unknown; value(): number };
+  /** Allocate an `int32_t` out-parameter; `value()` reads it after the call. */
+  i32Out(): { arg: unknown; value(): number };
   /** Read a returned `char *` into a string and free it (null => null). */
   takeString(p: unknown): string | null;
   /** Read a returned `int16_t *` of `len` samples into a copy and free it. */

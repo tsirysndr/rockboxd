@@ -3,7 +3,7 @@
 # Ruby bindings for the Rockbox DSP / metadata / playback engine.
 #
 # Thin Fiddle wrappers over the librockbox_ffi C ABI. See RockboxFFI::Metadata,
-# RockboxFFI::Dsp, and RockboxFFI::Player.
+# RockboxFFI::Dsp, RockboxFFI::Player, and RockboxFFI::Decoder.
 
 require "rockbox_ffi/version"
 require "rockbox_ffi/ffi"
@@ -11,6 +11,7 @@ require "rockbox_ffi/enums"
 require "rockbox_ffi/metadata"
 require "rockbox_ffi/dsp"
 require "rockbox_ffi/player"
+require "rockbox_ffi/decoder"
 
 require "json"
 
