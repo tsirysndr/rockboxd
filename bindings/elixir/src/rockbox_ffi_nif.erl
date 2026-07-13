@@ -42,22 +42,39 @@
 
 init() ->
     Base = filename:join(nif_dir(), "rockbox_ffi_nif"),
-    %% Prefer a target-specific artifact. The Gleam package ships one prebuilt
-    %% .so per platform in priv/, named rockbox_ffi_nif-<target>.so (there is no
-    %% compile step at `gleam add` time). Fall back to the unsuffixed name that
-    %% a local `make` / elixir_make build produces.
-    SoName =
+    SoPath =
         case target_triple() of
-            undefined ->
-                Base;
-            Target ->
-                Suffixed = Base ++ "-" ++ Target,
-                case filelib:is_regular(Suffixed ++ ".so") of
-                    true -> Suffixed;
-                    false -> Base
-                end
+            undefined -> Base;
+            Target -> resolve_nif(Base, Target)
         end,
-    erlang:load_nif(SoName, 0).
+    erlang:load_nif(SoPath, 0).
+
+%% Resolve the extension-less path handed to load_nif (which appends the OS
+%% suffix). Order of preference:
+%%   1. priv/rockbox_ffi_nif-<triple>.so  — a local `make` / elixir_make build
+%%   2. priv/rockbox_ffi_nif.so           — the unsuffixed name a plain `make`
+%%                                          or elixir_make produces
+%%   3. a checksum-verified copy in the user cache, downloaded on first use.
+%%
+%% Gleam has no build/install hook and the .so (8-16 MB each) is too large to
+%% bundle in the 8 MB Hex tarball, so the Gleam package ships only checksums
+%% (priv/rockbox_ffi_nif.manifest) and fetches the matching NIF from the GitHub
+%% release the first time it loads. The Elixir binding always has the .so in
+%% priv (elixir_make downloads it at compile time), so step 3 never runs there.
+resolve_nif(Base, Target) ->
+    Suffixed = Base ++ "-" ++ Target,
+    case filelib:is_regular(Suffixed ++ ".so") of
+        true -> Suffixed;
+        false ->
+            case filelib:is_regular(Base ++ ".so") of
+                true -> Base;
+                false ->
+                    case ensure_cached(Target) of
+                        {ok, Path} -> Path;
+                        {error, _} -> Base   %% load_nif fails -> stubs raise
+                    end
+            end
+    end.
 
 %% Directory holding the NIF .so — the OTP app's priv, or (raw Gleam build)
 %% ../priv relative to the .beam, or ./priv.
@@ -91,6 +108,103 @@ target_triple() ->
 normalize_arch("amd64") -> "x86_64";
 normalize_arch("arm64") -> "aarch64";
 normalize_arch(Arch) -> Arch.
+
+%% --- First-use NIF download (Gleam) -------------------------------------------
+%% The Gleam package ships priv/rockbox_ffi_nif.manifest (repo, release tag and
+%% one sha256 per target triple) instead of the multi-megabyte .so files. On
+%% first load the matching NIF is fetched from the GitHub release into the user
+%% cache dir, verified against the manifest checksum, and reused thereafter.
+
+ensure_cached(Target) ->
+    case read_manifest() of
+        {error, R} -> {error, R};
+        {ok, Terms} ->
+            case {manifest_tag(Terms), manifest_checksum(Terms, Target)} of
+                {undefined, _} -> {error, no_tag};
+                {_, undefined} -> {error, {no_checksum, Target}};
+                {Tag, Sha} ->
+                    Repo = manifest_repo(Terms),
+                    File = "rockbox_ffi_nif-" ++ Target ++ ".so",
+                    Dir = filename:join(cache_root(), Tag),
+                    Dest = filename:join(Dir, File),
+                    ExtLess = filename:join(Dir, "rockbox_ffi_nif-" ++ Target),
+                    case filelib:is_regular(Dest) of
+                        true ->
+                            {ok, ExtLess};
+                        false ->
+                            Url = "https://github.com/" ++ Repo ++
+                                  "/releases/download/" ++ Tag ++ "/" ++ File,
+                            case fetch_verify_write(Url, Dest, Dir, Sha) of
+                                ok -> {ok, ExtLess};
+                                {error, R} -> {error, R}
+                            end
+                    end
+            end
+    end.
+
+read_manifest() ->
+    file:consult(filename:join(nif_dir(), "rockbox_ffi_nif.manifest")).
+
+manifest_tag(Terms) ->
+    case lists:keyfind(tag, 1, Terms) of {tag, V} -> V; false -> undefined end.
+
+manifest_repo(Terms) ->
+    case lists:keyfind(repo, 1, Terms) of
+        {repo, V} -> V;
+        false -> "tsirysndr/rockboxd"
+    end.
+
+manifest_checksum(Terms, Target) ->
+    case [S || {checksum, T, S} <- Terms, T =:= Target] of
+        [Sha | _] -> Sha;
+        [] -> undefined
+    end.
+
+cache_root() ->
+    filename:basedir(user_cache, "rockbox_ffi").
+
+fetch_verify_write(Url, Dest, Dir, Sha) ->
+    _ = application:ensure_all_started(crypto),
+    _ = application:ensure_all_started(inets),
+    _ = application:ensure_all_started(ssl),
+    HttpOpts = [{timeout, 120000}, {connect_timeout, 15000},
+                {autoredirect, true}, {ssl, tls_opts()}],
+    Req = {Url, [{"user-agent", "rockbox_ffi_nif"}]},
+    case httpc:request(get, Req, HttpOpts, [{body_format, binary}]) of
+        {ok, {{_, 200, _}, _Hdrs, Body}} ->
+            case sha256_hex(Body) of
+                Sha ->
+                    ok = filelib:ensure_dir(filename:join(Dir, "keep")),
+                    Tmp = Dest ++ ".download",
+                    case file:write_file(Tmp, Body) of
+                        ok ->
+                            _ = file:change_mode(Tmp, 8#755),
+                            file:rename(Tmp, Dest);
+                        {error, R} -> {error, R}
+                    end;
+                Got ->
+                    {error, {checksum_mismatch, [{want, Sha}, {got, Got}]}}
+            end;
+        {ok, {{_, Code, _}, _, _}} -> {error, {http_status, Code}};
+        {error, R} -> {error, R}
+    end.
+
+%% Verify the TLS chain when the platform exposes the OS trust store (OTP 25+),
+%% otherwise skip peer verification — payload integrity is guaranteed by the
+%% sha256 check regardless, since the checksum ships inside the signed Hex tarball.
+tls_opts() ->
+    try public_key:cacerts_get() of
+        Certs ->
+            [{verify, verify_peer}, {depth, 99}, {cacerts, Certs},
+             {customize_hostname_check,
+              [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}]
+    catch
+        _:_ -> [{verify, verify_none}]
+    end.
+
+sha256_hex(Bin) ->
+    lists:flatten([io_lib:format("~2.16.0b", [B])
+                   || <<B>> <= crypto:hash(sha256, Bin)]).
 
 abi_version() -> ?NOT_LOADED.
 

@@ -5,11 +5,13 @@
 #   make                          # -> priv/rockbox_ffi_nif.so   (local dev)
 #   make TARGET=x86_64-linux-gnu  # -> priv/rockbox_ffi_nif-x86_64-linux-gnu.so
 #
-# Gleam has NO compile step at `gleam add` time, so the published package ships
-# ONE prebuilt .so per platform under priv/, named rockbox_ffi_nif-<TARGET>.so.
-# CI (`bindings-gleam-release.yml`) builds each with the matching TARGET; the
-# loader picks the right one by detecting the host triple, and falls back to the
-# unsuffixed name a plain `make` produces for local development.
+# Gleam has NO compile step at `gleam add` time. The published Hex package does
+# NOT bundle the .so (4 platforms exceed Hex's 8 MB tarball limit): CI
+# (`bindings-gleam-release.yml`) builds each with the matching TARGET and uploads
+# them to the gleam-v<version> release, and the loader (src/rockbox_ffi_nif.erl)
+# downloads the matching one into the user cache on first load, verifying it
+# against priv/rockbox_ffi_nif.manifest. A plain `make` (unsuffixed .so in priv)
+# is still used for local development and is preferred over any cached download.
 #
 # NOTE: GNU-make syntax (ifeq). On *BSD run as `gmake`.
 

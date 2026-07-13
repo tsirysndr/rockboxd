@@ -30,19 +30,19 @@
 # The JVM bindings (kotlin, clojure) bundle EVERY target in a single jar, so
 # --all stages all targets for them; host mode stages just the host target.
 #
-# BEAM NIFs (gleam, elixir) — these do NOT use librockbox_ffi directly; they
-# ship a self-contained erl_nif shared object (rockbox_ffi_nif-<triple>.so, with
-# librockbox_ffi statically linked in) that the loader picks by host triple.
-# They live in their OWN releases, not the bindings-v* one:
-#   gleam  -> bindings/gleam/priv/rockbox_ffi_nif-<triple>.so   (from gleam-v<ver>)
+# Elixir NIF — does NOT use librockbox_ffi directly; it ships a self-contained
+# erl_nif shared object (rockbox_ffi_nif-<triple>.so, with librockbox_ffi
+# statically linked in) that the loader picks by host triple. It lives in its OWN
+# release, not the bindings-v* one:
 #   elixir -> bindings/elixir/priv/rockbox_ffi_nif-<triple>.so  (from the rolling
 #             `rockbox-ffi-nif` release; extracted from the per-target tarball)
-# <triple> is the Rust target triple (e.g. aarch64-apple-darwin). Like the JVM
-# bindings, gleam bundles every target in priv, so --all stages them all; host
-# mode stages just the host triple. (gleam skips the FreeBSD/NetBSD NIFs — only
-# elixir stages those.) Both are best-effort — a missing gleam/elixir
-# release only warns, it does not abort the librockbox_ffi staging. Override the
-# tags with ROCKBOX_GLEAM_TAG / ROCKBOX_ELIXIR_TAG if needed.
+# <triple> is the Rust target triple (e.g. aarch64-apple-darwin). --all stages
+# every target; host mode stages just the host triple. Best-effort — a missing
+# elixir release only warns, it does not abort the librockbox_ffi staging.
+# Override the tag with ROCKBOX_ELIXIR_TAG if needed.
+#
+# (The Gleam package is NOT handled here: it downloads its NIF at runtime on
+# first load — see bindings/scripts/publish-gleam.sh — so nothing to stage.)
 #
 # Requires the GitHub CLI (`gh`), authenticated and run from the repo checkout.
 
@@ -107,21 +107,15 @@ if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>err.log; then
 fi
 rm -f err.log
 
-# --- BEAM NIF releases (gleam / elixir) — resolved independently of the main
-# bindings-v* release above. Best-effort: unresolved/missing only warns later. ---
-GLEAM_TAG="${ROCKBOX_GLEAM_TAG:-}"
-if [ -z "$GLEAM_TAG" ]; then
-  gver="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$BINDINGS_DIR/gleam/gleam.toml" 2>/dev/null | head -1)"
-  [ -n "$gver" ] && GLEAM_TAG="gleam-v$gver"
-fi
-
+# --- Elixir NIF release — resolved independently of the main bindings-v* release
+# above. Best-effort: unresolved/missing only warns later. (Gleam downloads its
+# NIF at runtime, so it isn't staged here.) ---
 ELIXIR_TAG="${ROCKBOX_ELIXIR_TAG:-rockbox-ffi-nif}"   # rolling release, one tag for all versions
 ELIXIR_NIF_VERSION="2.17"                             # matches make_precompiler_nif_versions in mix.exs
 ELIXIR_VERSION="${ROCKBOX_ELIXIR_VERSION:-}"
 if [ -z "$ELIXIR_VERSION" ]; then
   ELIXIR_VERSION="$(sed -n 's/^[[:space:]]*@version[[:space:]]*"\(.*\)"/\1/p' "$BINDINGS_DIR/elixir/mix.exs" 2>/dev/null | head -1)"
 fi
-echo "Gleam NIF release:  ${GLEAM_TAG:-<unresolved — gleam skipped>}"
 echo "Elixir NIF release: ${ELIXIR_TAG} (v${ELIXIR_VERSION:-<unresolved — elixir skipped>})"
 
 host_target() {
@@ -198,23 +192,6 @@ fetch_asset() {
   return 1
 }
 
-# The gleam package ships one prebuilt rockbox_ffi_nif-<triple>.so per platform
-# in priv/ (raw .so assets on the gleam-v<ver> release).
-stage_gleam() {  # stage_gleam <target>
-  local t="$1" triple dest
-  case "$t" in freebsd-*|netbsd-*) echo "  skip gleam ${t}: BSD gleam NIFs not fetched"; return 1 ;; esac
-  [ -n "$GLEAM_TAG" ] || { echo "  skip gleam ${t}: no gleam release resolved"; return 1; }
-  triple="$(nif_triple "$t")"; [ -n "$triple" ] || { echo "  skip gleam ${t}: no triple mapping"; return 1; }
-  dest="$BINDINGS_DIR/gleam/priv/rockbox_ffi_nif-${triple}.so"
-  if [ ! -f "$TMP/rockbox_ffi_nif-${triple}.so" ]; then
-    fetch_asset "$GLEAM_TAG" "rockbox_ffi_nif-${triple}.so" "$TMP" \
-      || { echo "  skip gleam ${t}: not in $GLEAM_TAG"; return 1; }
-  fi
-  mkdir -p "$(dirname "$dest")"
-  cp "$TMP/rockbox_ffi_nif-${triple}.so" "$dest"
-  echo "  -> ${dest#"$BINDINGS_DIR"/}"
-}
-
 # The elixir NIF is published as a per-target tarball (containing ./rockbox_ffi_nif.so)
 # on the rolling `rockbox-ffi-nif` release. Extract it and stage under the same
 # triple-suffixed name the loader (src/rockbox_ffi_nif.erl) probes for.
@@ -238,12 +215,11 @@ stage_elixir() {  # stage_elixir <target>
 }
 
 if [ "$ALL" -eq 1 ]; then
-  echo "Staging all targets into typescript/npm/* + kotlin + clojure + gleam/priv + elixir/priv:"
+  echo "Staging all targets into typescript/npm/* + kotlin + clojure + elixir/priv:"
   for t in $ALL_TARGETS; do
     stage_npm "$t" || true
     stage_kotlin "$t" || true
     stage_clojure "$t" || true
-    stage_gleam "$t" || true
     stage_elixir "$t" || true
   done
   host="$(host_target)"
@@ -256,15 +232,14 @@ if [ "$ALL" -eq 1 ]; then
 else
   t="${TARGET:-$(host_target)}"
   [ -n "$t" ] || { echo "error: unsupported host $(uname -sm); pass --target" >&2; exit 1; }
-  echo "Staging $t into ruby + python + go + typescript/npm/$t + kotlin + clojure + gleam/priv + elixir/priv:"
-  echo "  (JVM jars + the gleam package bundle every target — use --all before publishing kotlin/clojure/gleam)"
+  echo "Staging $t into ruby + python + go + typescript/npm/$t + kotlin + clojure + elixir/priv:"
+  echo "  (JVM jars bundle every target — use --all before publishing kotlin/clojure)"
   stage_ruby "$t"
   stage_python "$t"
   stage_go "$t"
   stage_npm "$t"
   stage_kotlin "$t"
   stage_clojure "$t"
-  stage_gleam "$t" || true
   stage_elixir "$t" || true
 fi
 
@@ -275,5 +250,5 @@ echo "  python:  python -m build --wheel && twine upload dist/*.whl"
 echo "  npm:     (cd npm/<target> && npm pack && npm publish --access public)"
 echo "  kotlin:  ./gradlew publishToMavenCentral        (needs --all for full platform coverage)"
 echo "  clojure: CLOJARS_USERNAME=… CLOJARS_PASSWORD=… clojure -T:build deploy"
-echo "  gleam:   bindings/scripts/publish-gleam.sh       (re-fetches NIFs; needs --all for full coverage)"
 echo "  elixir:  bindings/scripts/publish-elixir.sh      (generates checksum.exs from the same release)"
+echo "  gleam:   bindings/scripts/publish-gleam.sh       (writes a checksum manifest; NIFs download on first use)"
