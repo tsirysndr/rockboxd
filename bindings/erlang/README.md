@@ -1,5 +1,8 @@
 # rockbox_ffi_nif
 
+[![Hex.pm](https://img.shields.io/hexpm/v/rockbox_ffi_nif.svg)](https://hex.pm/packages/rockbox_ffi_nif)
+[![HexDocs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/rockbox_ffi_nif/)
+
 Shared Erlang NIF over the [`librockbox_ffi`](https://github.com/tsirysndr/rockboxd/tree/master/crates/rockbox-ffi) C ABI —
 the Rockbox DSP / metadata / codecs / playback engine exposed to the BEAM.
 
