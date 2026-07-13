@@ -82,13 +82,6 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Free up host disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
-            /usr/lib/jvm /usr/local/share/powershell /usr/share/swift
-          sudo docker image prune --all --force || true
-          sudo apt-get clean
 
       - uses: actions/checkout@v4
         with:
