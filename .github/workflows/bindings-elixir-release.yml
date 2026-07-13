@@ -202,9 +202,9 @@ jobs:
           shell: sh
           run: |
             set -eux
-            # alsa-lib + dbus are runtime link deps; gcc provides the C++
-            # toolchain (g++/libstdc++) the NIF link step needs.
-            sudo pkgin -y install rust erlang elixir alsa-lib dbus gcc pkgconf gmake
+            # alsa-lib + dbus are runtime link deps. gcc is not in the pkgin
+            # repository — NetBSD's base system already ships gcc/g++ + libstdc++.
+            sudo pkgin -y install rust erlang elixir alsa-lib dbus pkgconf gmake
             export MAKE=gmake MIX_ENV=prod CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL=true
             export TARGET_ARCH=x86_64 TARGET_OS=unknown TARGET_ABI=netbsd
             export CARGO_PROFILE_RELEASE_DEBUG=0

@@ -44,7 +44,8 @@ else ifeq ($(UNAME),FreeBSD)
   LDFLAGS := -shared -lasound -ldbus-1 -lc++ -lm -lpthread
   FRAMEWORKS :=
 else ifeq ($(UNAME),NetBSD)
-  LDFLAGS := -shared -lasound -ldbus-1 -lc++ -lm -lpthread
+  # NetBSD's base toolchain is GCC/libstdc++ (no libc++), so link -lstdc++.
+  LDFLAGS := -shared -lasound -ldbus-1 -lstdc++ -lm -lpthread
   FRAMEWORKS :=
 else
   LDFLAGS := -shared -lasound -lunwind -ldbus-1 -lstdc++ -lm -lpthread
