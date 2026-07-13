@@ -169,8 +169,19 @@ module RockboxFFI
       self
     end
 
+    # Stereo balance, -100 (full left) to +100 (full right); 0 = centre.
+    def set_balance(balance)
+      Lib.rb_player_set_balance(@ptr, Integer(balance))
+      self
+    end
+
     def volume
       Lib.rb_player_volume(@ptr)
+    end
+
+    # Current stereo balance, -100 (full left) to +100 (full right).
+    def balance
+      Lib.rb_player_balance(@ptr)
     end
 
     def sample_rate

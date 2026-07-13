@@ -139,7 +139,11 @@ public final class Player {
     // MARK: - settings
 
     @discardableResult public func setVolume(_ vol: Float) -> Self { lib.playerSetVolume(ptr, vol); return self }
+    /// Stereo balance, -100 (full left) to +100 (full right); 0 = centre.
+    @discardableResult public func setBalance(_ balance: Int32) -> Self { lib.playerSetBalance(ptr, balance); return self }
     public var volume: Float { lib.playerVolume(ptr) }
+    /// Current stereo balance, -100 (full left) to +100 (full right).
+    public var balance: Int32 { lib.playerBalance(ptr) }
     public var sampleRate: UInt32 { lib.playerSampleRate(ptr) }
 
     @discardableResult

@@ -56,7 +56,9 @@ pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{
+    AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
+};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -717,6 +719,7 @@ enum Command {
     SkipTo(usize),
     Seek(Duration),
     SetVolume(f32),
+    SetBalance(i32),
     SetCrossfade(CrossfadeSettings),
     SetReplayGain(ReplayGainConfig),
     SetEqEnabled(bool),
@@ -757,6 +760,12 @@ struct Shared {
     target_amp: AtomicU32,
     /// User volume 0.0..=1.0 (f32 bits).
     volume: AtomicU32,
+    /// Stereo balance, -100 (full left) ..= +100 (full right); 0 = centred.
+    balance: AtomicI32,
+    /// Per-channel gains derived from `balance` (f32 bits) so the output
+    /// callback can apply the pan without recomputing it per frame.
+    balance_gain_l: AtomicU32,
+    balance_gain_r: AtomicU32,
     output_rate: AtomicU32,
     /// Whether shuffle playback is enabled (mirrored from the engine).
     shuffle: AtomicBool,
@@ -780,6 +789,23 @@ impl Shared {
     }
     fn volume_f32(&self) -> f32 {
         f32::from_bits(self.volume.load(Ordering::Relaxed))
+    }
+    /// Store the balance and the derived per-channel gains. A linear pan:
+    /// panning right (`b > 0`) attenuates the left channel and vice-versa,
+    /// so the un-panned channel always stays at unity.
+    fn set_balance_value(&self, balance: i32) {
+        let b = balance.clamp(-100, 100);
+        self.balance.store(b, Ordering::Relaxed);
+        let (gl, gr) = if b >= 0 {
+            (1.0 - b as f32 / 100.0, 1.0)
+        } else {
+            (1.0, 1.0 + b as f32 / 100.0)
+        };
+        self.balance_gain_l.store(gl.to_bits(), Ordering::Relaxed);
+        self.balance_gain_r.store(gr.to_bits(), Ordering::Relaxed);
+    }
+    fn balance_value(&self) -> i32 {
+        self.balance.load(Ordering::Relaxed)
     }
     fn ring_frames(&self) -> usize {
         self.ring.lock().unwrap().len() / 2
@@ -845,6 +871,9 @@ impl Player {
             queue_len: AtomicUsize::new(0),
             target_amp: AtomicU32::new(0f32.to_bits()),
             volume: AtomicU32::new(config.volume.clamp(0.0, 1.0).to_bits()),
+            balance: AtomicI32::new(0),
+            balance_gain_l: AtomicU32::new(1f32.to_bits()),
+            balance_gain_r: AtomicU32::new(1f32.to_bits()),
             output_rate: AtomicU32::new(rate),
             shuffle: AtomicBool::new(config.shuffle),
             repeat: AtomicU8::new(config.repeat.to_u8()),
@@ -1096,6 +1125,10 @@ impl Player {
     pub fn set_volume(&self, vol: f32) {
         let _ = self.tx.send(Command::SetVolume(vol));
     }
+    /// Set stereo balance, -100 (full left) ..= +100 (full right); 0 = centre.
+    pub fn set_balance(&self, balance: i32) {
+        let _ = self.tx.send(Command::SetBalance(balance));
+    }
     pub fn set_crossfade(&self, settings: CrossfadeSettings) {
         let _ = self.tx.send(Command::SetCrossfade(settings));
     }
@@ -1227,6 +1260,11 @@ impl Player {
         self.shared.volume_f32()
     }
 
+    /// Current stereo balance, -100 (full left) ..= +100 (full right).
+    pub fn balance(&self) -> i32 {
+        self.shared.balance_value()
+    }
+
     /// A snapshot of the full DSP-chain configuration (EQ, tone, surround,
     /// channel mixing, stereo width, compressor, dither and pitch) as last
     /// applied. Because setters are asynchronous, a value set moments ago may
@@ -1300,6 +1338,8 @@ fn build_stream(
             &config,
             move |data: &mut [f32], _| {
                 let target = f32::from_bits(shared.target_amp.load(Ordering::Relaxed));
+                let gain_l = f32::from_bits(shared.balance_gain_l.load(Ordering::Relaxed));
+                let gain_r = f32::from_bits(shared.balance_gain_r.load(Ordering::Relaxed));
                 // Fully muted for pause/stop: output silence WITHOUT
                 // consuming the ring, so the buffered audio is frozen and
                 // resume is click-free from where it left off.
@@ -1322,9 +1362,9 @@ fn build_stream(
                     }
                     let l = ring.pop_front().unwrap_or(0);
                     let r = ring.pop_front().unwrap_or(0);
-                    frame[0] = (l as f32 / 32768.0) * cur_amp;
+                    frame[0] = (l as f32 / 32768.0) * cur_amp * gain_l;
                     if frame.len() > 1 {
-                        frame[1] = (r as f32 / 32768.0) * cur_amp;
+                        frame[1] = (r as f32 / 32768.0) * cur_amp * gain_r;
                     }
                 }
             },
@@ -1793,6 +1833,7 @@ impl Engine {
                         .store(self.shared.volume_f32().to_bits(), Ordering::Relaxed);
                 }
             }
+            Command::SetBalance(b) => self.shared.set_balance_value(b),
             Command::SetCrossfade(s) => self.cfg.crossfade = s,
             Command::SetReplayGain(rg) => {
                 self.cfg.replaygain = rg;

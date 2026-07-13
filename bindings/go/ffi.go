@@ -75,9 +75,11 @@ var (
 	rbPlayerSkipTo          func(uintptr, uint64)
 	rbPlayerSeekMs          func(uintptr, uint64)
 	rbPlayerSetVolume       func(uintptr, float32)
+	rbPlayerSetBalance      func(uintptr, int32)
 	rbPlayerSetCrossfade    func(uintptr, int32, uint32, uint32, uint32, uint32, int32)
 	rbPlayerSetReplaygain   func(uintptr, int32, float32, bool)
 	rbPlayerVolume          func(uintptr) float32
+	rbPlayerBalance         func(uintptr) int32
 	rbPlayerSampleRate      func(uintptr) uint32
 	rbPlayerStatusJSON      func(uintptr) uintptr
 
@@ -171,9 +173,11 @@ func init() {
 	purego.RegisterLibFunc(&rbPlayerSkipTo, handle, "rb_player_skip_to")
 	purego.RegisterLibFunc(&rbPlayerSeekMs, handle, "rb_player_seek_ms")
 	purego.RegisterLibFunc(&rbPlayerSetVolume, handle, "rb_player_set_volume")
+	purego.RegisterLibFunc(&rbPlayerSetBalance, handle, "rb_player_set_balance")
 	purego.RegisterLibFunc(&rbPlayerSetCrossfade, handle, "rb_player_set_crossfade")
 	purego.RegisterLibFunc(&rbPlayerSetReplaygain, handle, "rb_player_set_replaygain")
 	purego.RegisterLibFunc(&rbPlayerVolume, handle, "rb_player_volume")
+	purego.RegisterLibFunc(&rbPlayerBalance, handle, "rb_player_balance")
 	purego.RegisterLibFunc(&rbPlayerSampleRate, handle, "rb_player_sample_rate")
 	purego.RegisterLibFunc(&rbPlayerStatusJSON, handle, "rb_player_status_json")
 

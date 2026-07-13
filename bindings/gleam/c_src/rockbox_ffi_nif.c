@@ -459,6 +459,24 @@ static ERL_NIF_TERM nif_player_volume(ErlNifEnv *env, int argc,
   return enif_make_double(env, rb_player_volume(p));
 }
 
+static ERL_NIF_TERM nif_player_set_balance(ErlNifEnv *env, int argc,
+                                           const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  int balance;
+  if (!p || !enif_get_int(env, argv[1], &balance)) return enif_make_badarg(env);
+  rb_player_set_balance(p, balance);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_balance(ErlNifEnv *env, int argc,
+                                       const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  if (!p) return enif_make_badarg(env);
+  return enif_make_int(env, rb_player_balance(p));
+}
+
 static ERL_NIF_TERM nif_player_sample_rate(ErlNifEnv *env, int argc,
                                            const ERL_NIF_TERM argv[]) {
   (void)argc;
@@ -964,7 +982,9 @@ static ErlNifFunc funcs[] = {
     {"player_skip_to", 2, nif_player_skip_to, 0},
     {"player_seek_ms", 2, nif_player_seek_ms, 0},
     {"player_set_volume", 2, nif_player_set_volume, 0},
+    {"player_set_balance", 2, nif_player_set_balance, 0},
     {"player_volume", 1, nif_player_volume, 0},
+    {"player_balance", 1, nif_player_balance, 0},
     {"player_sample_rate", 1, nif_player_sample_rate, 0},
     {"player_set_crossfade", 7, nif_player_set_crossfade, 0},
     {"player_set_replaygain", 4, nif_player_set_replaygain, 0},

@@ -246,8 +246,16 @@ func (p *Player) SeekMs(ms uint64) { rbPlayerSeekMs(p.ptr, ms) }
 // SetVolume sets the linear output volume (0.0..=1.0).
 func (p *Player) SetVolume(vol float32) { rbPlayerSetVolume(p.ptr, vol) }
 
+// SetBalance sets the stereo balance, -100 (full left) ..= +100 (full right);
+// 0 is centred.
+func (p *Player) SetBalance(balance int32) { rbPlayerSetBalance(p.ptr, balance) }
+
 // Volume reports the current linear output volume.
 func (p *Player) Volume() float32 { return rbPlayerVolume(p.ptr) }
+
+// Balance reports the current stereo balance, -100 (full left) ..= +100
+// (full right).
+func (p *Player) Balance() int32 { return rbPlayerBalance(p.ptr) }
 
 // SampleRate reports the output device sample rate (Hz).
 func (p *Player) SampleRate() uint32 { return rbPlayerSampleRate(p.ptr) }

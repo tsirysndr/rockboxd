@@ -147,6 +147,7 @@
    :player-skip-to             (dc "rb_player_skip_to" (fd-void [PTR I64]))
    :player-seek-ms             (dc "rb_player_seek_ms" (fd-void [PTR I64]))
    :player-set-volume          (dc "rb_player_set_volume" (fd-void [PTR F32]))
+   :player-set-balance         (dc "rb_player_set_balance" (fd-void [PTR I32]))
    :player-set-crossfade       (dc "rb_player_set_crossfade" (fd-void [PTR I32 I32 I32 I32 I32 I32]))
    :player-set-replaygain      (dc "rb_player_set_replaygain" (fd-void [PTR I32 F32 BOOL]))
    :player-set-shuffle         (dc "rb_player_set_shuffle" (fd-void [PTR BOOL]))
@@ -175,6 +176,7 @@
    :player-set-pitch           (dc "rb_player_set_pitch" (fd-void [PTR I32]))
    :player-dsp-settings-json   (dc "rb_player_dsp_settings_json" (fd-of PTR [PTR]))
    :player-volume              (dc "rb_player_volume" (fd-of F32 [PTR]))
+   :player-balance             (dc "rb_player_balance" (fd-of I32 [PTR]))
    :player-sample-rate         (dc "rb_player_sample_rate" (fd-of I32 [PTR]))
    :player-status-json         (dc "rb_player_status_json" (fd-of PTR [PTR]))
    ;; ---- resume ----

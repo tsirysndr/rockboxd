@@ -174,9 +174,11 @@ final class Lib {
     let playerSkipTo: FnPlayerSize
     let playerSeekMs: FnPlayerU64
     let playerSetVolume: FnPlayerF
+    let playerSetBalance: FnPlayerI1
     let playerSetCrossfade: FnPlayerXfade
     let playerSetReplaygain: FnPlayerRg
     let playerVolume: FnPlayerVolume
+    let playerBalance: FnPlayerReturnsI1
     let playerSampleRate: FnPlayerRate
     let playerStatusJson: FnPlayerStatus
     let playerNewWithConfigEx: FnPlayerNewCfgEx
@@ -274,9 +276,11 @@ final class Lib {
         playerSkipTo = try sym("rb_player_skip_to", FnPlayerSize.self)
         playerSeekMs = try sym("rb_player_seek_ms", FnPlayerU64.self)
         playerSetVolume = try sym("rb_player_set_volume", FnPlayerF.self)
+        playerSetBalance = try sym("rb_player_set_balance", FnPlayerI1.self)
         playerSetCrossfade = try sym("rb_player_set_crossfade", FnPlayerXfade.self)
         playerSetReplaygain = try sym("rb_player_set_replaygain", FnPlayerRg.self)
         playerVolume = try sym("rb_player_volume", FnPlayerVolume.self)
+        playerBalance = try sym("rb_player_balance", FnPlayerReturnsI1.self)
         playerSampleRate = try sym("rb_player_sample_rate", FnPlayerRate.self)
         playerStatusJson = try sym("rb_player_status_json", FnPlayerStatus.self)
         playerNewWithConfigEx = try sym("rb_player_new_with_config_ex", FnPlayerNewCfgEx.self)

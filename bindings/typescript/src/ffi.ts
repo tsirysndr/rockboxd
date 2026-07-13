@@ -85,12 +85,14 @@ export const SPEC: Record<string, SymSpec> = {
   rb_player_skip_to: { args: ["ptr", "usize"], ret: "void" },
   rb_player_seek_ms: { args: ["ptr", "u64"], ret: "void" },
   rb_player_set_volume: { args: ["ptr", "f32"], ret: "void" },
+  rb_player_set_balance: { args: ["ptr", "i32"], ret: "void" },
   rb_player_set_crossfade: {
     args: ["ptr", "i32", "u32", "u32", "u32", "u32", "i32"],
     ret: "void",
   },
   rb_player_set_replaygain: { args: ["ptr", "i32", "f32", "bool"], ret: "void" },
   rb_player_volume: { args: ["ptr"], ret: "f32" },
+  rb_player_balance: { args: ["ptr"], ret: "i32" },
   rb_player_sample_rate: { args: ["ptr"], ret: "u32" },
   rb_player_status_json: { args: ["ptr"], ret: "ptr" },
 

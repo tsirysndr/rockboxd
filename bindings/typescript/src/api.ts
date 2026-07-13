@@ -272,8 +272,17 @@ export function makeApi(raw: Raw) {
       s.rb_player_set_volume(this.#h, vol);
       return this;
     }
+    /** Stereo balance, -100 (full left) to +100 (full right); 0 = centre. */
+    setBalance(balance: number): this {
+      s.rb_player_set_balance(this.#h, balance);
+      return this;
+    }
     volume(): number {
       return Number(s.rb_player_volume(this.#h));
+    }
+    /** Current stereo balance, -100 (full left) to +100 (full right). */
+    balance(): number {
+      return Number(s.rb_player_balance(this.#h));
     }
     sampleRate(): number {
       return Number(s.rb_player_sample_rate(this.#h));

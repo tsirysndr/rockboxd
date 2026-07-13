@@ -145,8 +145,19 @@ defmodule Rockbox.Player do
   @spec set_volume(t(), number()) :: t()
   def set_volume(p, vol), do: then_self(:rockbox_ffi_nif.player_set_volume(p, vol / 1), p)
 
+  @doc """
+  Set the stereo balance, `-100` (full left) to `+100` (full right); `0` is
+  centred.
+  """
+  @spec set_balance(t(), integer()) :: t()
+  def set_balance(p, balance), do: then_self(:rockbox_ffi_nif.player_set_balance(p, balance), p)
+
   @spec volume(t()) :: float()
   def volume(p), do: :rockbox_ffi_nif.player_volume(p)
+
+  @doc "Current stereo balance, `-100` (full left) to `+100` (full right)."
+  @spec balance(t()) :: integer()
+  def balance(p), do: :rockbox_ffi_nif.player_balance(p)
 
   @spec sample_rate(t()) :: non_neg_integer()
   def sample_rate(p), do: :rockbox_ffi_nif.player_sample_rate(p)

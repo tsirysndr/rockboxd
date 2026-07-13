@@ -102,11 +102,13 @@ internal object Native {
     val playerSkipTo = h("rb_player_skip_to", FunctionDescriptor.ofVoid(PTR, I64))
     val playerSeekMs = h("rb_player_seek_ms", FunctionDescriptor.ofVoid(PTR, I64))
     val playerSetVolume = h("rb_player_set_volume", FunctionDescriptor.ofVoid(PTR, F32))
+    val playerSetBalance = h("rb_player_set_balance", FunctionDescriptor.ofVoid(PTR, I32))
     val playerSetCrossfade =
         h("rb_player_set_crossfade", FunctionDescriptor.ofVoid(PTR, I32, I32, I32, I32, I32, I32))
     val playerSetReplaygain =
         h("rb_player_set_replaygain", FunctionDescriptor.ofVoid(PTR, I32, F32, BOOL))
     val playerVolume = h("rb_player_volume", FunctionDescriptor.of(F32, PTR))
+    val playerBalance = h("rb_player_balance", FunctionDescriptor.of(I32, PTR))
     val playerSampleRate = h("rb_player_sample_rate", FunctionDescriptor.of(I32, PTR))
     val playerStatusJson = h("rb_player_status_json", FunctionDescriptor.of(PTR, PTR))
     val playerSetShuffle = h("rb_player_set_shuffle", FunctionDescriptor.ofVoid(PTR, BOOL))

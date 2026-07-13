@@ -87,6 +87,7 @@ ffi.cdef(
     void  rb_player_skip_to(RbPlayer *p, size_t index);
     void  rb_player_seek_ms(RbPlayer *p, uint64_t ms);
     void  rb_player_set_volume(RbPlayer *p, float vol);
+    void  rb_player_set_balance(RbPlayer *p, int32_t balance);
     void  rb_player_set_crossfade(RbPlayer *p, int32_t mode, uint32_t fo_delay_ms,
                                   uint32_t fo_dur_ms, uint32_t fi_delay_ms,
                                   uint32_t fi_dur_ms, int32_t mix_mode);
@@ -126,6 +127,7 @@ ffi.cdef(
     void  rb_player_set_pitch(RbPlayer *p, int32_t ratio);
     char *rb_player_dsp_settings_json(RbPlayer *p);
     float    rb_player_volume(RbPlayer *p);
+    int32_t  rb_player_balance(RbPlayer *p);
     uint32_t rb_player_sample_rate(RbPlayer *p);
     char    *rb_player_status_json(RbPlayer *p);
 

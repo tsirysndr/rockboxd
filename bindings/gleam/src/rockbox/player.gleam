@@ -470,8 +470,21 @@ pub fn set_volume(player: Player, volume: Float) -> Player {
 @external(erlang, "rockbox_ffi_nif", "player_set_volume")
 fn ffi_set_volume(player: Player, volume: Float) -> Nil
 
+/// Set the stereo balance, -100 (full left) to +100 (full right); 0 = centre.
+pub fn set_balance(player: Player, balance: Int) -> Player {
+  ffi_set_balance(player, balance)
+  player
+}
+
+@external(erlang, "rockbox_ffi_nif", "player_set_balance")
+fn ffi_set_balance(player: Player, balance: Int) -> Nil
+
 @external(erlang, "rockbox_ffi_nif", "player_volume")
 pub fn volume(player: Player) -> Float
+
+/// Current stereo balance, -100 (full left) to +100 (full right).
+@external(erlang, "rockbox_ffi_nif", "player_balance")
+pub fn balance(player: Player) -> Int
 
 @external(erlang, "rockbox_ffi_nif", "player_sample_rate")
 pub fn sample_rate(player: Player) -> Int

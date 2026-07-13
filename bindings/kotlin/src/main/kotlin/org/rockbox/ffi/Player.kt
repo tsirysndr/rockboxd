@@ -199,7 +199,11 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
     // ---- settings -----------------------------------------------------
 
     fun setVolume(vol: Float) { Native.playerSetVolume.invokeWithArguments(handle(), vol) }
+    /** Stereo balance, -100 (full left) to +100 (full right); 0 = centre. */
+    fun setBalance(balance: Int) { Native.playerSetBalance.invokeWithArguments(handle(), balance) }
     val volume: Float get() = Native.playerVolume.invokeWithArguments(handle()) as Float
+    /** Current stereo balance, -100 (full left) to +100 (full right). */
+    val balance: Int get() = Native.playerBalance.invokeWithArguments(handle()) as Int
     val sampleRate: Long
         get() = (Native.playerSampleRate.invokeWithArguments(handle()) as Int).toLong() and 0xFFFFFFFFL
 

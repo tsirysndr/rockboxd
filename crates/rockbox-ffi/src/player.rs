@@ -320,6 +320,11 @@ pub extern "C" fn rb_player_seek_ms(p: *mut Player, ms: u64) {
 pub extern "C" fn rb_player_set_volume(p: *mut Player, vol: f32) {
     player!(p).set_volume(vol);
 }
+/// Set stereo balance, -100 (full left) ..= +100 (full right); 0 = centre.
+#[no_mangle]
+pub extern "C" fn rb_player_set_balance(p: *mut Player, balance: i32) {
+    player!(p).set_balance(balance);
+}
 #[no_mangle]
 pub extern "C" fn rb_player_set_crossfade(
     p: *mut Player,
@@ -776,6 +781,16 @@ pub extern "C" fn rb_player_volume(p: *mut Player) -> f32 {
         return 0.0;
     }
     unsafe { &*p }.volume()
+}
+
+/// Current stereo balance, -100 (full left) ..= +100 (full right); 0 on a
+/// null handle.
+#[no_mangle]
+pub extern "C" fn rb_player_balance(p: *mut Player) -> i32 {
+    if p.is_null() {
+        return 0;
+    }
+    unsafe { &*p }.balance()
 }
 
 /// The output sample rate everything is resampled to (0 on a null handle).

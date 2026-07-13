@@ -142,8 +142,16 @@ class Player:
     def set_volume(self, vol: float) -> None:
         lib.rb_player_set_volume(self._p, float(vol))
 
+    def set_balance(self, balance: int) -> None:
+        """Stereo balance, -100 (full left) ..= +100 (full right); 0 = centre."""
+        lib.rb_player_set_balance(self._p, int(balance))
+
     def volume(self) -> float:
         return float(lib.rb_player_volume(self._p))
+
+    def balance(self) -> int:
+        """Stereo balance, -100 (full left) ..= +100 (full right)."""
+        return int(lib.rb_player_balance(self._p))
 
     def sample_rate(self) -> int:
         return int(lib.rb_player_sample_rate(self._p))

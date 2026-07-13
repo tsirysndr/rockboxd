@@ -40,8 +40,10 @@ let ffiSymbols = [
     "rb_player_set_queue_json", "rb_player_enqueue", "rb_player_play",
     "rb_player_pause", "rb_player_toggle", "rb_player_stop", "rb_player_next",
     "rb_player_previous", "rb_player_skip_to", "rb_player_seek_ms",
-    "rb_player_set_volume", "rb_player_set_crossfade", "rb_player_set_replaygain",
-    "rb_player_volume", "rb_player_sample_rate", "rb_player_status_json",
+    "rb_player_set_volume", "rb_player_set_balance", "rb_player_set_crossfade",
+    "rb_player_set_replaygain",
+    "rb_player_volume", "rb_player_balance", "rb_player_sample_rate",
+    "rb_player_status_json",
 ]
 
 // Mach-O prefixes C symbols with an underscore; ELF does not.

@@ -135,7 +135,9 @@
 ;; ---- settings ---------------------------------------------------------
 
 (defn set-volume "Set the output volume (0.0–1.0). Returns `p` for threading." [^MemorySegment p vol] (ffi/call :player-set-volume p (float vol)) p)
+(defn set-balance "Set the stereo balance, -100 (full left)–+100 (full right); 0 = centre. Returns `p` for threading." [^MemorySegment p balance] (ffi/call :player-set-balance p (int balance)) p)
 (defn volume ^double [^MemorySegment p] (double (ffi/call :player-volume p)))
+(defn balance ^long [^MemorySegment p] (long (ffi/call :player-balance p)))
 (defn sample-rate ^long [^MemorySegment p]
   (bit-and (long (ffi/call :player-sample-rate p)) 0xFFFFFFFF))
 
