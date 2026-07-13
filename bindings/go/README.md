@@ -4,7 +4,8 @@
 ![FFI](https://img.shields.io/badge/FFI-purego-00ADD8)
 ![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 
-Go bindings for the Rockbox **DSP**, **metadata**, and **playback** engine, via
+Go bindings for the Rockbox **DSP**, **metadata**, **codecs**, and **playback**
+engine, via
 [`purego`](https://github.com/ebitengine/purego) over the prebuilt
 `librockbox_ffi` shared library. **No cgo and no C toolchain** — the package
 `dlopen`s the shared library at process start.
@@ -72,6 +73,21 @@ func main() {
 	processed, _ := dsp.Process(samples)                      // []int16
 	_ = processed
 
+	// --- codecs (decode a file to PCM, one chunk at a time) -----------
+	dec, _ := rockbox.OpenDecoder("song.flac")
+	defer dec.Close()
+	tags, _ := dec.Metadata()                        // tags from the open file
+	_ = tags
+	for {
+		pcm, sampleRate, ok := dec.NextChunk()       // []int16, Hz
+		if !ok {
+			break
+		}
+		_, _ = pcm, sampleRate                       // interleaved-stereo int16 PCM
+	}
+	done, code := dec.Finished()                     // (true, 0)  (0 = clean end)
+	_, _ = done, code
+
 	// --- playback (needs an output device) ----------------------------
 	cfg := rockbox.DefaultConfig()
 	cfg.Volume = 0.8
@@ -79,7 +95,9 @@ func main() {
 	defer player.Close()
 	player.SetReplaygain(rockbox.ReplayGainTrack, 0.0, true)
 	player.SetCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade)
-	player.SetQueue([]string{"a.flac", "b.mp3", "c.opus"})
+	// Queue entries may be local files, http(s):// URLs to remote media,
+	// or live-radio / streaming URLs — mix and match freely.
+	player.SetQueue([]string{"a.flac", "https://example.com/b.mp3", "http://radio.example/stream"})
 	player.Play()
 	st, _ := player.Status() // => &Status{State: "playing", ...}
 	_ = st
@@ -91,12 +109,13 @@ when done.
 
 ## API
 
-| Symbol                          | Contents                                                           |
-| ------------------------------- | ------------------------------------------------------------------ |
-| `rockbox.Metadata.Read/Probe`   | `Read(path) (*Meta, error)`, `Probe(name) (string, bool)`          |
-| `rockbox.NewDsp` → `*Dsp`       | EQ / tone / surround / compressor / ReplayGain, `Process([]int16)` |
-| `rockbox.NewPlayer` → `*Player` | queue + transport + crossfade + ReplayGain, `Status()`             |
-| `rockbox.*` consts              | `DspReplayGain*`, `ReplayGain*`, `Crossfade*`, `Mix*`, `Channel*`  |
+| Symbol                             | Contents                                                             |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| `rockbox.Metadata.Read/Probe`      | `Read(path) (*Meta, error)`, `Probe(name) (string, bool)`           |
+| `rockbox.NewDsp` → `*Dsp`          | EQ / tone / surround / compressor / ReplayGain, `Process([]int16)`  |
+| `rockbox.OpenDecoder` → `*Decoder` | codec engine: `Metadata()`, `NextChunk()`, `SeekMs()`, `Finished()` |
+| `rockbox.NewPlayer` → `*Player`    | queue + transport + crossfade + ReplayGain, `Status()`              |
+| `rockbox.*` consts                 | `DspReplayGain*`, `ReplayGain*`, `Crossfade*`, `Mix*`, `Channel*`   |
 
 Rich values (metadata, player status) cross the FFI boundary as JSON and are
 decoded into typed structs (`Meta`, `Status`). Sample buffers are plain
