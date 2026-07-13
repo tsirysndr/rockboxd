@@ -68,7 +68,7 @@
    {:group "bindings" :ns 'console.bindings
     :cmds [[:ffi            "cargo build --release -p rockbox-ffi"]
            [:fetch-libs     "Stage prebuilt libs from a GH release"]
-           [:publish        "Publish npm/python/ruby packages. Args: lang [flags]"]]}
+           [:publish        "Publish a binding's packages. Args: lang [flags]"]]}
 
    {:group "verify" :ns 'console.verify
     :cmds [[:stale          "Binary vs .a timestamps (stale-binary pitfall)"]

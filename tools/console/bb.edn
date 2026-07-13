@@ -84,7 +84,7 @@
   bindings:fetch-libs {:doc  "Stage prebuilt libs. Usage: bb bindings:fetch-libs [args...]"
                        :task (do (require 'console.bindings)
                                  (apply (resolve 'console.bindings/fetch-libs) *command-line-args*))}
-  bindings:publish    {:doc  "Publish packages. Usage: bb bindings:publish <npm|python|ruby|clojure|kotlin|elixir|gleam> [flags]"
+  bindings:publish    {:doc  "Publish packages. Usage: bb bindings:publish <npm|python|ruby|clojure|kotlin|erlang|elixir|gleam> [flags]"
                        :task (do (require 'console.bindings)
                                  (apply (resolve 'console.bindings/publish) *command-line-args*))}
 

@@ -90,7 +90,7 @@ user=> (env/set! "RUST_LOG" "debug")  ; propagates to later subprocesses
 | `dev`      | `console.dev`      | `cargo fmt` / `clippy` / `test` / `check`                |
 | `wasm`     | `console.wasm`     | `scripts/build-wasm.sh` + the COOP/COEP dev server       |
 | `expo`     | `console.expo`     | Mobile app dev + iOS/Android native gRPC module builds   |
-| `bindings` | `console.bindings` | `rockbox-ffi` + npm/python/ruby publish scripts          |
+| `bindings` | `console.bindings` | `rockbox-ffi` + multi-language publish scripts           |
 | `verify`   | `console.verify`   | `nm` / `ar` / timestamp sanity checks from `CLAUDE.md`   |
 | `scripts`  | `console.scripts`  | Auto-discovered `scripts/*.sh` (no hand-maintained list) |
 | `env`      | `console.env`      | dotenv loader injected into every spawned subprocess     |
