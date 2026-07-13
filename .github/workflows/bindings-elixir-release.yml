@@ -1,24 +1,26 @@
-# Publishes the `rockbox_ex_ffi` Hex package with PRECOMPILED NIF binaries.
+# Builds the PRECOMPILED NIF binaries for `rockbox_ex_ffi` and uploads them to a
+# rolling GitHub release. It does NOT publish to Hex.
 #
 # Consumers of the Hex package never build from source (they have no Cargo
 # workspace and the 30 MB static archive isn't shipped). Instead elixir_make +
 # cc_precompiler download a prebuilt `priv/rockbox_ffi_nif.so` matching their
 # OS/arch. This workflow builds those .so's — one per native runner, since the
 # Rust static archive `librockbox_ffi.a` is arch-specific and can't be
-# cross-tarred — uploads them to a single rolling GitHub release, then generates
-# the checksum file and publishes to Hex.
+# cross-tarred — and uploads them to a single rolling GitHub release.
 #
-# Required secret: HEX_API_KEY (a Hex API key with publish scope).
+# Hex publishing is done LOCALLY (Hex 2FA/OTP is interactive and can't run in
+# CI): after this workflow finishes, run `bindings/scripts/publish-elixir.sh`,
+# which downloads these artifacts to generate checksum.exs and then publishes.
 
 name: bindings-elixir-release
 
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: "Publish to Hex after building (uncheck for a dry run)"
-        type: boolean
-        default: true
+      tag:
+        description: "New elixir-v* tag to create at the current commit (e.g. elixir-v0.4.1)"
+        type: string
+        required: true
   push:
     tags:
       - "elixir-v*"
@@ -42,6 +44,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # On manual dispatch, create the requested tag at the checked-out commit
+      # if it doesn't already exist. Uses the GitHub API with GITHUB_TOKEN, which
+      # (by design) does NOT re-trigger the push-tag event, so there's no loop.
+      - name: Create release tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — leaving it untouched."
+          else
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="${{ github.sha }}"
+            echo "Created tag $TAG at ${{ github.sha }}."
+          fi
+
       - name: Ensure rolling release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -225,42 +246,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$PRECOMPILED_TAG" ${{ env.WORKDIR }}/dist/*.tar.gz --clobber
 
-  publish:
-    # BSD jobs are continue-on-error, so they gate ordering (checksum runs after
-    # they finish) without their failure blocking the release.
-    needs: [precompile, precompile-freebsd, precompile-netbsd]
-    # Only publish on tag pushes or when the dispatch `publish` input is true.
-    if: github.event_name == 'push' || inputs.publish
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: ${{ env.OTP_VERSION }}
-          elixir-version: ${{ env.ELIXIR_VERSION }}
-
-      - name: Fetch deps
-        working-directory: ${{ env.WORKDIR }}
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
-
-      # Downloads every target's tarball from the rolling release and writes
-      # checksum.exs (shipped in the package, verified on install).
-      # --ignore-unavailable: a best-effort BSD target that failed to build is
-      # skipped rather than blocking the release. The four tier-1 targets are
-      # guaranteed present (their jobs are not continue-on-error, so a failure
-      # skips publish entirely).
-      - name: Generate checksum file
-        working-directory: ${{ env.WORKDIR }}
-        env:
-          MIX_ENV: prod
-        run: mix elixir_make.checksum --all --ignore-unavailable
-
-      - name: Publish to Hex
-        working-directory: ${{ env.WORKDIR }}
-        env:
-          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-        run: mix hex.publish --yes
+  # No Hex publish job: Hex 2FA/OTP is interactive and can't run in CI. Once the
+  # precompile jobs above have uploaded every target's tarball to the rolling
+  # release, publish from a workstation with:
+  #   bindings/scripts/publish-elixir.sh
+  # which downloads those artifacts to build checksum.exs and then runs
+  # `mix hex.publish` interactively.
