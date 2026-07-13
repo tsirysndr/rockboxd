@@ -41,22 +41,56 @@
 -define(NOT_LOADED, erlang:nif_error({nif_not_loaded, ?MODULE})).
 
 init() ->
+    Base = filename:join(nif_dir(), "rockbox_ffi_nif"),
+    %% Prefer a target-specific artifact. The Gleam package ships one prebuilt
+    %% .so per platform in priv/, named rockbox_ffi_nif-<target>.so (there is no
+    %% compile step at `gleam add` time). Fall back to the unsuffixed name that
+    %% a local `make` / elixir_make build produces.
     SoName =
-        case code:priv_dir(?MODULE) of
-            {error, _} ->
-                %% Not part of an OTP app (e.g. a raw Gleam build): look
-                %% beside the .beam file, or in ./priv.
-                case code:which(?MODULE) of
-                    Beam when is_list(Beam) ->
-                        filename:join([filename:dirname(Beam), "..", "priv",
-                                       "rockbox_ffi_nif"]);
-                    _ ->
-                        filename:join(["priv", "rockbox_ffi_nif"])
-                end;
-            Dir ->
-                filename:join(Dir, "rockbox_ffi_nif")
+        case target_triple() of
+            undefined ->
+                Base;
+            Target ->
+                Suffixed = Base ++ "-" ++ Target,
+                case filelib:is_regular(Suffixed ++ ".so") of
+                    true -> Suffixed;
+                    false -> Base
+                end
         end,
     erlang:load_nif(SoName, 0).
+
+%% Directory holding the NIF .so — the OTP app's priv, or (raw Gleam build)
+%% ../priv relative to the .beam, or ./priv.
+nif_dir() ->
+    case code:priv_dir(?MODULE) of
+        {error, _} ->
+            case code:which(?MODULE) of
+                Beam when is_list(Beam) ->
+                    filename:join([filename:dirname(Beam), "..", "priv"]);
+                _ ->
+                    "priv"
+            end;
+        Dir ->
+            Dir
+    end.
+
+%% Canonical target triple matching the priv/rockbox_ffi_nif-<triple>.so names
+%% (same triples cc_precompiler uses for the Elixir binding). `undefined` on a
+%% platform we don't ship a prebuilt for — the unsuffixed fallback is tried.
+target_triple() ->
+    Arch = normalize_arch(hd(string:lexemes(
+        erlang:system_info(system_architecture), "-"))),
+    case os:type() of
+        {unix, darwin} -> Arch ++ "-apple-darwin";
+        {unix, linux} -> Arch ++ "-linux-gnu";
+        {unix, freebsd} -> Arch ++ "-unknown-freebsd";
+        {unix, netbsd} -> Arch ++ "-unknown-netbsd";
+        _ -> undefined
+    end.
+
+normalize_arch("amd64") -> "x86_64";
+normalize_arch("arm64") -> "aarch64";
+normalize_arch(Arch) -> Arch.
 
 abi_version() -> ?NOT_LOADED.
 

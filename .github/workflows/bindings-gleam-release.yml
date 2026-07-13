@@ -1,0 +1,190 @@
+# Publishes the `rockbox_ffi` Gleam package with PRECOMPILED NIF binaries.
+#
+# Gleam has NO compile step at `gleam add` time, so the package can't build or
+# download native code on the consumer. Instead it ships ONE prebuilt .so per
+# platform under priv/, named rockbox_ffi_nif-<target>.so; the Erlang loader
+# (src/rockbox_ffi_nif.erl) detects the host triple and loads the matching one.
+#
+# This workflow builds each .so on a native runner (the Rust static archive is
+# arch-specific), gathers them all onto one machine, and runs `gleam publish`
+# with the whole multi-arch priv/ bundled in.
+#
+# Required secret: HEXPM_API_KEY (a Hex API key with publish scope).
+
+name: bindings-gleam-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to Hex after building (uncheck for a dry run)"
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "gleam-v*"
+
+permissions:
+  contents: read
+
+env:
+  OTP_VERSION: "27"
+  GLEAM_VERSION: "1.12.0"
+  WORKDIR: bindings/gleam
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: x86_64-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-linux-gnu
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libunwind-dev libdbus-1-dev pkg-config
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      # erl is needed by the Makefile to locate the ERTS include dir.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Build NIF (${{ matrix.target }})
+        working-directory: ${{ env.WORKDIR }}
+        run: make TARGET=${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nif-${{ matrix.target }}
+          path: ${{ env.WORKDIR }}/priv/rockbox_ffi_nif-${{ matrix.target }}.so
+          if-no-files-found: error
+
+  # FreeBSD amd64 — best-effort, built in a cross-platform-actions VM.
+  build-freebsd:
+    name: build (x86_64-unknown-freebsd)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Free up host disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/lib/jvm /usr/local/share/powershell /usr/share/swift
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build NIF in FreeBSD VM
+        uses: cross-platform-actions/action@v1.3.0
+        with:
+          operating_system: freebsd
+          version: "15.1"
+          architecture: x86_64
+          shell: sh
+          run: |
+            set -eux
+            sudo pkg install -y rust erlang-runtime27 alsa-lib dbus gcc pkgconf gmake
+            export PATH="/usr/local/lib/erlang27/bin:$PATH"
+            export CARGO_PROFILE_RELEASE_DEBUG=0
+            export CARGO_PROFILE_RELEASE_STRIP=symbols
+            cd bindings/gleam
+            gmake TARGET=x86_64-unknown-freebsd
+            ls -l priv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nif-x86_64-unknown-freebsd
+          path: ${{ env.WORKDIR }}/priv/rockbox_ffi_nif-x86_64-unknown-freebsd.so
+          if-no-files-found: error
+
+  # NetBSD amd64 — best-effort (see FreeBSD job notes).
+  build-netbsd:
+    name: build (x86_64-unknown-netbsd)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Free up host disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/lib/jvm /usr/local/share/powershell /usr/share/swift
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build NIF in NetBSD VM
+        uses: cross-platform-actions/action@v1.3.0
+        with:
+          operating_system: netbsd
+          version: "10.1"
+          architecture: x86_64
+          shell: sh
+          run: |
+            set -eux
+            sudo pkgin -y install rust erlang alsa-lib dbus gcc pkgconf gmake
+            export CARGO_PROFILE_RELEASE_DEBUG=0
+            export CARGO_PROFILE_RELEASE_STRIP=symbols
+            cd bindings/gleam
+            gmake TARGET=x86_64-unknown-netbsd
+            ls -l priv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nif-x86_64-unknown-netbsd
+          path: ${{ env.WORKDIR }}/priv/rockbox_ffi_nif-x86_64-unknown-netbsd.so
+          if-no-files-found: error
+
+  publish:
+    # BSD jobs are continue-on-error, so they gate ordering without blocking the
+    # release; a missing BSD .so just isn't bundled.
+    needs: [build, build-freebsd, build-netbsd]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Gather every arch's .so into priv/ so `gleam publish` bundles them all.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nif-*
+          merge-multiple: true
+          path: ${{ env.WORKDIR }}/priv
+
+      - name: List bundled NIFs
+        run: ls -l ${{ env.WORKDIR }}/priv
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          gleam-version: ${{ env.GLEAM_VERSION }}
+
+      - name: Publish to Hex
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+        run: |
+          gleam deps download
+          gleam publish --yes
