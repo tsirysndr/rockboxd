@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-# Play an audio file through the real output device.
+# Play a local audio file or an http(s):// URL through the real output device.
 #
-# Run: ruby -Ilib examples/play.rb [path-to-audio]
+# Run: ruby -Ilib examples/play.rb [path-to-audio | http(s)-url]
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "rockbox_ffi"
@@ -10,7 +10,11 @@ require "rockbox_ffi"
 REPO = File.expand_path("../../..", __dir__)
 FIXTURE = File.join(REPO, "crates", "rocksky", "fixtures", "08 - Internet Money - Speak(Explicit).m4a")
 
+# The queue accepts local files and http(s):// URLs (remote media / live radio).
 file = ARGV[0] || FIXTURE
+if !RockboxFFI.is_url?(file) && !File.exist?(file)
+  abort "no such file: #{file}"
+end
 
 player = RockboxFFI::Player.new(volume: 0.8)
 # Mutating setters return self, so the setup reads as one fluent chain.
