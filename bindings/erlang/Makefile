@@ -1,15 +1,22 @@
-# Builds the shared rockbox_ffi_nif into priv/, linking the librockbox_ffi
-# static archive.
+# Builds the shared rockbox_ffi_nif NIF into priv/, linking the librockbox_ffi
+# static archive. Used by BOTH the Elixir (rockbox_ex_ffi) and Gleam
+# (rockbox_ffi) bindings, which depend on this package.
 #
-# NOTE: On a consumer machine the Hex package downloads a PREBUILT
-# priv/rockbox_ffi_nif.so via elixir_make + cc_precompiler and this Makefile is
-# NEVER run. It only runs (a) inside the monorepo during CI precompilation, or
-# (b) when a user opts into a from-source build with ROCKBOX_FFI_BUILD=1 — which
-# requires a full monorepo checkout (Cargo workspace + include/ header). It is
-# not runnable from a bare Hex package: the 30 MB static archive and the C
-# header are not shipped.
+# Usage:
+#   make                          # -> priv/rockbox_ffi_nif.so   (local dev)
+#   make TARGET=x86_64-linux-gnu  # -> priv/rockbox_ffi_nif-x86_64-linux-gnu.so
 #
-# Driven by `elixir_make` (mix compile), but also runnable standalone: `make`.
+# The published Hex package does NOT bundle the .so (it exceeds Hex's 8 MB
+# tarball limit). CI (`bindings-erlang-release.yml`) builds each target on its
+# own native runner with the matching TARGET and uploads them to the
+# `erlang-v<version>` release; the loader (src/rockbox_ffi_nif.erl) downloads
+# the matching one into the user cache on first load, verifying it against
+# priv/rockbox_ffi_nif.manifest. A plain `make` (unsuffixed .so in priv) is used
+# for local development and is preferred over any cached download.
+#
+# Requires the full monorepo checkout (Cargo workspace + include/ header); it is
+# not runnable from a bare Hex package. NOTE: GNU-make syntax (ifeq). On *BSD run
+# as `gmake` (the CI sets MAKE=gmake).
 
 REPO_ROOT := $(abspath $(CURDIR)/../..)
 
@@ -24,9 +31,18 @@ ERTS_INCLUDE := $(shell erl -noshell -eval \
   'io:format("~ts", [filename:join([code:root_dir(), "erts-" ++ erlang:system_info(version), "include"])])' \
   -s init stop)
 
-PRIV     := priv
-NIF_SO   := $(PRIV)/rockbox_ffi_nif.so
-C_SRC    := c_src/rockbox_ffi_nif.c
+PRIV   := priv
+C_SRC  := c_src/rockbox_ffi_nif.c
+
+# TARGET, when set, suffixes the output so several arches coexist in priv/ (the
+# name the loader and the release-upload step expect). It only names the output
+# file — each target is built natively on its own runner, not cross-compiled.
+TARGET ?=
+ifeq ($(strip $(TARGET)),)
+  NIF_SO := $(PRIV)/rockbox_ffi_nif.so
+else
+  NIF_SO := $(PRIV)/rockbox_ffi_nif-$(TARGET).so
+endif
 
 CFLAGS  := -O2 -fPIC -std=c11 -Wall -I$(ERTS_INCLUDE) -I$(INCLUDE)
 
@@ -64,10 +80,10 @@ $(STATICLIB):
 	  echo "ERROR: $(STATICLIB) is missing and no Cargo workspace was found at"; \
 	  echo "       $(REPO_ROOT)."; \
 	  echo ""; \
-	  echo "The rockbox_ex_ffi Hex package installs a PRECOMPILED NIF and does not"; \
-	  echo "build from source. Build from source only from a full rockboxd monorepo"; \
-	  echo "checkout (bindings/elixir) with ROCKBOX_FFI_BUILD=1. If the precompiled"; \
-	  echo "download failed, verify a prebuilt artifact exists for your OS/arch."; \
+	  echo "The rockbox_ffi_nif Hex package downloads a PRECOMPILED NIF on first"; \
+	  echo "load and does not build from source. Build from source only from a full"; \
+	  echo "rockboxd monorepo checkout (bindings/erlang). If the precompiled download"; \
+	  echo "failed, verify a prebuilt artifact exists for your OS/arch."; \
 	  exit 1; \
 	fi
 	cd "$(REPO_ROOT)" && cargo build --release -p rockbox-ffi
@@ -79,6 +95,6 @@ $(PRIV):
 	mkdir -p $(PRIV)
 
 clean:
-	rm -f $(NIF_SO)
+	rm -f $(PRIV)/rockbox_ffi_nif*.so
 
 .PHONY: all clean
