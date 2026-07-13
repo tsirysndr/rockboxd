@@ -4,6 +4,8 @@ on:
   #  tags-ignore:
   #    - "clojure-v*"
   #    - "bindings-v*"
+  #    - "elixir-v*"
+  #    - "gleam-v*"
   workflow_dispatch:
     inputs:
       tag:

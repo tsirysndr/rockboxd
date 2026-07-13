@@ -6,6 +6,8 @@ on:
       - "clojure-v*"
       - "clojure-ffi-v*"
       - "bindings-v*"
+      - "elixir-v*"
+      - "gleam-v*"
   release:
     types: [published]
   workflow_dispatch:
