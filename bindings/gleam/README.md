@@ -104,14 +104,25 @@ with the Elixir binding (`bindings/elixir/`).
 
 ## Releasing (maintainers)
 
-Publishing is automated by the `bindings-gleam-release.yml` GitHub Actions
-workflow (needs a `HEXPM_API_KEY` repo secret). It builds the NIF `.so` on one
-native runner per target, gathers every arch's `.so` into `priv/` on a single
-machine, then runs `gleam publish` with the whole multi-arch `priv/` bundled.
+Releasing is two steps: **CI builds the binaries**, then **you publish from your
+machine** (`gleam publish` needs an interactive Hex login that can't run in CI).
 
 1. Bump `version` in `gleam.toml` (Hex versions are immutable).
-2. Trigger the workflow: push a `gleam-v<version>` tag, or run it from the
-   Actions tab (`workflow_dispatch`, leave *publish* checked).
+2. Run the `bindings-gleam-release.yml` workflow — from the Actions tab
+   (`workflow_dispatch`) or by pushing a `gleam-v<version>` tag. It builds the
+   NIF `.so` on one native runner per target and uploads them to a GitHub
+   release whose tag (`gleam-v<version>`) is **auto-created** from `gleam.toml`
+   (override with the `tag` input).
+3. Publish locally once CI finishes:
+
+   ```sh
+   gleam hex authenticate            # or: export HEXPM_API_KEY=...
+   bindings/scripts/publish-gleam.sh # downloads the .so files into priv/, then gleam publish
+   ```
+
+   The script downloads every arch's `.so` from the `gleam-v<version>` release
+   into `priv/` so `gleam publish` bundles the whole multi-arch fatball. Pass
+   `--tag` / `--repo` to override, or `--dry-run` to preview.
 
 Nothing prebuilt is committed to git (`.gitignore` keeps `priv/*.so` out); the
 binaries are produced fresh by CI for each release.

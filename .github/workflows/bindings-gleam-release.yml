@@ -1,4 +1,6 @@
-# Publishes the `rockbox_ffi` Gleam package with PRECOMPILED NIF binaries.
+# Builds the multi-arch precompiled NIF binaries for the `rockbox_ffi` Gleam
+# package and uploads them to a per-version GitHub release. It does NOT publish
+# to Hex.
 #
 # Gleam has NO compile step at `gleam add` time, so the package can't build or
 # download native code on the consumer. Instead it ships ONE prebuilt .so per
@@ -6,34 +8,74 @@
 # (src/rockbox_ffi_nif.erl) detects the host triple and loads the matching one.
 #
 # This workflow builds each .so on a native runner (the Rust static archive is
-# arch-specific), gathers them all onto one machine, and runs `gleam publish`
-# with the whole multi-arch priv/ bundled in.
+# arch-specific) and uploads them to the release for tag `gleam-v<version>`,
+# which is AUTO-CREATED from gleam.toml (override with the `tag` dispatch input,
+# or push a `gleam-v*` tag).
 #
-# Required secret: HEXPM_API_KEY (a Hex API key with publish scope).
+# Hex publishing is done LOCALLY (Hex 2FA is interactive and can't run in CI):
+# after this workflow finishes, run `bindings/scripts/publish-gleam.sh`, which
+# downloads these .so files into priv/ and then runs `gleam publish`.
 
 name: bindings-gleam-release
 
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: "Publish to Hex after building (uncheck for a dry run)"
-        type: boolean
-        default: true
+      tag:
+        description: "Release tag to build artifacts under (defaults to gleam-v<version> from gleam.toml)"
+        type: string
+        required: false
   push:
     tags:
       - "gleam-v*"
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   OTP_VERSION: "27"
-  GLEAM_VERSION: "1.12.0"
   WORKDIR: bindings/gleam
 
 jobs:
+  # Resolve the release tag and auto-create the release/tag before the matrix
+  # uploads to it (also avoids a create-race between concurrent build jobs).
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            VER="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$WORKDIR/gleam.toml" | head -1)"
+            [ -n "$VER" ] || { echo "could not read version from gleam.toml" >&2; exit 1; }
+            TAG="gleam-v$VER"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $TAG"
+
+      - name: Ensure release exists (auto-creates the tag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "Precompiled Gleam NIFs ($TAG)" \
+              --notes "Multi-arch rockbox_ffi_nif .so files for the Gleam package. Managed by bindings-gleam-release.yml." \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
+
   build:
+    needs: prepare-release
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -70,19 +112,20 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         run: make TARGET=${{ matrix.target }}
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nif-${{ matrix.target }}
-          path: ${{ env.WORKDIR }}/priv/rockbox_ffi_nif-${{ matrix.target }}.so
-          if-no-files-found: error
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.prepare-release.outputs.tag }}" \
+            "$WORKDIR/priv/rockbox_ffi_nif-${{ matrix.target }}.so" --clobber
 
   # FreeBSD amd64 — best-effort, built in a cross-platform-actions VM.
   build-freebsd:
+    needs: prepare-release
     name: build (x86_64-unknown-freebsd)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -104,26 +147,20 @@ jobs:
             gmake TARGET=x86_64-unknown-freebsd
             ls -l priv
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nif-x86_64-unknown-freebsd
-          path: ${{ env.WORKDIR }}/priv/rockbox_ffi_nif-x86_64-unknown-freebsd.so
-          if-no-files-found: error
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.prepare-release.outputs.tag }}" \
+            "$WORKDIR/priv/rockbox_ffi_nif-x86_64-unknown-freebsd.so" --clobber
 
   # NetBSD amd64 — best-effort (see FreeBSD job notes).
   build-netbsd:
+    needs: prepare-release
     name: build (x86_64-unknown-netbsd)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - name: Free up host disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
-            /usr/lib/jvm /usr/local/share/powershell /usr/share/swift
-          sudo docker image prune --all --force || true
-          sudo apt-get clean
-
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -137,6 +174,7 @@ jobs:
           shell: sh
           run: |
             set -eux
+            # gcc is not in pkgin — NetBSD's base system ships gcc/g++ + libstdc++.
             sudo pkgin -y install rust erlang alsa-lib dbus pkgconf gmake
             export CARGO_PROFILE_RELEASE_DEBUG=0
             export CARGO_PROFILE_RELEASE_STRIP=symbols
@@ -144,40 +182,9 @@ jobs:
             gmake TARGET=x86_64-unknown-netbsd
             ls -l priv
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nif-x86_64-unknown-netbsd
-          path: ${{ env.WORKDIR }}/priv/rockbox_ffi_nif-x86_64-unknown-netbsd.so
-          if-no-files-found: error
-
-  publish:
-    # BSD jobs are continue-on-error, so they gate ordering without blocking the
-    # release; a missing BSD .so just isn't bundled.
-    needs: [build, build-freebsd, build-netbsd]
-    if: github.event_name == 'push' || inputs.publish
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Gather every arch's .so into priv/ so `gleam publish` bundles them all.
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: nif-*
-          merge-multiple: true
-          path: ${{ env.WORKDIR }}/priv
-
-      - name: List bundled NIFs
-        run: ls -l ${{ env.WORKDIR }}/priv
-
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: 28
-          gleam-version: 1.16.0
-
-      - name: Publish to Hex
-        working-directory: ${{ env.WORKDIR }}
+      - name: Upload to release
         env:
-          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gleam deps download
-          gleam publish --yes
+          gh release upload "${{ needs.prepare-release.outputs.tag }}" \
+            "$WORKDIR/priv/rockbox_ffi_nif-x86_64-unknown-netbsd.so" --clobber
