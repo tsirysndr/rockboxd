@@ -1,0 +1,17 @@
+# This package is primarily a rebar3 / Hex package (see rebar.config); the Hex
+# release is published with rebar3 and does NOT include this file. It exists so
+# the Gleam binding (bindings/gleam) can consume this package as a LOCAL PATH
+# dependency during monorepo development — Gleam requires a gleam.toml at a path
+# dependency's root. Consumers of the published package depend on the rebar3 Hex
+# release instead, which Gleam compiles via rebar3.
+name = "rockbox_ffi_nif"
+version = "1.0.0"
+target = "erlang"
+licences = ["GPL-2.0-or-later"]
+description = "Shared Erlang NIF over the librockbox_ffi C ABI (Rockbox DSP / metadata / codecs / playback)"
+
+[repository]
+type = "github"
+user = "tsirysndr"
+repo = "rockboxd"
+path = "bindings/erlang"

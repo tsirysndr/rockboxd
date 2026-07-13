@@ -14,17 +14,22 @@ path = "bindings/gleam"
 
 # The native NIF (c_src/rockbox_ffi_nif.c) is compiled into priv/ by the
 # Makefile; run `make` before `gleam test`. The Erlang loader
-# src/rockbox_ffi_nif.erl is compiled by Gleam automatically.
+# The native NIF now lives in the shared `rockbox_ffi_nif` package
+# (bindings/erlang): it owns c_src/rockbox_ffi_nif.c and the Erlang loader
+# src/rockbox_ffi_nif.erl, and both are compiled through that dependency. For
+# local monorepo development a path dependency points at ../erlang; run its
+# `make` once to build the NIF (bindings/erlang/priv/rockbox_ffi_nif.so).
 #
-# The published Hex package does NOT bundle the .so files (4 platforms exceed
-# Hex's 8 MB tarball limit). It ships priv/rockbox_ffi_nif.manifest (checksums)
-# instead, and the loader downloads the matching NIF from the gleam-v<version>
-# GitHub release into the user cache on first load. See scripts/publish-gleam.sh.
+# The published Hex package depends on the released `rockbox_ffi_nif` version
+# instead (scripts/publish-gleam.sh swaps the path dep for it). That package's
+# loader downloads the matching NIF from a GitHub release into the user cache
+# on first load (the .so is too large to bundle in a Hex tarball).
 
 # JSON is decoded via OTP 27+'s built-in `json` module (through an FFI) plus
 # gleam/dynamic/decode — no gleam_json dependency.
 [dependencies]
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+rockbox_ffi_nif = { path = "../erlang" }
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"

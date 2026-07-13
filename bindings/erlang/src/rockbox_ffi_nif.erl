@@ -8,6 +8,8 @@
 
 -export([abi_version/0,
          meta_read_json/1, meta_probe/1,
+         decoder_open/1, decoder_metadata_json/1, decoder_next_chunk/1,
+         decoder_seek_ms/2, decoder_elapsed_ms/1, decoder_finished/1,
          dsp_new/1, dsp_set_input_frequency/2, dsp_flush/1, dsp_eq_enable/2,
          dsp_set_tone/3, dsp_set_tone_cutoffs/3, dsp_set_surround/5,
          dsp_set_channel_config/2, dsp_set_stereo_width/2, dsp_set_compressor/7,
@@ -17,7 +19,8 @@
          player_new/0, player_new_with_config/12, player_set_queue_json/2,
          player_enqueue/2, player_play/1, player_pause/1, player_toggle/1,
          player_stop/1, player_next/1, player_previous/1, player_skip_to/2,
-         player_seek_ms/2, player_set_volume/2, player_volume/1,
+         player_seek_ms/2, player_set_volume/2, player_set_balance/2,
+         player_volume/1, player_balance/1,
          player_sample_rate/1, player_set_crossfade/7, player_set_replaygain/4,
          player_set_shuffle/2, player_is_shuffle_enabled/1, player_set_repeat/2,
          player_repeat/1,
@@ -211,6 +214,13 @@ abi_version() -> ?NOT_LOADED.
 meta_read_json(_Path) -> ?NOT_LOADED.
 meta_probe(_Name) -> ?NOT_LOADED.
 
+decoder_open(_Path) -> ?NOT_LOADED.
+decoder_metadata_json(_D) -> ?NOT_LOADED.
+decoder_next_chunk(_D) -> ?NOT_LOADED.
+decoder_seek_ms(_D, _Ms) -> ?NOT_LOADED.
+decoder_elapsed_ms(_D) -> ?NOT_LOADED.
+decoder_finished(_D) -> ?NOT_LOADED.
+
 dsp_new(_Rate) -> ?NOT_LOADED.
 dsp_set_input_frequency(_D, _Hz) -> ?NOT_LOADED.
 dsp_flush(_D) -> ?NOT_LOADED.
@@ -242,7 +252,9 @@ player_previous(_P) -> ?NOT_LOADED.
 player_skip_to(_P, _Idx) -> ?NOT_LOADED.
 player_seek_ms(_P, _Ms) -> ?NOT_LOADED.
 player_set_volume(_P, _Vol) -> ?NOT_LOADED.
+player_set_balance(_P, _Balance) -> ?NOT_LOADED.
 player_volume(_P) -> ?NOT_LOADED.
+player_balance(_P) -> ?NOT_LOADED.
 player_sample_rate(_P) -> ?NOT_LOADED.
 player_set_crossfade(_P, _Mode, _FoDel, _FoDur, _FiDel, _FiDur, _Mix) -> ?NOT_LOADED.
 player_set_replaygain(_P, _Mode, _Preamp, _Clip) -> ?NOT_LOADED.

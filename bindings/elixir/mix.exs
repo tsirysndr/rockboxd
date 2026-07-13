@@ -5,68 +5,11 @@ defmodule RockboxFfi.MixProject do
   @source_url "https://github.com/tsirysndr/rockboxd"
   @source_ref "master"
 
-  # Precompiled NIF artifacts are hosted on ONE rolling GitHub release so we
-  # never have to edit the URL on every version bump: elixir_make only
-  # substitutes `@{artefact_filename}` (which already embeds the version), not
-  # `@version`. The CI workflow `bindings-elixir-release.yml` uploads every
-  # version's tarballs to this same tag.
-  @precompiled_tag "rockbox-ffi-nif"
-
   def project do
     [
       app: :rockbox_ex_ffi,
       version: @version,
       elixir: "~> 1.15",
-      # elixir_make + cc_precompiler: on a consumer machine this DOWNLOADS the
-      # prebuilt `priv/rockbox_ffi_nif.so` for the current target instead of
-      # running the Makefile (which needs the Rust workspace + 30 MB static
-      # archive that are NOT shipped in the Hex package). Falls back to a local
-      # `make` build only when `make_force_build` is true — see below.
-      compilers: [:elixir_make | Mix.compilers()],
-      make_precompiler: {:nif, CCPrecompiler},
-      make_precompiler_url:
-        "#{@source_url}/releases/download/#{@precompiled_tag}/@{artefact_filename}",
-      make_precompiler_filename: "rockbox_ffi_nif",
-      # The Rust static archive is arch-specific, so each arch MUST be built on
-      # its own native runner — cross-tarring an arm64 .so as x86_64 is
-      # impossible. `only_listed_targets: true` (+ CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL=true
-      # in CI) collapses the compile set to exactly the native target, and pins
-      # the fetch set to the triples listed below. Consumers on anything else
-      # (musl, Windows, …) get no prebuilt NIF — build from a monorepo checkout
-      # with ROCKBOX_FFI_BUILD=1.
-      cc_precompiler: [
-        only_listed_targets: true,
-        compilers: %{
-          {:unix, :darwin} => %{
-            "aarch64-apple-darwin" => {"cc", "c++"},
-            "x86_64-apple-darwin" => {"cc", "c++"}
-          },
-          {:unix, :linux} => %{
-            "x86_64-linux-gnu" => {"gcc", "g++"},
-            "aarch64-linux-gnu" => {"gcc", "g++"}
-          },
-          # *BSD amd64 — best-effort (built in a VM). cc_precompiler's own
-          # detection yields an OS-version-suffixed triple (e.g.
-          # "amd64-portbld-freebsd14.0"), so CI pins these canonical triples via
-          # TARGET_ARCH/TARGET_OS/TARGET_ABI. A BSD consumer whose auto-detected
-          # triple differs must set the same TARGET_* env vars to fetch the
-          # prebuilt NIF, or build from source (ROCKBOX_FFI_BUILD=1).
-          {:unix, :freebsd} => %{"x86_64-unknown-freebsd" => {"cc", "c++"}},
-          {:unix, :netbsd} => %{"x86_64-unknown-netbsd" => {"cc", "c++"}}
-        }
-      ],
-      # The package requires OTP 27+ (uses the built-in `:json`), and OTP 26/27/28
-      # all report NIF version 2.17 — so a single 2.17 build covers every
-      # supported OTP. (If OTP 25/24 support is ever added, also build a 2.16
-      # artifact and list it here; newer OTPs fall back to the closest ≤ match.)
-      make_precompiler_nif_versions: [versions: ["2.17"]],
-      # Force a from-source `make` build (only works inside the monorepo, which
-      # has the Cargo workspace + include/ header). Set ROCKBOX_FFI_BUILD=1, or
-      # any "-dev" version string, to opt in.
-      make_force_build: force_build?(),
-      make_targets: ["all"],
-      make_clean: ["clean"],
-      erlc_paths: ["src"],
       deps: deps(),
       description: "Elixir bindings for the Rockbox DSP / metadata / playback engine",
       package: package(),
@@ -76,17 +19,27 @@ defmodule RockboxFfi.MixProject do
     ]
   end
 
-  def application, do: [extra_applications: [:crypto]]
+  def application, do: [extra_applications: []]
 
-  defp force_build?,
-    do: System.get_env("ROCKBOX_FFI_BUILD") in ["1", "true"] or String.ends_with?(@version, "-dev")
-
+  # The native NIF lives in the shared `rockbox_ffi_nif` package
+  # (bindings/erlang): it owns the C shim + Erlang loader and downloads the
+  # matching prebuilt `.so` on first load. Local monorepo development uses the
+  # sibling path dependency (run `make` in bindings/erlang to build the .so);
+  # releases depend on the published Hex version — `publish-elixir.sh` sets
+  # ROCKBOX_NIF_HEX=<version> so the tarball carries a proper version requirement
+  # (Hex rejects path deps).
   defp deps do
     [
-      {:elixir_make, "~> 0.8", runtime: false},
-      {:cc_precompiler, "~> 0.1", runtime: false},
+      {:rockbox_ffi_nif, nif_dep()},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
+  end
+
+  defp nif_dep do
+    case System.get_env("ROCKBOX_NIF_HEX") do
+      nil -> [path: "../erlang"]
+      ver -> "~> #{ver}"
+    end
   end
 
   defp docs do
@@ -103,7 +56,8 @@ defmodule RockboxFfi.MixProject do
         Core: [Rockbox],
         Metadata: [Rockbox.Metadata],
         DSP: [Rockbox.Dsp],
-        Playback: [Rockbox.Player, Rockbox.InsertPosition]
+        Playback: [Rockbox.Player, Rockbox.InsertPosition],
+        Codecs: [Rockbox.Decoder]
       ]
     ]
   end
@@ -111,11 +65,9 @@ defmodule RockboxFfi.MixProject do
   defp package do
     [
       licenses: ["GPL-2.0-or-later"],
-      # `checksum.exs` is generated by `mix elixir_make.checksum` and MUST ship
-      # in the package: it's how consumers verify the downloaded precompiled NIF.
-      # elixir_make >= 0.8 writes/reads a fixed `checksum.exs` (older versions
-      # used `checksum-<app>.exs`); match what the installed elixir_make emits.
-      files: ~w(lib src c_src Makefile mix.exs README.md checksum.exs),
+      # Only the Elixir ergonomic wrappers ship here; the native NIF is pulled in
+      # via the `rockbox_ffi_nif` dependency.
+      files: ~w(lib mix.exs README.md),
       links: %{"GitHub" => "https://github.com/tsirysndr/rockboxd"}
     ]
   end
