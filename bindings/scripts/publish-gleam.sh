@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 #
-# Publish the Gleam package to Hex from a local machine (correct OTP + interactive
-# Hex auth — `gleam publish` can't do Hex 2FA in CI).
+# Publish the Gleam package (rockbox_ffi) to Hex from a local machine (correct
+# OTP + interactive Hex auth — `gleam publish` can't do Hex 2FA in CI).
 #
-# The NIFs are NOT bundled in the Hex package — 4 platforms exceed Hex's 8 MB
-# compressed-tarball limit even stripped. Instead the loader downloads the
-# matching rockbox_ffi_nif-<triple>.so from the `gleam-v<version>` GitHub release
-# on first use and verifies it against a checksum manifest. This script:
-#   1. downloads the release NIFs to a temp dir (only to hash them),
-#   2. writes priv/rockbox_ffi_nif.manifest (repo, tag, one sha256 per triple),
-#   3. removes any .so from priv/ so they aren't published, then `gleam publish`.
-# The NIFs themselves are built + uploaded to the release by the
-# `bindings-gleam-release.yml` GitHub Actions workflow.
+# This package is now PURE GLEAM — only the ergonomic wrappers. The native NIF
+# lives in the shared `rockbox_ffi_nif` package (bindings/erlang), which must be
+# published to Hex FIRST via `bindings/scripts/publish-erlang.sh` (that script
+# also writes the checksum manifest the loader downloads against).
+#
+# For monorepo development gleam.toml depends on rockbox_ffi_nif via a path dep
+# (`{ path = "../erlang" }`). Hex rejects path deps, so this script temporarily
+# rewrites that line to the released Hex version requirement, publishes, then
+# restores the original gleam.toml (a trap restores it even on failure).
 #
 # Authenticate first:  gleam hex authenticate   (or export HEXPM_API_KEY=...)
 #
 # Usage:
-#   bindings/scripts/publish-gleam.sh [--tag gleam-vX.Y.Z] [--repo owner/repo] [--dry-run]
-#
-# The tag defaults to gleam-v<version> read from gleam.toml.
+#   bindings/scripts/publish-gleam.sh [--repo owner/repo] [--dry-run]
 
 set -euo pipefail
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,73 +29,43 @@ parse_common_args "$@"
 [ ${#REST[@]} -eq 0 ] || { echo "unknown argument: ${REST[0]}" >&2; exit 2; }
 
 command -v gleam >/dev/null 2>&1 || { echo "error: gleam not found — https://gleam.run" >&2; exit 1; }
-command -v gh    >/dev/null 2>&1 || { echo "error: gh (GitHub CLI) required — https://cli.github.com" >&2; exit 1; }
 
-# Resolve repo from origin (gh may pick a different default with multiple remotes).
-if [ -z "$REPO" ]; then
-  url="$(git -C "$COMMON_DIR" remote get-url origin 2>/dev/null || true)"; url="${url%.git}"
-  case "$url" in
-    git@github.com:*)       REPO="${url#git@github.com:}" ;;
-    ssh://git@github.com/*) REPO="${url#ssh://git@github.com/}" ;;
-    https://github.com/*)   REPO="${url#https://github.com/}" ;;
-  esac
-  [ -n "$REPO" ] || { echo "error: could not derive repo from origin; pass --repo owner/repo" >&2; exit 1; }
-fi
-
-# Resolve tag: --tag, else gleam-v<version-from-gleam.toml> (matches the workflow).
-if [ -z "$TAG" ]; then
-  VERSION="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$GLEAM_DIR/gleam.toml" | head -1)"
-  [ -n "$VERSION" ] || { echo "error: could not read version from gleam.toml; pass --tag" >&2; exit 1; }
-  TAG="gleam-v$VERSION"
-fi
+# The rockbox_ffi_nif version the published package must depend on.
+NIF_VERSION="$(sed -n 's/.*{vsn, *"\([^"]*\)".*/\1/p' \
+  "$ROOT/bindings/erlang/src/rockbox_ffi_nif.app.src" | head -1)"
+[ -n "$NIF_VERSION" ] || { echo "error: could not read rockbox_ffi_nif version from app.src" >&2; exit 1; }
+NIF_MAJOR="${NIF_VERSION%%.*}"
+NEXT_MAJOR=$(( NIF_MAJOR + 1 ))
 
 echo "== Gleam -> Hex =="
-echo "Repo:    $REPO"
-echo "Release: $TAG"
+echo "rockbox_ffi_nif dep: >= $NIF_VERSION and < $NEXT_MAJOR.0.0 (publish that package first if you haven't)"
 [ "$DRY" -eq 1 ] && echo "Mode:    DRY RUN (nothing will be pushed)"
 echo
 
-# Download EVERY release NIF to a TEMP dir purely to compute its checksum — the
-# NIFs are downloaded on first use, never bundled, so size no longer matters and
-# we cover all platforms (macOS, Linux, FreeBSD, NetBSD) via the wildcard.
-# Tolerate a missing/empty release so the guard below gives an actionable message.
-mkdir -p "$GLEAM_DIR/priv"
-# Never bundled — drop any .so left in priv/ so `gleam publish` can't sweep them
-# into the (8 MB-capped) tarball.
-rm -f "$GLEAM_DIR/priv"/rockbox_ffi_nif*.so
-NIFTMP="$(mktemp -d)"
-trap 'rm -rf "$NIFTMP"' EXIT
-echo "  downloading all release NIFs to hash them (macOS, Linux, FreeBSD, NetBSD)"
-download_assets "$NIFTMP" 'rockbox_ffi_nif-*.so' || true
-shopt -s nullglob
-sos=("$NIFTMP"/rockbox_ffi_nif-*.so)
-[ ${#sos[@]} -gt 0 ] || {
-  echo "error: no rockbox_ffi_nif-*.so found in release $TAG." >&2
-  echo "       Run the bindings-gleam-release.yml workflow first (it uploads them)." >&2
-  exit 1
-}
+# Swap the path dep for the Hex version requirement, restoring on exit. Gleam
+# rejects path deps at publish; the restore keeps the monorepo working tree on
+# the path dep for local development.
+GLEAM_TOML="$GLEAM_DIR/gleam.toml"
+BACKUP="$(mktemp)"
+cp "$GLEAM_TOML" "$BACKUP"
+restore_toml() { cp "$BACKUP" "$GLEAM_TOML"; rm -f "$BACKUP"; }
+trap restore_toml EXIT
 
-# sha256 helper — shasum on macOS, sha256sum elsewhere.
-sha256_of() {
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
-  else sha256sum "$1" | awk '{print $1}'; fi
-}
-
-# Write the checksum manifest the loader (src/rockbox_ffi_nif.erl) reads.
-MANIFEST="$GLEAM_DIR/priv/rockbox_ffi_nif.manifest"
-{
-  echo "%% Generated by publish-gleam.sh — do not edit by hand."
-  echo "%% The loader downloads the matching rockbox_ffi_nif-<triple>.so from"
-  echo "%% GitHub release $TAG on first use and verifies it against these sums."
-  echo "{repo, \"$REPO\"}."
-  echo "{tag, \"$TAG\"}."
-  for so in "${sos[@]}"; do
-    triple="$(basename "$so" .so)"; triple="${triple#rockbox_ffi_nif-}"
-    echo "{checksum, \"$triple\", \"$(sha256_of "$so")\"}."
-  done
-} > "$MANIFEST"
-echo "  -> priv/rockbox_ffi_nif.manifest"
-sed 's/^/     /' "$MANIFEST"
+# Replace the whole `rockbox_ffi_nif = ...` line (path dep) with a Hex req.
+python3 - "$GLEAM_TOML" "$NIF_VERSION" "$NEXT_MAJOR" <<'PY'
+import re, sys
+path, ver, nextmajor = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+new = re.sub(
+    r'(?m)^rockbox_ffi_nif\s*=.*$',
+    f'rockbox_ffi_nif = ">= {ver} and < {nextmajor}.0.0"',
+    src,
+)
+if new == src:
+    sys.exit("error: could not find the rockbox_ffi_nif dependency line in gleam.toml")
+open(path, "w").write(new)
+PY
+echo "  gleam.toml: rockbox_ffi_nif -> Hex version requirement (restored after publish)"
 
 cd "$GLEAM_DIR"
 # `gleam publish` uploads the package and its HexDocs. `gleam docs publish`

@@ -2,20 +2,16 @@
 #
 # Publish the Elixir package (rockbox_ex_ffi) to Hex from a workstation.
 #
-# The PRECOMPILED NIFs are built and uploaded to the rolling `rockbox-ffi-nif`
-# GitHub release by the `bindings-elixir-release` CI workflow. Hex publishing is
-# deliberately NOT done in CI: Hex 2FA/OTP is interactive and can't be entered
-# on a runner. This script does the two remaining, download-based steps locally:
+# This package is now PURE ELIXIR — only the ergonomic wrappers. The native NIF
+# lives in the shared `rockbox_ffi_nif` package (bindings/erlang), which must be
+# published to Hex FIRST via `bindings/scripts/publish-erlang.sh`. There is no
+# per-arch NIF build here anymore.
 #
-#   1. `mix elixir_make.checksum --all` downloads every target's NIF tarball
-#      from that release and writes checksum.exs (shipped in the package and
-#      verified by consumers on install). This replaces a from-source build.
-#   2. `mix hex.publish` packages the source + checksum.exs and uploads it;
-#      its compile step downloads only the LOCAL target's NIF (no cargo needed).
-#      You'll be prompted for your Hex OTP here — enter it interactively.
-#
-# The published version comes from mix.exs (@version). Run this only AFTER the
-# CI workflow has finished uploading that version's artifacts to the release.
+# The published tarball must depend on the RELEASED rockbox_ffi_nif Hex version
+# (Hex rejects the `../erlang` path dep used for monorepo dev). mix.exs reads the
+# ROCKBOX_NIF_HEX env var: when set, the dep becomes `{:rockbox_ffi_nif, "~> X"}`.
+# This script exports it from the shared package's version so the two always
+# match. Hex publishing is done locally — Hex 2FA/OTP is interactive.
 #
 # Authenticate first:  mix hex.user auth   (or export HEX_API_KEY=...)
 #
@@ -33,14 +29,19 @@ parse_common_args "$@"
 
 command -v mix >/dev/null 2>&1 || { echo "error: mix (Elixir) not found" >&2; exit 1; }
 
+# Pin the rockbox_ffi_nif dependency to the shared package's published version.
+NIF_VERSION="$(sed -n 's/.*{vsn, *"\([^"]*\)".*/\1/p' \
+  "$ROOT/bindings/erlang/src/rockbox_ffi_nif.app.src" | head -1)"
+[ -n "$NIF_VERSION" ] || { echo "error: could not read rockbox_ffi_nif version from app.src" >&2; exit 1; }
+export ROCKBOX_NIF_HEX="$NIF_VERSION"
+
 echo "== Elixir -> Hex =="
+echo "rockbox_ffi_nif dep: ~> $NIF_VERSION (publish that package first if you haven't)"
+[ "$DRY" -eq 1 ] && echo "Mode:    DRY RUN (nothing will be pushed)"
+echo
+
 cd "$ROOT/bindings/elixir"
 run mix deps.get
-
-# Download all targets' precompiled NIFs from the rolling GitHub release and
-# generate checksum.exs. --ignore-unavailable so a missing best-effort BSD
-# target doesn't block the release.
-run mix elixir_make.checksum --all --ignore-unavailable
 
 # hex.publish uploads both the package and the ExDoc docs to HexDocs. The
 # explicit `hex.publish docs` afterwards is idempotent and refreshes HexDocs

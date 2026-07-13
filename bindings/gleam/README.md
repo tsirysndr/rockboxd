@@ -26,11 +26,16 @@ Requires OTP 27+ (JSON is decoded with the built-in `json` module plus
 
 ### How the native code is delivered
 
-Gleam has no compile step at `gleam add` time, so the package **ships prebuilt
-NIF binaries** — one `.so` per platform under `priv/`, named
-`rockbox_ffi_nif-<target>.so`. The Erlang loader (`src/rockbox_ffi_nif.erl`)
-detects the host triple at load time and loads the matching one (falling back to
-an unsuffixed `rockbox_ffi_nif.so` from a local `make` build).
+This package contains **only the Gleam wrappers** — no C shim and no `.so`. The
+native code lives in a separate, shared package,
+[`rockbox_ffi_nif`](../erlang) (a `rebar3` Hex package that the Elixir binding
+depends on too), which `gleam add rockbox_ffi` pulls in automatically.
+
+On the **first load** of the NIF, `rockbox_ffi_nif`'s Erlang loader
+(`rockbox_ffi_nif.erl`) detects the host triple, downloads the matching
+prebuilt `rockbox_ffi_nif-<target>.so` from its GitHub release into your user
+cache, and verifies it against a shipped sha256 manifest. (The `.so` statically
+links the Rust engine and is far too large to bundle in a Hex tarball.)
 
 Prebuilt targets:
 
@@ -44,16 +49,20 @@ Prebuilt targets:
 | `x86_64-unknown-netbsd`   | best-effort  |
 
 On any other platform (musl/Alpine, Windows, or a glibc older than the CI
-runner's) `load_nif` will fail — build from source instead.
+runner's) the download has no matching artifact and `load_nif` will fail —
+build from source instead.
 
 ### Building from source
 
 A from-source build needs the **full monorepo checkout** (the Cargo workspace
-and `include/` header are not in the Hex package):
+and `include/` header are not in any Hex package). The native code builds in the
+shared `rockbox_ffi_nif` package, which this binding uses via a sibling path
+dependency (`../erlang`):
 
 ```sh
-cd bindings/gleam
-make            # -> priv/rockbox_ffi_nif.so  (Gleam copies priv/ into its build)
+# Build the shared NIF once; the loader prefers this local .so over a download.
+cargo build --release -p rockbox-ffi
+cd bindings/erlang && make && cd ../gleam
 gleam test
 ```
 
@@ -97,32 +106,34 @@ The DSP and player use *different* mode integers (a quirk of the C ABI):
 - `dsp.set_replaygain` → `0` track, `1` album, `2` shuffle, `3` off
 - `player.set_replaygain` → `0` off, `1` track, `2` album
 
-## Shared NIF
+## Shared native package
 
-`c_src/rockbox_ffi_nif.c` and `src/rockbox_ffi_nif.erl` are shared verbatim
-with the Elixir binding (`bindings/elixir/`).
+The C shim and Erlang NIF loader are **not** in this package — they live in the
+shared [`rockbox_ffi_nif`](../erlang) package, which the Elixir binding
+(`bindings/elixir/`) depends on as well. This package carries only the Gleam
+`rockbox/*` wrappers and declares `rockbox_ffi_nif` as a dependency.
 
 ## Releasing (maintainers)
 
-Releasing is two steps: **CI builds the binaries**, then **you publish from your
-machine** (`gleam publish` needs an interactive Hex login that can't run in CI).
+Because the native code is shared, publish `rockbox_ffi_nif` **first**, then
+this package.
 
-1. Bump `version` in `gleam.toml` (Hex versions are immutable).
-2. Run the `bindings-gleam-release.yml` workflow — from the Actions tab
-   (`workflow_dispatch`) or by pushing a `gleam-v<version>` tag. It builds the
-   NIF `.so` on one native runner per target and uploads them to a GitHub
-   release whose tag (`gleam-v<version>`) is **auto-created** from `gleam.toml`
-   (override with the `tag` input).
-3. Publish locally once CI finishes:
-
+1. **Native NIFs** — bump `{vsn, ...}` in `bindings/erlang/src/rockbox_ffi_nif.app.src`
+   (and the mirrored `version` in `bindings/erlang/gleam.toml`), then run the
+   `bindings-erlang-release.yml` workflow (push an `erlang-v<version>` tag or
+   dispatch it) to build + upload the per-target `.so` files, and publish the
+   package to Hex locally:
    ```sh
-   gleam hex authenticate            # or: export HEXPM_API_KEY=...
-   bindings/scripts/publish-gleam.sh # downloads the .so files into priv/, then gleam publish
+   bindings/scripts/publish-erlang.sh
    ```
-
-   The script downloads every arch's `.so` from the `gleam-v<version>` release
-   into `priv/` so `gleam publish` bundles the whole multi-arch fatball. Pass
-   `--tag` / `--repo` to override, or `--dry-run` to preview.
-
-Nothing prebuilt is committed to git (`.gitignore` keeps `priv/*.so` out); the
-binaries are produced fresh by CI for each release.
+2. **This package** — bump `version` in `gleam.toml` (Hex versions are
+   immutable), then publish locally (`gleam publish` needs an interactive Hex
+   login that can't run in CI):
+   ```sh
+   gleam hex authenticate              # or: export HEXPM_API_KEY=...
+   bindings/scripts/publish-gleam.sh   # swaps the path dep for the Hex version, then gleam publish
+   ```
+   The script temporarily rewrites the `rockbox_ffi_nif = { path = "../erlang" }`
+   line in `gleam.toml` to the released Hex version requirement for publishing,
+   then restores it. Pass `--tag` / `--repo` to override, or `--dry-run` to
+   preview.

@@ -1,40 +1,42 @@
-# Builds the multi-arch precompiled NIF binaries for the `rockbox_ffi` Gleam
-# package and uploads them to a per-version GitHub release. It does NOT publish
-# to Hex.
+# Builds the multi-arch precompiled NIF binaries for the shared `rockbox_ffi_nif`
+# package (bindings/erlang) and uploads them to a per-version GitHub release. It
+# does NOT publish to Hex.
 #
-# Gleam has NO compile step at `gleam add` time, so the package can't build or
-# download native code on the consumer. Instead it ships ONE prebuilt .so per
-# platform under priv/, named rockbox_ffi_nif-<target>.so; the Erlang loader
-# (src/rockbox_ffi_nif.erl) detects the host triple and loads the matching one.
+# BOTH the Elixir (rockbox_ex_ffi) and Gleam (rockbox_ffi) bindings depend on
+# this one package for their native code. Its Erlang loader
+# (src/rockbox_ffi_nif.erl) detects the host triple at load time and downloads
+# the matching rockbox_ffi_nif-<target>.so from this release into the user cache
+# on first use, verifying it against priv/rockbox_ffi_nif.manifest. The .so
+# statically links the Rust engine and is too large to bundle in a Hex tarball.
 #
 # This workflow builds each .so on a native runner (the Rust static archive is
-# arch-specific) and uploads them to the release for tag `gleam-v<version>`,
-# which is AUTO-CREATED from gleam.toml (override with the `tag` dispatch input,
-# or push a `gleam-v*` tag).
+# arch-specific) and uploads them to the release for tag `erlang-v<version>`,
+# which is AUTO-CREATED from src/rockbox_ffi_nif.app.src (override with the `tag`
+# dispatch input, or push an `erlang-v*` tag).
 #
-# Hex publishing is done LOCALLY (Hex 2FA is interactive and can't run in CI):
-# after this workflow finishes, run `bindings/scripts/publish-gleam.sh`, which
-# downloads these .so files into priv/ and then runs `gleam publish`.
+# Hex publishing is done LOCALLY (Hex auth is interactive and can't run in CI):
+# after this workflow finishes, run `bindings/scripts/publish-erlang.sh`, which
+# writes the checksum manifest from these .so files and then `rebar3 hex publish`.
 
-name: bindings-gleam-release
+name: bindings-erlang-release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build artifacts under (defaults to gleam-v<version> from gleam.toml)"
+        description: "Release tag to build artifacts under (defaults to erlang-v<version> from rockbox_ffi_nif.app.src)"
         type: string
         required: false
   push:
     tags:
-      - "gleam-v*"
+      - "erlang-v*"
 
 permissions:
   contents: write
 
 env:
   OTP_VERSION: "27"
-  WORKDIR: bindings/gleam
+  WORKDIR: bindings/erlang
 
 jobs:
   # Resolve the release tag and auto-create the release/tag before the matrix
@@ -54,9 +56,9 @@ jobs:
           elif [ "${{ github.ref_type }}" = "tag" ]; then
             TAG="${{ github.ref_name }}"
           else
-            VER="$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$WORKDIR/gleam.toml" | head -1)"
-            [ -n "$VER" ] || { echo "could not read version from gleam.toml" >&2; exit 1; }
-            TAG="gleam-v$VER"
+            VER="$(sed -n 's/.*{vsn, *"\([^"]*\)".*/\1/p' "$WORKDIR/src/rockbox_ffi_nif.app.src" | head -1)"
+            [ -n "$VER" ] || { echo "could not read {vsn, ...} from rockbox_ffi_nif.app.src" >&2; exit 1; }
+            TAG="erlang-v$VER"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved release tag: $TAG"
@@ -68,8 +70,8 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" \
-              --title "Precompiled Gleam NIFs ($TAG)" \
-              --notes "Multi-arch rockbox_ffi_nif .so files for the Gleam package. Managed by bindings-gleam-release.yml." \
+              --title "Precompiled rockbox_ffi_nif NIFs ($TAG)" \
+              --notes "Multi-arch rockbox_ffi_nif .so files for the Elixir + Gleam bindings. Managed by bindings-erlang-release.yml." \
               --target "$GITHUB_SHA" \
               --prerelease
           fi
@@ -143,7 +145,7 @@ jobs:
             export PATH="/usr/local/lib/erlang27/bin:$PATH"
             export CARGO_PROFILE_RELEASE_DEBUG=0
             export CARGO_PROFILE_RELEASE_STRIP=symbols
-            cd bindings/gleam
+            cd bindings/erlang
             gmake TARGET=x86_64-unknown-freebsd
             ls -l priv
 
@@ -178,7 +180,7 @@ jobs:
             sudo pkgin -y install rust erlang alsa-lib dbus pkgconf gmake
             export CARGO_PROFILE_RELEASE_DEBUG=0
             export CARGO_PROFILE_RELEASE_STRIP=symbols
-            cd bindings/gleam
+            cd bindings/erlang
             gmake TARGET=x86_64-unknown-netbsd
             ls -l priv
 

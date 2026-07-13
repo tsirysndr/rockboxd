@@ -25,57 +25,60 @@ end
 ```
 
 ```sh
-mix deps.get
-mix compile   # downloads a precompiled NIF — no Rust toolchain needed
+mix deps.get   # pulls in rockbox_ffi_nif (the shared native package)
+mix compile    # no Rust toolchain needed
 ```
 
 Requires OTP 27+ (uses the built-in `:json` module — no `jason` dependency).
 
 ### How the native code is delivered
 
-The package ships **no** Rust source and **no** static archive. On `mix compile`,
-[`elixir_make`](https://hex.pm/packages/elixir_make) +
-[`cc_precompiler`](https://hex.pm/packages/cc_precompiler) download a prebuilt
-`priv/rockbox_ffi_nif.so` matching your OS/arch from the project's GitHub
-releases and verify it against the shipped `checksum.exs`.
+This package contains **only the Elixir wrappers** — no Rust source, no C shim,
+no static archive. The native code lives in a separate, shared Hex package,
+[`rockbox_ffi_nif`](https://hex.pm/packages/rockbox_ffi_nif) (source in
+[`bindings/erlang`](../erlang)), which the Gleam binding depends on too.
+
+You never build it: on the **first load** of the NIF, `rockbox_ffi_nif`'s Erlang
+loader downloads a prebuilt `rockbox_ffi_nif-<target>.so` matching your OS/arch
+from its GitHub release into your user cache and verifies it against a shipped
+sha256 manifest. (The `.so` statically links the Rust engine and is far too
+large to bundle in a Hex tarball, so it can't ship in the package itself.)
 
 Prebuilt targets:
 
-| Target                    | Runner        | Tier         |
-| ------------------------- | ------------- | ------------ |
-| `aarch64-apple-darwin`    | macOS (Apple) | supported    |
-| `x86_64-apple-darwin`     | macOS (Intel) | supported    |
-| `x86_64-linux-gnu`        | Linux x86-64  | supported    |
-| `aarch64-linux-gnu`       | Linux arm64   | supported    |
-| `x86_64-unknown-freebsd`  | FreeBSD amd64 | best-effort  |
-| `x86_64-unknown-netbsd`   | NetBSD amd64  | best-effort  |
+| Target                    | Tier         |
+| ------------------------- | ------------ |
+| `aarch64-apple-darwin`    | supported    |
+| `x86_64-apple-darwin`     | supported    |
+| `x86_64-linux-gnu`        | supported    |
+| `aarch64-linux-gnu`       | supported    |
+| `x86_64-unknown-freebsd`  | best-effort  |
+| `x86_64-unknown-netbsd`   | best-effort  |
 
 The \*BSD artifacts are built in a VM and may lag or be absent for a given
-release. Because cc_precompiler auto-detects an OS-version-suffixed triple on
-\*BSD (e.g. `amd64-portbld-freebsd14.0`), a BSD consumer must pin the canonical
-triple to fetch the prebuilt NIF:
-
-```sh
-TARGET_ARCH=x86_64 TARGET_OS=unknown TARGET_ABI=freebsd mix deps.get
-TARGET_ARCH=x86_64 TARGET_OS=unknown TARGET_ABI=freebsd mix compile
-```
-
-Any other platform (musl/Alpine, Windows, or a glibc older than the CI
+release. Any other platform (musl/Alpine, Windows, or a glibc older than the CI
 runner's) has no prebuilt NIF — build from source instead (see below).
 
 ### Building from source
 
 A from-source build needs the **full monorepo checkout** — the Cargo workspace
-and `include/` header are not in the Hex package. Set `ROCKBOX_FFI_BUILD=1` (or
-use a `-dev` version) to force `make` to run `cargo build --release -p rockbox-ffi`
-and link the NIF locally:
+and `include/` header are not in any Hex package. The native code builds in the
+shared `rockbox_ffi_nif` package, and this binding picks it up via a sibling
+path dependency (`../erlang`) automatically:
 
 ```sh
-cd bindings/elixir
-ROCKBOX_FFI_BUILD=1 mix deps.get
-ROCKBOX_FFI_BUILD=1 mix compile
-ROCKBOX_FFI_BUILD=1 mix test
+# 1. Build the shared NIF once (compiles the Rust archive + links the .so).
+cargo build --release -p rockbox-ffi
+cd bindings/erlang && make && cd ../elixir
+
+# 2. The path dep uses that local build — no download, no version override.
+mix deps.get
+mix compile
+mix test
 ```
+
+The loader prefers a local `priv/rockbox_ffi_nif.so` over any cached download,
+so the freshly built `.so` is used as-is.
 
 Generate the API docs locally with [ExDoc](https://hexdocs.pm/ex_doc/):
 
@@ -120,33 +123,31 @@ The DSP and player use *different* mode integers (a quirk of the C ABI):
 - `Rockbox.Dsp.set_replaygain/4` → `0` track, `1` album, `2` shuffle, `3` off
 - `Rockbox.Player.set_replaygain/4` → `0` off, `1` track, `2` album
 
-## Shared NIF
+## Shared native package
 
-`c_src/rockbox_ffi_nif.c` and `src/rockbox_ffi_nif.erl` are shared verbatim
-with the Gleam binding (`bindings/gleam/`).
+The C shim and Erlang NIF loader are **not** in this package — they live in the
+shared [`rockbox_ffi_nif`](../erlang) package, which the Gleam binding
+(`bindings/gleam/`) depends on as well. This package carries only the
+`Rockbox.*` Elixir wrappers.
 
 ## Releasing (maintainers)
 
-Publishing is automated by the `bindings-elixir-release.yml` GitHub Actions
-workflow (needs a `HEX_API_KEY` repo secret). It builds the precompiled NIF on
-one native runner per target, uploads the tarballs to a single **rolling**
-GitHub release (`rockbox-ffi-nif`), then generates the checksum file and runs
-`mix hex.publish`.
+Because the native code is shared, publish `rockbox_ffi_nif` **first**, then
+this package.
 
-1. Bump `@version` in `mix.exs` (Hex versions are immutable — you cannot
-   republish over an existing one).
-2. Trigger the workflow: push a `elixir-v<version>` tag, or run it from the
-   Actions tab (`workflow_dispatch`, leave *publish* checked).
-
-The URL template in `mix.exs` intentionally omits the version (elixir_make only
-substitutes `@{artefact_filename}`, which already embeds the version), so every
-release's artifacts pile up under the same `rockbox-ffi-nif` tag — no per-bump
-URL edit needed.
-
-To reproduce a target's artifact locally:
-
-```sh
-cd bindings/elixir
-MIX_ENV=prod CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL=true mix elixir_make.precompile
-# -> ~/.cache/elixir_make (Linux) or ~/Library/Caches/elixir_make (macOS)
-```
+1. **Native NIFs** — bump `{vsn, ...}` in `bindings/erlang/src/rockbox_ffi_nif.app.src`,
+   then run the `bindings-erlang-release.yml` GitHub Actions workflow (push an
+   `erlang-v<version>` tag or dispatch it). It builds one `.so` per target on a
+   native runner and uploads them to the `erlang-v<version>` release. Publish the
+   package to Hex locally (interactive Hex auth can't run in CI):
+   ```sh
+   bindings/scripts/publish-erlang.sh   # writes the checksum manifest, then rebar3 hex publish
+   ```
+2. **This package** — bump `@version` in `mix.exs` (Hex versions are immutable),
+   then publish locally:
+   ```sh
+   bindings/scripts/publish-elixir.sh   # sets the rockbox_ffi_nif Hex dep, mix hex.publish
+   ```
+   The script exports `ROCKBOX_NIF_HEX=<version>` so the published tarball
+   depends on the released `rockbox_ffi_nif` Hex version rather than the local
+   `../erlang` path dep used for monorepo development.
