@@ -7,8 +7,8 @@
 ![NIF](https://img.shields.io/badge/native-erl__nif-5C4B8A)
 ![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 
-Elixir bindings for the Rockbox **DSP**, **metadata**, and **playback**
-engine, via an `erl_nif` shim over the `librockbox_ffi` C ABI.
+Elixir bindings for the Rockbox **DSP**, **metadata**, **codecs**, and
+**playback** engine, via an `erl_nif` shim over the `librockbox_ffi` C ABI.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -105,16 +105,28 @@ Rockbox.Dsp.set_replaygain(d, 0, true, 0.0)          # 0 = track (DSP-native)
 Rockbox.Dsp.set_replaygain_gains(d, -6.02, nil, nil, nil)
 out = Rockbox.Dsp.process(d, pcm_binary)             # int16 LE in/out
 
+# --- codecs (decode a file to PCM, one chunk at a time) ---
+dec = Rockbox.Decoder.open("song.flac")
+dec |> Rockbox.Decoder.metadata() |> Map.get(:title)     # tags from the open file
+case Rockbox.Decoder.next_chunk(dec) do                  # {samples, sample_rate} | :eof
+  {samples, sample_rate} -> :ok                          # int16 LE interleaved stereo
+  :eof -> :done
+end
+Rockbox.Decoder.finished(dec)                            # {true, 0}  (0 = clean)
+
 # --- playback (needs an output device) ---
 p = Rockbox.Player.new(volume: 0.8, crossfade_mode: 5)   # 5 = always
 Rockbox.Player.set_replaygain(p, 1, 0.0, true)           # 1 = track (player)
-Rockbox.Player.set_queue(p, ["a.flac", "b.mp3"])
+# Queue entries may be local files, http(s):// URLs to remote media,
+# or live-radio / streaming URLs — mix and match freely.
+Rockbox.Player.set_queue(p, ["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
 Rockbox.Player.play(p)
 Rockbox.Player.status(p)   # %{state: "playing", index: 0, ...}
 ```
 
-Handles (`Rockbox.Dsp` / `Rockbox.Player`) are NIF resources freed by the
-BEAM garbage collector — no explicit close.
+Handles (`Rockbox.Dsp` / `Rockbox.Decoder` / `Rockbox.Player`) are NIF
+resources freed by the BEAM garbage collector — no explicit close. Only one
+`Rockbox.Decoder` may decode at a time (the codec state is process-wide).
 
 ## Two ReplayGain encodings
 
