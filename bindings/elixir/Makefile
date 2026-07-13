@@ -40,12 +40,14 @@ ifeq ($(UNAME),Darwin)
                 -framework AudioUnit -framework CoreFoundation \
                 -framework Security -framework CoreServices
 else ifeq ($(UNAME),FreeBSD)
-  # clang/libc++ toolchain; unwind lives in base (no -lunwind).
-  LDFLAGS := -shared -lasound -ldbus-1 -lc++ -lm -lpthread
+  # clang/libc++ toolchain; unwind lives in base (no -lunwind). pkg libs live
+  # under /usr/local/lib, which isn't on the default linker search path.
+  LDFLAGS := -shared -L/usr/local/lib -lasound -ldbus-1 -lc++ -lm -lpthread
   FRAMEWORKS :=
 else ifeq ($(UNAME),NetBSD)
   # NetBSD's base toolchain is GCC/libstdc++ (no libc++), so link -lstdc++.
-  LDFLAGS := -shared -lasound -ldbus-1 -lstdc++ -lm -lpthread
+  # pkgsrc libs live under /usr/pkg/lib, which isn't on the default search path.
+  LDFLAGS := -shared -L/usr/pkg/lib -lasound -ldbus-1 -lstdc++ -lm -lpthread
   FRAMEWORKS :=
 else
   LDFLAGS := -shared -lasound -lunwind -ldbus-1 -lstdc++ -lm -lpthread
