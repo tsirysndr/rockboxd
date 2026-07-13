@@ -53,11 +53,21 @@ echo "Release: $TAG"
 echo
 
 # Pull the precompiled multi-arch NIFs into priv/ so `gleam publish` bundles them.
-# Tolerate a missing/empty release here so the guard below gives an actionable
-# message (gh exits non-zero with a terse "no assets to download" otherwise).
-echo "  downloading precompiled NIFs into priv/"
+# Only the macOS/Linux triples are shipped — the FreeBSD/NetBSD NIFs are NOT
+# fetched (listed explicitly rather than a `rockbox_ffi_nif-*.so` wildcard, which
+# would also pull the BSD ones). Tolerate a missing/empty release here so the
+# guard below gives an actionable message (gh exits non-zero with a terse
+# "no assets to download" otherwise).
+echo "  downloading precompiled NIFs into priv/ (macOS/Linux only)"
 mkdir -p "$GLEAM_DIR/priv"
-download_assets "$GLEAM_DIR/priv" 'rockbox_ffi_nif-*.so' || true
+# Drop any stale BSD .so left by an earlier wildcard fetch so `gleam publish`
+# doesn't bundle them.
+rm -f "$GLEAM_DIR/priv"/rockbox_ffi_nif-*-freebsd.so "$GLEAM_DIR/priv"/rockbox_ffi_nif-*-netbsd.so
+download_assets "$GLEAM_DIR/priv" \
+  'rockbox_ffi_nif-aarch64-apple-darwin.so' \
+  'rockbox_ffi_nif-x86_64-apple-darwin.so' \
+  'rockbox_ffi_nif-x86_64-linux-gnu.so' \
+  'rockbox_ffi_nif-aarch64-linux-gnu.so' || true
 shopt -s nullglob
 sos=("$GLEAM_DIR/priv"/rockbox_ffi_nif-*.so)
 [ ${#sos[@]} -gt 0 ] || {
