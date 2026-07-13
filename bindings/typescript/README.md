@@ -9,8 +9,9 @@
 
 TypeScript bindings for the [Rockbox](https://www.rockbox.org) audio engine —
 **metadata** parsing (40+ formats), the **DSP** pipeline (EQ, tone, surround,
-compressor, ReplayGain, resampler), and a queue-based **player** with
-crossfade. One typed API, three runtimes: **Bun**, **Deno**, and **Node.js**.
+compressor, ReplayGain, resampler), a streaming **codec** decoder, and a
+queue-based **player** with crossfade. Local files and `http(s)://` streams
+alike. One typed API, three runtimes: **Bun**, **Deno**, and **Node.js**.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -64,6 +65,7 @@ Rockbox repo). See [Building the native library](#building-the-native-library).
 import {
   metadata,
   Dsp,
+  Decoder,
   Player,
   sineStereo,
   DspReplayGainMode,
@@ -87,10 +89,25 @@ const input = sineStereo(1_000, 1.0, 44_100); // 1 s of a 1 kHz test tone
 const output: Int16Array = dsp.process(input);
 dsp.close();
 
+// --- codecs: decode a file to PCM, one chunk at a time ---------------
+const dec = new Decoder("song.flac"); // or an http(s):// URL
+console.log(dec.metadata().title); // tags from the open file
+for (let c = dec.nextChunk(); c !== null; c = dec.nextChunk()) {
+  // c.samples: interleaved-stereo Int16 PCM, c.sampleRate: Hz
+}
+console.log(dec.finished()); // { done: true, code: 0 }  (0 = clean end)
+dec.close();
+
 // --- playback (needs an audio output device) -------------------------
 const player = new Player({ volume: 0.8, crossfadeMode: CrossfadeMode.ALWAYS });
 player.setReplaygain(ReplayGainMode.TRACK, 0.0, true);
-player.setQueue(["a.flac", "b.mp3", "c.opus"]);
+// Queue entries may be local files, http(s):// URLs to remote media, or
+// live-radio / streaming URLs — mix and match freely.
+player.setQueue([
+  "a.flac",
+  "https://example.com/b.mp3",
+  "http://radio.example/stream",
+]);
 player.play();
 console.log(player.status()); // { state: "playing", index: 0, ... }
 ```
@@ -131,9 +148,31 @@ const dsp = new Dsp(sampleRate: number);
 | `setReplaygainGainsRaw(tg, ag, tp, ap: bigint)`                  | Native Q7.24 gains (the `raw_*` metadata fields)             |
 | `flush()` / `close()`                                            | Drop buffered samples / free the handle                      |
 
+### `Decoder`
+
+Streaming codec engine: decodes one audio source to interleaved-S16LE-stereo
+PCM, one chunk at a time. The source may be a local file **or an `http(s)://`
+URL** to remote media. The codec state is process-wide, so keep only one
+`Decoder` alive at a time and `close()` (or `using`) when done.
+
+```ts
+const dec = new Decoder(pathOrUrl: string);
+```
+
+| Method                                         | Description                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| `metadata(): Metadata`                         | Tags and stream properties (same shape as `metadata.read`)         |
+| `nextChunk(): { samples, sampleRate } \| null` | Next PCM buffer (interleaved stereo Int16); `null` at end of track |
+| `seekMs(ms)`                                   | Request a seek to `ms` milliseconds                                |
+| `elapsedMs(): number`                          | Playback position last reported by the codec                       |
+| `finished(): { done, code }`                   | `done` once ended; `code` is `0` (clean) or negative (codec error) |
+| `close()`                                      | Free the handle                                                    |
+
 ### `Player`
 
 Queue-based player backed by a live audio device and a background thread.
+Queue entries may be local files, `http(s)://` URLs to remote media, or
+live-radio / streaming URLs.
 
 ```ts
 const player = new Player(config?: PlayerConfig);
@@ -141,7 +180,7 @@ const player = new Player(config?: PlayerConfig);
 
 | Method                                                         | Description                              |
 | -------------------------------------------------------------- | ---------------------------------------- |
-| `setQueue(paths)` / `enqueue(path)`                            | Replace / append to the queue            |
+| `setQueue(paths)` / `enqueue(path)`                            | Replace / append (files or `http(s)://`) |
 | `play()` `pause()` `toggle()` `stop()`                         | Transport                                |
 | `next()` `previous()` `skipTo(index)` `seekMs(ms)`             | Navigation                               |
 | `setVolume(v)` / `volume()`                                    | Volume, `0.0`–`1.0`                      |
@@ -170,8 +209,8 @@ generating test tones. `abiVersion()` returns the native ABI version.
 
 ## Resource management
 
-`Dsp` and `Player` hold native handles. Free them with `close()`, or let
-`using` do it automatically (both implement `Symbol.dispose`):
+`Dsp`, `Decoder`, and `Player` hold native handles. Free them with `close()`,
+or let `using` do it automatically (all implement `Symbol.dispose`):
 
 ```ts
 using dsp = new Dsp(44_100);
