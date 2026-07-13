@@ -154,7 +154,9 @@ jobs:
             # alsa-lib + dbus are runtime link deps; gcc provides the C++
             # toolchain (g++/libstdc++) the NIF link step needs.
             sudo pkg install -y rust erlang-runtime28 elixir alsa-lib dbus gcc pkgconf gmake
-            export PATH="/usr/local/lib/erlang27/bin:$PATH"
+            # erlang-runtime28 installs its binaries under erlang28/bin and does
+            # not add them to PATH; prepend it so erl/mix find the runtime.
+            export PATH="/usr/local/lib/erlang28/bin:$PATH"
             export MAKE=gmake MIX_ENV=prod CC_PRECOMPILER_PRECOMPILE_ONLY_LOCAL=true
             export TARGET_ARCH=x86_64 TARGET_OS=unknown TARGET_ABI=freebsd
             export CARGO_PROFILE_RELEASE_DEBUG=0
