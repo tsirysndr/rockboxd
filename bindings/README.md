@@ -3,6 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-cffi-3776AB?logo=python&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-purego-00ADD8?logo=go&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Bun%20%7C%20Deno%20%7C%20Node-3178C6?logo=typescript&logoColor=white)
+![Erlang](https://img.shields.io/badge/Erlang-erl__nif-A90533?logo=erlang&logoColor=white)
 ![Elixir](https://img.shields.io/badge/Elixir-erl__nif-4B275F?logo=elixir&logoColor=white)
 ![Gleam](https://img.shields.io/badge/Gleam-erl__nif-FFAFF3?logo=gleam&logoColor=white)
 ![Ruby](https://img.shields.io/badge/Ruby-fiddle-CC342D?logo=ruby&logoColor=white)
@@ -45,6 +46,7 @@ cargo build --release -p rockbox-ffi
 | Python         | [`python/`](python)            | `cffi` (dlopen)               | `uv run python examples/smoke.py`                 |
 | Go             | [`go/`](go)                    | `purego` (dlopen, no cgo)     | `go run ./examples/smoke`                         |
 | TypeScript     | [`typescript/`](typescript)    | Bun / Deno / Node.js FFI      | `bun run examples/smoke.bun.ts`                   |
+| Erlang         | [`erlang/`](erlang)            | `erl_nif` (shared)            | `make && rebar3 compile`                          |
 | Elixir         | [`elixir/`](elixir)            | `erl_nif` (shared)            | `mix test`                                        |
 | Gleam          | [`gleam/`](gleam)              | `erl_nif` (shared)            | `make && gleam test`                              |
 | Ruby           | [`ruby/`](ruby)                | `fiddle` (dlopen)             | `ruby -Ilib examples/smoke.rb`                    |
