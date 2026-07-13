@@ -115,6 +115,8 @@ module RockboxFFI
     extern "void rb_player_set_queue_json(void*, void*)"
     extern "void rb_player_enqueue(void*, void*)"
     extern "void rb_player_insert_json(void*, void*, int32_t, size_t)"
+    extern "void rb_player_remove(void*, size_t)"
+    extern "void rb_player_clear_queue(void*)"
     extern "void* rb_player_queue_json(void*)"
     extern "void rb_player_play(void*)"
     extern "void rb_player_pause(void*)"

@@ -2,8 +2,10 @@
 
 [![Clojars Project](https://img.shields.io/clojars/v/io.github.tsirysndr/rockbox-clj-ffi.svg)](https://clojars.org/io.github.tsirysndr/rockbox-clj-ffi)
 
-Clojure bindings for the Rockbox **DSP**, **metadata**, and **playback**
-engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
+Clojure bindings for the Rockbox **DSP**, **metadata**, **codecs**, and
+**playback** engine, over the shared
+[`rockbox-ffi`](https://github.com/tsirysndr/rockboxd/tree/master/crates/rockbox-ffi)
+C ABI.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -43,6 +45,7 @@ mise exec -- clojure -M:play /path/to/audio     # play through the output device
 ```clojure
 (require '[rockbox.ffi.metadata :as metadata]
          '[rockbox.ffi.dsp :as dsp]
+         '[rockbox.ffi.decoder :as decoder]
          '[rockbox.ffi.player :as player])
 
 ;; metadata -> map with keyword keys
@@ -55,18 +58,32 @@ mise exec -- clojure -M:play /path/to/audio     # play through the output device
   (dsp/set-eq-band d 0 100 0.7 3.0)
   (dsp/process d samples))           ; => short-array
 
+;; Codecs — decode a file to PCM, one chunk at a time
+(decoder/with-decoder [d "/music/song.flac"]
+  (:title (decoder/metadata d))      ; tags from the open file
+  (loop []
+    (when-let [[samples rate] (decoder/next-chunk d)]
+      ;; samples: interleaved-stereo signed 16-bit PCM at `rate` Hz
+      (recur)))
+  (decoder/finished d))              ; => [true 0]  (0 = clean end)
+
 ;; Player (queue + transport)
 (player/with-player [p {:volume 0.8}]
-  (player/set-queue p ["/music/a.flac" "/music/b.mp3"])
+  ;; Queue entries may be local files, http(s):// URLs to remote media,
+  ;; or live-radio / streaming URLs — mix and match freely.
+  (player/set-queue p ["/music/a.flac"
+                       "https://example.com/b.mp3"
+                       "http://radio.example/stream"])
   (player/play p)
   (:state (player/status p)))
 ```
 
 - Rich values (metadata, player status) come back as maps with keyword keys,
   parsed from the ABI's JSON with `clojure.data.json`.
-- Native memory is freed automatically: `with-dsp` / `with-player` free their
-  handle, and every `char*` / `int16*` the ABI returns is freed inside the
-  binding.
+- Native memory is freed automatically: `with-dsp` / `with-decoder` /
+  `with-player` free their handle, and every `char*` / `int16*` the ABI returns
+  is freed inside the binding. The codec engine is process-wide, so only one
+  decoder may run at a time — opening a second blocks until the first is freed.
 - Enum arguments accept either a keyword or the raw int (see
   [`src/rockbox/enums.clj`](src/rockbox/enums.clj)). **Two ReplayGain
   encodings**: `dsp-replaygain-mode` (`:track` 0, `:album` 1, `:shuffle` 2,

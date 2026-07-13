@@ -113,6 +113,20 @@ class Player:
             return []
         return json.loads(s)
 
+    def remove(self, index: int) -> None:
+        """Remove the track at ``index`` (0-based) from the queue.
+
+        An out-of-range ``index`` is ignored. Removing a track before the
+        current one keeps the current track playing; removing the
+        currently-playing track hard-cuts to the track that slides into its
+        place; removing the last remaining track stops playback.
+        """
+        lib.rb_player_remove(self._p, int(index))
+
+    def clear_queue(self) -> None:
+        """Empty the queue and stop playback (also clears saved resume state)."""
+        lib.rb_player_clear_queue(self._p)
+
     # -- transport --------------------------------------------------------
     def play(self) -> None:
         lib.rb_player_play(self._p)

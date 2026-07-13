@@ -177,6 +177,18 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
         }
     }
 
+    /**
+     * Remove the track at [index] (0-based) from the queue. An out-of-range
+     * index is ignored. Removing a track *before* the current one keeps the
+     * current track playing; removing the currently-playing track hard-cuts to
+     * the track that slides into its place; removing the last remaining track
+     * stops playback.
+     */
+    fun remove(index: Long) { Native.playerRemove.invokeWithArguments(handle(), index) }
+
+    /** Empty the queue and stop playback (also clears any saved resume state). */
+    fun clearQueue() { Native.playerClearQueue.invokeWithArguments(handle()) }
+
     /** The current queue as a list of paths/URLs. */
     fun queue(): List<String> {
         val json = Native.takeString(Native.playerQueueJson.invokeWithArguments(handle()) as MemorySegment)

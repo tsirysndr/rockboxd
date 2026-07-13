@@ -7,9 +7,9 @@
 ![NIF](https://img.shields.io/badge/native-erl__nif-5C4B8A)
 ![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)
 
-Gleam bindings for the Rockbox **DSP**, **metadata**, and **playback**
-engine (Erlang target), via an `erl_nif` shim over the `librockbox_ffi`
-C ABI.
+Gleam bindings for the Rockbox **DSP**, **metadata**, **codecs**, and
+**playback** engine (Erlang target), via an `erl_nif` shim over the
+`librockbox_ffi` C ABI.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -71,6 +71,7 @@ gleam test
 ```gleam
 import rockbox/metadata
 import rockbox/dsp
+import rockbox/decoder
 import rockbox/player
 import gleam/option.{None, Some}
 
@@ -88,16 +89,28 @@ dsp.set_replaygain(d, 0, True, 0.0)                 // 0 = track (DSP-native)
 dsp.set_replaygain_gains(d, Some(-6.02), None, None, None)
 let out = dsp.process(d, pcm)                        // BitArray in/out
 
+// --- codecs (decode a file to PCM, one chunk at a time) ---
+let dec = decoder.open("song.flac")
+let m = decoder.metadata(dec)                        // tags from the open file
+case decoder.next_chunk(dec) {                       // Some(#(samples, rate)) | None
+  Some(#(samples, sample_rate)) -> todo              // int16 LE interleaved stereo
+  None -> todo                                       // end of track — see finished
+}
+decoder.finished(dec)                                // #(True, 0)  (0 = clean)
+
 // --- playback (needs an output device) ---
 let p = player.with_config(player.Config(..player.default_config(), volume: 0.8))
 player.set_replaygain(p, 1, 0.0, True)              // 1 = track (player)
-player.set_queue(p, ["a.flac", "b.mp3"])
+// Queue entries may be local files, http(s):// URLs to remote media,
+// or live-radio / streaming URLs — mix and match freely.
+player.set_queue(p, ["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
 player.play(p)
 player.status(p)   // Status(state: "playing", index: Some(0), ...)
 ```
 
-`Dsp` and `Player` are opaque NIF resources, freed by the BEAM garbage
-collector — no explicit close.
+`Dsp`, `Decoder`, and `Player` are opaque NIF resources, freed by the BEAM
+garbage collector — no explicit close. Only one `Decoder` may decode at a time
+(the codec state is process-wide).
 
 ## Two ReplayGain encodings
 

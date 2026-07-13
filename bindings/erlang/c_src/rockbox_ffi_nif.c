@@ -480,6 +480,7 @@ PLAYER0(nif_player_toggle, rb_player_toggle(p))
 PLAYER0(nif_player_stop, rb_player_stop(p))
 PLAYER0(nif_player_next, rb_player_next(p))
 PLAYER0(nif_player_previous, rb_player_previous(p))
+PLAYER0(nif_player_clear_queue, rb_player_clear_queue(p))
 
 static ERL_NIF_TERM nif_player_set_queue_json(ErlNifEnv *env, int argc,
                                               const ERL_NIF_TERM argv[]) {
@@ -502,6 +503,16 @@ static ERL_NIF_TERM nif_player_enqueue(ErlNifEnv *env, int argc,
   if (!path) return enif_make_badarg(env);
   rb_player_enqueue(p, path);
   enif_free(path);
+  return am_nil;
+}
+
+static ERL_NIF_TERM nif_player_remove(ErlNifEnv *env, int argc,
+                                      const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  RbPlayer *p = get_player(env, argv[0]);
+  ErlNifUInt64 idx;
+  if (!p || !enif_get_uint64(env, argv[1], &idx)) return enif_make_badarg(env);
+  rb_player_remove(p, (size_t)idx);
   return am_nil;
 }
 
@@ -1068,6 +1079,8 @@ static ErlNifFunc funcs[] = {
      ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"player_set_queue_json", 2, nif_player_set_queue_json, 0},
     {"player_enqueue", 2, nif_player_enqueue, 0},
+    {"player_remove", 2, nif_player_remove, 0},
+    {"player_clear_queue", 1, nif_player_clear_queue, 0},
     {"player_play", 1, nif_player_play, 0},
     {"player_pause", 1, nif_player_pause, 0},
     {"player_toggle", 1, nif_player_toggle, 0},

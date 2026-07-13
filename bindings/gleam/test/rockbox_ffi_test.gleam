@@ -66,6 +66,29 @@ pub fn player_queue_and_insert_test() {
   player.status(p).queue_len |> should.equal(2)
 }
 
+pub fn player_remove_test() {
+  let p = player.with_config(player.Config(..player.default_config(), volume: 0.0))
+  player.set_queue(p, [fixture, fixture])
+  sleep(100)
+  player.queue(p) |> list.length |> should.equal(2)
+
+  // Drop the entry at index 0; one track remains.
+  player.remove(p, 0)
+  sleep(100)
+  player.queue(p) |> list.length |> should.equal(1)
+}
+
+pub fn player_clear_queue_test() {
+  let p = player.with_config(player.Config(..player.default_config(), volume: 0.0))
+  player.set_queue(p, [fixture, fixture])
+  sleep(100)
+
+  // Wipe the queue entirely.
+  player.clear_queue(p)
+  sleep(100)
+  player.queue(p) |> list.length |> should.equal(0)
+}
+
 pub fn is_url_test() {
   player.is_url("http://example.com/a.mp3") |> should.be_true
   player.is_url("https://example.com/a.mp3") |> should.be_true

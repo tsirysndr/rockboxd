@@ -69,6 +69,32 @@ defmodule RockboxTest do
     assert Enum.all?(q, &is_binary/1)
   end
 
+  test "queue remove drops one entry" do
+    p = Rockbox.Player.new(volume: 0.0)
+
+    p
+    |> Rockbox.Player.set_queue([@fixture, @fixture])
+    |> Rockbox.Player.remove(0)
+
+    Process.sleep(100)
+
+    q = Rockbox.Player.queue(p)
+    assert is_list(q)
+    assert length(q) == 1
+  end
+
+  test "clear_queue empties the queue" do
+    p = Rockbox.Player.new(volume: 0.0)
+
+    p
+    |> Rockbox.Player.set_queue([@fixture, @fixture])
+    |> Rockbox.Player.clear_queue()
+
+    Process.sleep(100)
+
+    assert Rockbox.Player.queue(p) == []
+  end
+
   test "insert position atom maps to code" do
     assert Rockbox.InsertPosition.to_int(:prepend) == 0
     assert Rockbox.InsertPosition.to_int(:index) == 7

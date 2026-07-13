@@ -219,6 +219,16 @@ func (p *Player) Queue() ([]string, error) {
 	return paths, nil
 }
 
+// Remove deletes the queue entry at index (0-based). An out-of-range index is
+// ignored. Removing a track before the current one keeps the current track
+// playing; removing the currently-playing track hard-cuts to the track that
+// slides into its place; removing the last remaining track stops playback.
+func (p *Player) Remove(index int) { rbPlayerRemove(p.ptr, uint64(index)) }
+
+// ClearQueue empties the queue and stops playback (also clearing any saved
+// resume state).
+func (p *Player) ClearQueue() { rbPlayerClearQueue(p.ptr) }
+
 // Play starts (or resumes) playback.
 func (p *Player) Play() { rbPlayerPlay(p.ptr) }
 

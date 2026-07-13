@@ -110,3 +110,52 @@ func TestPlayerConstructAndStatus(t *testing.T) {
 		t.Errorf("QueueLen = %d, want 1", st.QueueLen)
 	}
 }
+
+func TestPlayerRemoveAndClearQueue(t *testing.T) {
+	cfg := rockbox.DefaultConfig()
+	cfg.Volume = 0.0
+	player, err := rockbox.NewPlayer(cfg)
+	if err != nil {
+		// Constructing a Player opens a live output device; headless CI
+		// runners often have none. Skip rather than fail there.
+		t.Skipf("no audio output device available: %v", err)
+	}
+	defer player.Close()
+
+	fx := fixture(t)
+	if err := player.SetQueue([]string{fx, fx, fx}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // queue command is applied asynchronously
+
+	st, err := player.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.QueueLen != 3 {
+		t.Fatalf("QueueLen = %d, want 3", st.QueueLen)
+	}
+
+	// Remove one entry — the queue should shrink by one.
+	player.Remove(0)
+	time.Sleep(100 * time.Millisecond)
+	if st, err = player.Status(); err != nil {
+		t.Fatal(err)
+	}
+	if st.QueueLen != 2 {
+		t.Errorf("after Remove, QueueLen = %d, want 2", st.QueueLen)
+	}
+
+	// ClearQueue empties everything and stops playback.
+	player.ClearQueue()
+	time.Sleep(100 * time.Millisecond)
+	if st, err = player.Status(); err != nil {
+		t.Fatal(err)
+	}
+	if st.QueueLen != 0 {
+		t.Errorf("after ClearQueue, QueueLen = %d, want 0", st.QueueLen)
+	}
+	if st.State != "stopped" {
+		t.Errorf("after ClearQueue, State = %q, want stopped", st.State)
+	}
+}

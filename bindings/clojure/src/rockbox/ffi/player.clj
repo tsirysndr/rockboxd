@@ -19,7 +19,7 @@
 
   Getters/queries (`volume`, `status`, `queue`, `dsp-settings`, …) return their
   values as usual."
-  (:refer-clojure :exclude [next repeat])
+  (:refer-clojure :exclude [next remove repeat])
   (:require [rockbox.ffi :as ffi]
             [rockbox.ffi.enums :as enums]
             [clojure.data.json :as json])
@@ -113,6 +113,23 @@
                (int (enums/code enums/insert-position position))
                (long index)))
    p))
+
+(defn remove
+  "Remove the track at `index` (0-based) from the queue. An out-of-range index
+  is ignored. Removing a track *before* the current one keeps the current track
+  playing; removing the currently-playing track hard-cuts to the track that
+  slides into its place; removing the last remaining track stops playback.
+  Returns `p` for threading."
+  [^MemorySegment p index]
+  (ffi/call :player-remove p (long index))
+  p)
+
+(defn clear-queue
+  "Empty the queue and stop playback (also clears any saved resume state).
+  Returns `p` for threading."
+  [^MemorySegment p]
+  (ffi/call :player-clear-queue p)
+  p)
 
 (defn queue
   "The current queue as a vector of path/URL strings."

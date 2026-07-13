@@ -85,6 +85,8 @@ export const SPEC: Record<string, SymSpec> = {
   rb_player_set_queue_json: { args: ["ptr", "strbuf"], ret: "void" },
   rb_player_enqueue: { args: ["ptr", "strbuf"], ret: "void" },
   rb_player_insert_json: { args: ["ptr", "strbuf", "i32", "usize"], ret: "void" },
+  rb_player_remove: { args: ["ptr", "usize"], ret: "void" },
+  rb_player_clear_queue: { args: ["ptr"], ret: "void" },
   rb_player_queue_json: { args: ["ptr"], ret: "ptr" },
   rb_player_play: { args: ["ptr"], ret: "void" },
   rb_player_pause: { args: ["ptr"], ret: "void" },

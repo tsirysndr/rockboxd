@@ -62,6 +62,27 @@ class RockboxFFITest < Minitest::Test
     end
   end
 
+  def test_player_remove_and_clear_queue
+    RockboxFFI::Player.open(volume: 0.0) do |player|
+      player.set_queue([FIXTURE, FIXTURE, FIXTURE])
+      sleep 0.1
+      assert_equal 3, player.queue.length
+
+      player.remove(1)
+      sleep 0.1
+      assert_equal 2, player.queue.length
+
+      # Out-of-range index is ignored (no change, no raise).
+      player.remove(99)
+      sleep 0.1
+      assert_equal 2, player.queue.length
+
+      player.clear_queue
+      sleep 0.1
+      assert_empty player.queue
+    end
+  end
+
   def test_player_export_and_load_m3u
     dir = Dir.mktmpdir
     m3u = File.join(dir, "queue.m3u8")

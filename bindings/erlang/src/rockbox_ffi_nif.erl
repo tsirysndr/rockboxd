@@ -65,7 +65,8 @@ rockbox_ffi_nif:player_play(P).
          dsp_set_replaygain_gains_raw/5, dsp_set_eq_band/5, dsp_set_eq_precut/2,
          dsp_process/2,
          player_new/0, player_new_with_config/12, player_set_queue_json/2,
-         player_enqueue/2, player_play/1, player_pause/1, player_toggle/1,
+         player_enqueue/2, player_remove/2, player_clear_queue/1,
+         player_play/1, player_pause/1, player_toggle/1,
          player_stop/1, player_next/1, player_previous/1, player_skip_to/2,
          player_seek_ms/2, player_set_volume/2, player_set_balance/2,
          player_volume/1, player_balance/1,
@@ -535,6 +536,21 @@ player_set_queue_json(_P, _Json) -> ?NOT_LOADED.
 Append one track (`Path`, a binary path or URL) to the queue. Returns `nil`.
 """.
 player_enqueue(_P, _Path) -> ?NOT_LOADED.
+
+-doc """
+Remove the track at zero-based `Idx` from the queue. An out-of-range index is
+ignored. Removing a track before the current one keeps the current track
+playing; removing the currently-playing track hard-cuts to the track that
+slides into its place; removing the last remaining track stops playback.
+Returns `nil`.
+""".
+player_remove(_P, _Idx) -> ?NOT_LOADED.
+
+-doc """
+Empty the queue and stop playback (also clears any saved resume state).
+Returns `nil`.
+""".
+player_clear_queue(_P) -> ?NOT_LOADED.
 
 -doc "Start (or resume) playback of the current queue. Returns `nil`.".
 player_play(_P) -> ?NOT_LOADED.

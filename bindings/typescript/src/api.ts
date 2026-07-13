@@ -293,6 +293,22 @@ export function makeApi(raw: Raw) {
       s.rb_player_insert_json(this.#h, raw.cstr(JSON.stringify(paths)), position, index);
       return this;
     }
+    /**
+     * Remove the track at `index` (0-based) from the queue. An out-of-range
+     * index is ignored. Removing a track before the current one keeps the
+     * current track playing; removing the currently-playing track hard-cuts to
+     * the track that slides into its place; removing the last remaining track
+     * stops playback.
+     */
+    remove(index: number): this {
+      s.rb_player_remove(this.#h, index);
+      return this;
+    }
+    /** Empty the queue and stop playback (also clears any saved resume state). */
+    clearQueue(): this {
+      s.rb_player_clear_queue(this.#h);
+      return this;
+    }
     /** The current queue as an array of paths/URLs. */
     queue(): string[] {
       const json = raw.takeString(s.rb_player_queue_json(this.#h));

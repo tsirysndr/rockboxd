@@ -75,6 +75,8 @@ var (
 	rbPlayerSetQueueJSON    func(uintptr, string)
 	rbPlayerEnqueue         func(uintptr, string)
 	rbPlayerInsertJSON      func(uintptr, string, int32, uint64)
+	rbPlayerRemove          func(uintptr, uint64)
+	rbPlayerClearQueue      func(uintptr)
 	rbPlayerQueueJSON       func(uintptr) uintptr
 	rbPlayerPlay            func(uintptr)
 	rbPlayerPause           func(uintptr)
@@ -181,6 +183,8 @@ func init() {
 	purego.RegisterLibFunc(&rbPlayerSetQueueJSON, handle, "rb_player_set_queue_json")
 	purego.RegisterLibFunc(&rbPlayerEnqueue, handle, "rb_player_enqueue")
 	purego.RegisterLibFunc(&rbPlayerInsertJSON, handle, "rb_player_insert_json")
+	purego.RegisterLibFunc(&rbPlayerRemove, handle, "rb_player_remove")
+	purego.RegisterLibFunc(&rbPlayerClearQueue, handle, "rb_player_clear_queue")
 	purego.RegisterLibFunc(&rbPlayerQueueJSON, handle, "rb_player_queue_json")
 	purego.RegisterLibFunc(&rbPlayerPlay, handle, "rb_player_play")
 	purego.RegisterLibFunc(&rbPlayerPause, handle, "rb_player_pause")

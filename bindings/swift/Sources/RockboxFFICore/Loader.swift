@@ -189,6 +189,8 @@ final class Lib {
     let playerNext: FnPlayerVoid
     let playerPrevious: FnPlayerVoid
     let playerSkipTo: FnPlayerSize
+    let playerRemove: FnPlayerSize
+    let playerClearQueue: FnPlayerVoid
     let playerSeekMs: FnPlayerU64
     let playerSetVolume: FnPlayerF
     let playerSetBalance: FnPlayerI1
@@ -299,6 +301,8 @@ final class Lib {
         playerNext = try sym("rb_player_next", FnPlayerVoid.self)
         playerPrevious = try sym("rb_player_previous", FnPlayerVoid.self)
         playerSkipTo = try sym("rb_player_skip_to", FnPlayerSize.self)
+        playerRemove = try sym("rb_player_remove", FnPlayerSize.self)
+        playerClearQueue = try sym("rb_player_clear_queue", FnPlayerVoid.self)
         playerSeekMs = try sym("rb_player_seek_ms", FnPlayerU64.self)
         playerSetVolume = try sym("rb_player_set_volume", FnPlayerF.self)
         playerSetBalance = try sym("rb_player_set_balance", FnPlayerI1.self)

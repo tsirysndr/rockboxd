@@ -116,6 +116,20 @@ public final class Player {
         return self
     }
 
+    /// Remove the track at `index` (0-based) from the queue. An out-of-range
+    /// index is ignored.
+    ///
+    /// Removing a track *before* the current one keeps the current track
+    /// playing; removing the currently-playing track hard-cuts to the track
+    /// that slides into its place; removing the last remaining track stops
+    /// playback.
+    @discardableResult
+    public func remove(_ index: Int) -> Self { lib.playerRemove(ptr, index); return self }
+
+    /// Empty the queue and stop playback (also clears any saved resume state).
+    @discardableResult
+    public func clearQueue() -> Self { lib.playerClearQueue(ptr); return self }
+
     /// The current queue as an array of paths/URLs.
     public func queue() -> [String] {
         guard let json = lib.takeString(lib.playerQueueJson(ptr)),

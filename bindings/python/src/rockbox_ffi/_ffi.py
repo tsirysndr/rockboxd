@@ -94,6 +94,8 @@ ffi.cdef(
     void  rb_player_next(RbPlayer *p);
     void  rb_player_previous(RbPlayer *p);
     void  rb_player_skip_to(RbPlayer *p, size_t index);
+    void  rb_player_remove(RbPlayer *p, size_t index);
+    void  rb_player_clear_queue(RbPlayer *p);
     void  rb_player_seek_ms(RbPlayer *p, uint64_t ms);
     void  rb_player_set_volume(RbPlayer *p, float vol);
     void  rb_player_set_balance(RbPlayer *p, int32_t balance);
