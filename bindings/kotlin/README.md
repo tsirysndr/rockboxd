@@ -1,7 +1,8 @@
 # rockbox-ffi — Kotlin
 
-Kotlin/JVM bindings for the Rockbox **DSP**, **metadata**, and **playback**
-engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi) C ABI.
+Kotlin/JVM bindings for the Rockbox **DSP**, **metadata**, **codecs**, and
+**playback** engine, over the shared [`rockbox-ffi`](../../crates/rockbox-ffi)
+C ABI.
 
 > 📖 **Sound settings reference** — the equalizer, tone, crossfeed, compressor
 > and other DSP controls mirror Rockbox's own. See the official
@@ -53,9 +54,25 @@ Dsp(44_100).use { dsp ->
     val out: ShortArray = dsp.process(samples)
 }
 
+// Codecs (decode a file to PCM, one chunk at a time)
+Decoder("/music/song.flac").use { dec ->
+    println(dec.metadata()["title"])            // tags from the open file
+    while (true) {
+        val (samples, sampleRate) = dec.nextChunk() ?: break
+        // samples: interleaved-stereo signed 16-bit PCM at `sampleRate` Hz
+    }
+    val (done, code) = dec.finished()           // (true, 0) => clean end
+}
+
 // Player (queue + transport)
 Player(Player.Config().apply { volume = 0.8f }).use { player ->
-    player.setQueue(listOf("/music/a.flac", "/music/b.mp3"))
+    // Queue entries may be local files, http(s):// URLs to remote media,
+    // or live-radio / streaming URLs — mix and match freely.
+    player.setQueue(listOf(
+        "/music/a.flac",
+        "https://example.com/b.mp3",
+        "http://radio.example/stream",
+    ))
     player.play()
     println(player.status()["state"])
 }
@@ -63,8 +80,11 @@ Player(Player.Config().apply { volume = 0.8f }).use { player ->
 
 - Rich values (metadata, player status) come back as `Map<String, Any?>`,
   parsed from the ABI's JSON with `org.json`.
-- Native memory is freed automatically: handles are `AutoCloseable` (`use { }`),
-  and every `char*` / `int16*` the ABI returns is freed inside the binding.
+- Native memory is freed automatically: `Dsp`, `Decoder` and `Player` handles
+  are `AutoCloseable` (`use { }`), and every `char*` / `int16*` the ABI returns
+  is freed inside the binding.
+- `Decoder` drives the process-wide Rockbox codec engine, so only one may decode
+  at a time — constructing a second one blocks until the first is closed.
 - **Two ReplayGain encodings** — `DspReplayGainMode` (TRACK=0, ALBUM=1,
   SHUFFLE=2, OFF=3) for `Dsp`, `ReplayGainMode` (OFF=0, TRACK=1, ALBUM=2) for
   `Player`.
