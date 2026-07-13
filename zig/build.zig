@@ -141,6 +141,16 @@ pub fn build(b: *std.Build) void {
     });
     if (syslibs_dir.len > 0) {
         exe.root_module.addLibraryPath(.{ .cwd_relative = syslibs_dir });
+        // The cross-target syslib stubs (e.g. libasound.so) are copied from a
+        // glibc >= 2.38 sysroot, so they carry versioned undefined references
+        // like __isoc23_strtol@GLIBC_2.38. These are link-time stubs only — at
+        // runtime the target device's own (older) libraries resolve them to the
+        // classic symbols. Our static __isoc23_* shim satisfies the firmware's
+        // own object references, but LLD's default --no-allow-shlib-undefined
+        // still rejects the *versioned* references coming from the shared-lib
+        // stubs. Relax that check; it is scoped to cross builds (syslibs-dir set)
+        // so the native target keeps strict shared-library validation.
+        exe.linker_allow_shlib_undefined = true;
     }
 
     if (target.result.os.tag == .macos) {
