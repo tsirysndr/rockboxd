@@ -1,10 +1,10 @@
 # rockbox_ffi_nif
 
-Shared Erlang NIF over the [`librockbox_ffi`](../../crates/rockbox-ffi) C ABI —
+Shared Erlang NIF over the [`librockbox_ffi`](https://github.com/tsirysndr/rockboxd/tree/master/crates/rockbox-ffi) C ABI —
 the Rockbox DSP / metadata / codecs / playback engine exposed to the BEAM.
 
 This is the **common native layer** for the language bindings that run on the
-BEAM. The [Elixir](../elixir) (`rockbox_ex_ffi`) and [Gleam](../gleam)
+BEAM. The [Elixir](https://github.com/tsirysndr/rockboxd/tree/master/bindings/elixir) (`rockbox_ex_ffi`) and [Gleam](https://github.com/tsirysndr/rockboxd/tree/master/bindings/gleam)
 (`rockbox_ffi`) packages both depend on this one instead of each vendoring
 their own copy of the C shim and Erlang loader; the ergonomic wrappers live in
 those packages.
