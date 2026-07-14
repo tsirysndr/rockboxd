@@ -495,8 +495,7 @@ unsafe extern "C" fn sync_sink_trampoline(
 /// Blocks while another decode / `Decoder` is in flight (codec state is global).
 pub fn decode_file_sync<P: AsRef<Path>>(path: P) -> Result<DecodedBuffer, Error> {
     let path = path.as_ref();
-    let c_path =
-        CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::InvalidPath)?;
+    let c_path = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::InvalidPath)?;
 
     GATE.acquire();
 
