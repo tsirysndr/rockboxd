@@ -1,5 +1,0 @@
-<<<<<<< HEAD
-{"root":["./src/app.tsx","./src/main.tsx","./src/userockbox.ts","./vite.config.ts"],"version":"5.9.3"}
-=======
-{"root":["./src/app.tsx","./src/main.tsx","./src/userockbox.ts","./vite.config.ts"],"errors":true,"version":"5.9.3"}
->>>>>>> 11087dcf2d (wasm/example: fix dev start — copy-wasm resolution + RepeatMode type)

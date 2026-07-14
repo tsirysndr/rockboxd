@@ -5,7 +5,7 @@
   ships it as the `rockbox-wasm` npm package plus a Vite/React/TS example.
 
       (wasm/build)     ;; bash bindings/wasm/scripts/build.sh  -> dist/
-      (wasm/example)   ;; run the Vite React example (npm install + dev)
+      (wasm/example)   ;; run the Vite React example (bun install + dev)
       (wasm/dev)       ;; build the package, then run the example
       (wasm/publish)   ;; build, then npm publish (args pass through)
 
@@ -20,9 +20,9 @@
   (sh/bash "bindings/wasm/scripts/build.sh"))
 
 (defn example
-  "Run the Vite + React + TypeScript example (npm install, then dev server)."
+  "Run the Vite + React + TypeScript example (bun install, then dev server)."
   []
-  (sh/sh ["bash" "-c" "cd bindings/wasm/example && npm install && npm run dev"]))
+  (sh/sh ["bash" "-c" "cd bindings/wasm/example && bun install && bun run dev"]))
 
 (defn dev
   "Build the package, then run the example (Ctrl-C to stop)."

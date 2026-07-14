@@ -10,12 +10,12 @@ relative `file:..` dependency.
 # 1. Build the package once (needs Emscripten + the wasm Rust target):
 (cd .. && bash scripts/build.sh)
 
-# 2. Install + start the dev server:
-npm install
-npm run dev            # → http://localhost:5173
+# 2. Install + start the dev server (uses bun):
+bun install
+bun run dev            # → http://localhost:5173
 ```
 
-`npm install` links the parent package via `"rockbox-wasm": "file:.."`. A
+`bun install` links the parent package via `"rockbox-wasm": "file:.."`. A
 `copy-wasm` step (run automatically before `dev`/`build`) copies the built
 `dist/` into `public/rockbox`, and the app points at it with
 `new RockboxPlayer({ baseUrl: "/rockbox" })`.

@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "copy-wasm": "node scripts/copy-wasm.mjs",
-    "predev": "npm run copy-wasm",
+    "predev": "node scripts/copy-wasm.mjs",
     "dev": "vite",
-    "prebuild": "npm run copy-wasm",
+    "prebuild": "node scripts/copy-wasm.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
