@@ -131,8 +131,8 @@
     <div class="row">
       <input id="url-input" type="url" placeholder="https://…/song.flac  (or a file served from web/)"
              value="">
-      <button id="btn-play-url" class="primary" disabled>Play</button>
-      <button id="btn-enqueue" disabled>+ Queue</button>
+      <button id="btn-play-url" class="primary">Play</button>
+      <button id="btn-enqueue">+ Queue</button>
     </div>
 
     <div class="now">
@@ -289,8 +289,13 @@ function enableUI() {
 }
 
 // ── Transport wiring ──────────────────────────────────────────────────────
-let booted = false;
-async function ensureBooted() { if (!booted) { booted = true; await boot(); } }
+// Boot exactly once, on the first Play/Queue click (AudioContext + the whole
+// audio graph need a user gesture). Retry on failure; ignore concurrent calls.
+let bootPromise = null;
+function ensureBooted() { return (bootPromise ??= boot().catch((e) => { bootPromise = null; throw e; })); }
+
+// Friendly starting message (nothing is actually initialising until you click).
+log('Ready — paste an audio URL and press Play.');
 
 $('btn-play-url').addEventListener('click', async () => {
   await ensureBooted();
