@@ -443,33 +443,6 @@ impl Decoder {
         }
     }
 
-    /// Non-blocking [`next_chunk`]. Returns `Ready(Some(chunk))` when a buffer
-    /// is available, `Ready(None)` at end of track / error, or `Pending` when
-    /// the codec hasn't produced the next buffer yet — poll again later.
-    ///
-    /// Use this instead of [`next_chunk`] where the caller thread must not
-    /// block (e.g. an Emscripten module's main thread, which has to stay
-    /// responsive to service proxied operations like memory growth).
-    pub fn poll_chunk(&mut self) -> std::task::Poll<Option<Chunk>> {
-        use std::sync::mpsc::TryRecvError;
-        use std::task::Poll;
-        if self.status.is_some() {
-            return Poll::Ready(None);
-        }
-        match self.rx.try_recv() {
-            Ok(Msg::Pcm(chunk)) => Poll::Ready(Some(chunk)),
-            Ok(Msg::Done(status)) => {
-                self.status = Some(status);
-                Poll::Ready(None)
-            }
-            Err(TryRecvError::Empty) => Poll::Pending,
-            Err(TryRecvError::Disconnected) => {
-                self.status = Some(-1);
-                Poll::Ready(None)
-            }
-        }
-    }
-
     /// Request a seek to `pos` (picked up at the codec's next command
     /// poll; PCM already queued from before the seek still drains first).
     pub fn seek(&mut self, pos: Duration) {

@@ -106,11 +106,8 @@ mkdir -p "$OUTPUT_DIR"
 # rockbox-ffi C ABI (see include/rockbox_ffi.h).
 EXPORTED_FUNCTIONS='["_malloc","_free","_rb_ffi_abi_version",
     "_rb_decoder_open","_rb_decoder_free","_rb_decoder_metadata_json",
-    "_rb_decoder_next_chunk","_rb_decoder_try_next_chunk",
-    "_rb_decoder_seek_ms","_rb_decoder_elapsed_ms",
+    "_rb_decoder_next_chunk","_rb_decoder_seek_ms","_rb_decoder_elapsed_ms",
     "_rb_decoder_finished",
-    "_rb_stream_new","_rb_stream_feed","_rb_stream_close",
-    "_rb_stream_available","_rb_stream_free","_rb_decoder_open_stream",
     "_rb_dsp_new","_rb_dsp_free","_rb_dsp_set_input_frequency","_rb_dsp_flush",
     "_rb_dsp_eq_enable","_rb_dsp_set_eq_band","_rb_dsp_set_eq_precut",
     "_rb_dsp_set_tone","_rb_dsp_set_tone_cutoffs","_rb_dsp_set_surround",

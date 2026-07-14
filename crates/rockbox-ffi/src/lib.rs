@@ -18,7 +18,6 @@ mod dsp;
 mod meta;
 #[cfg(feature = "player")]
 mod player;
-mod stream;
 mod util;
 
 pub use codecs::*;
@@ -26,7 +25,6 @@ pub use dsp::*;
 pub use meta::*;
 #[cfg(feature = "player")]
 pub use player::*;
-pub use stream::*;
 pub use util::*;
 
 /// ABI version of this library. Bump the major on any breaking change to a

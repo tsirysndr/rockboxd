@@ -377,11 +377,20 @@ $('width').addEventListener('input', (e) => {
 player.on('track', (m) => {
   const md = m.metadata || {};
   const fallback = decodeURIComponent(m.url.split('/').pop() || '') || 'Unknown';
-  $('track-title').textContent  = md.title || (m.live ? new URL(m.url).host : fallback);
-  $('track-artist').textContent = m.live ? 'Live stream'
-                                         : [md.artist, md.album].filter(Boolean).join(' — ');
-  const bits = [md.codec, md.sample_rate && `${(md.sample_rate / 1000).toFixed(1)} kHz`,
-                md.bitrate && `${md.bitrate} kbps`].filter(Boolean);
+  if (m.live) {
+    // Prefer the ICY StreamTitle (current song); fall back to station / host.
+    $('track-title').textContent  = md.title || md.station || new URL(m.url).host;
+    $('track-artist').textContent = md.artist || md.station || 'Live stream';
+  } else {
+    $('track-title').textContent  = md.title || fallback;
+    $('track-artist').textContent = [md.artist, md.album].filter(Boolean).join(' — ');
+  }
+  // Format · sample rate · bitrate
+  const bits = [
+    md.codec && md.codec.toUpperCase(),
+    md.sample_rate && `${(md.sample_rate / 1000).toFixed(1)} kHz`,
+    md.bitrate && `${md.bitrate} kbps`,
+  ].filter(Boolean);
   $('track-meta').textContent = bits.join('  ·  ');
 });
 

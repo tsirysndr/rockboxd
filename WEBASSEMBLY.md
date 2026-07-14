@@ -151,13 +151,8 @@ in `include/rockbox_ffi.h`). Every symbol JS calls is listed in
 `EXPORTED_FUNCTIONS` in `scripts/build-wasm.sh` — a missing entry is silently
 dead-stripped and `Module._rb_foo` becomes `undefined` at runtime.
 
-- **Decode (file)**: `rb_decoder_open`, `rb_decoder_next_chunk`,
-  `rb_decoder_try_next_chunk` (non-blocking — used by the pump so the module's
-  main thread never parks), `rb_decoder_seek_ms`, `rb_decoder_metadata_json`,
-  `rb_decoder_finished`, `rb_decoder_free`
-- **Decode (live stream)**: `rb_stream_new`, `rb_stream_feed`,
-  `rb_stream_close`, `rb_stream_available`, `rb_stream_free`,
-  `rb_decoder_open_stream`
+- **Decode**: `rb_decoder_open`, `rb_decoder_next_chunk`, `rb_decoder_seek_ms`,
+  `rb_decoder_metadata_json`, `rb_decoder_finished`, `rb_decoder_free`
 - **DSP**: `rb_dsp_new`, `rb_dsp_set_input_frequency`, `rb_dsp_process`,
   `rb_dsp_eq_enable`, `rb_dsp_set_eq_band`, `rb_dsp_set_eq_precut`,
   `rb_dsp_set_tone`, `rb_dsp_set_surround`, `rb_dsp_set_channel_config`,
@@ -186,12 +181,14 @@ files served from `web/`.
 - *Finite file* (has `Content-Length`) — buffered whole into MEMFS, then
   `rb_decoder_open`. Full metadata, duration and **seeking**.
 - *Live / infinite stream* (no `Content-Length`, e.g. Icecast/SHOUTcast radio)
-  — the response body is streamed and pushed chunk-by-chunk into a blocking
-  reader via `rb_stream_feed`; `rb_decoder_open_stream` decodes it forever. An
-  empty-but-open buffer *parks* the codec (a network stall plays out to silence
-  and resumes — the stream is never dropped), and the input buffer is bounded
-  (backpressure above ~8 MB), so it never grows unbounded. No seeking; the UI
-  shows a **LIVE** badge and unknown duration.
+  — the loop lives in JavaScript (`playLiveStream` in the Worker): read the
+  network `ReadableStream`, slice it into ~64 KB **segments**, and decode each
+  segment with a throwaway `rb_decoder_open` (MEMFS file), forwarding PCM to the
+  ring. Ring backpressure paces it to real time. There is no codec-side
+  streaming, so nothing can park forever. No seeking; the UI shows a **LIVE**
+  badge and unknown duration. Trade-off: independent segments mean a small
+  decoder restart at each ~64 KB boundary (for MP3, a brief bit-reservoir
+  artifact — usually inaudible). Tune `LIVE_SEGMENT` in the Worker.
 
 ## Known limitations
 
