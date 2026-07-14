@@ -152,8 +152,9 @@ in `include/rockbox_ffi.h`). Every symbol JS calls is listed in
 dead-stripped and `Module._rb_foo` becomes `undefined` at runtime.
 
 - **Decode (file)**: `rb_decoder_open`, `rb_decoder_next_chunk`,
-  `rb_decoder_seek_ms`, `rb_decoder_metadata_json`, `rb_decoder_finished`,
-  `rb_decoder_free`
+  `rb_decoder_try_next_chunk` (non-blocking — used by the pump so the module's
+  main thread never parks), `rb_decoder_seek_ms`, `rb_decoder_metadata_json`,
+  `rb_decoder_finished`, `rb_decoder_free`
 - **Decode (live stream)**: `rb_stream_new`, `rb_stream_feed`,
   `rb_stream_close`, `rb_stream_available`, `rb_stream_free`,
   `rb_decoder_open_stream`

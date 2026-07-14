@@ -35,12 +35,11 @@ let dec    = null;      // *RbDecoder for the current track
 let decPath = null;     // MEMFS path of the current file
 
 // scratch out-param cells (allocated once)
-let outLenPtr = 0, outRatePtr = 0, procLenPtr = 0, pathPtr = 0, pathCap = 0;
+let outLenPtr = 0, outRatePtr = 0, procLenPtr = 0, outStatePtr = 0, pathPtr = 0, pathCap = 0;
 let feedPtr = 0, feedCap = 0; // scratch for copying fetched bytes into wasm heap
 
 // Live-stream tuning (bytes).
-const STREAM_PREBUFFER = 128 * 1024; // buffer this much before opening the codec
-const STREAM_PULL_MIN  = 64 * 1024;  // only decode when this much is buffered
+const STREAM_PREBUFFER = 128 * 1024;      // buffer this much before opening the codec
 const STREAM_CAP       = 8 * 1024 * 1024; // backpressure the fetch above this
 
 // ── Player state ──────────────────────────────────────────────────────────
@@ -65,9 +64,10 @@ const CORE_URL = new URL('rockbox-core.js', self.location.href).href;
 importScripts(CORE_URL);
 RockboxModule({ mainScriptUrlOrBlob: CORE_URL }).then((m) => {
   Module = m;
-  outLenPtr  = m._malloc(4);
-  outRatePtr = m._malloc(4);
-  procLenPtr = m._malloc(4);
+  outLenPtr   = m._malloc(4);
+  outRatePtr  = m._malloc(4);
+  procLenPtr  = m._malloc(4);
+  outStatePtr = m._malloc(4);
   postMessage({ type: 'ready' });
 });
 
@@ -155,18 +155,14 @@ function pump() {
   // Keep the ring at most ~half full (a couple of seconds of look-ahead).
   if (freeFrames() < (ringFrames >> 1)) { schedulePump(15); return; }
 
-  // For a live stream only decode when there's ample encoded input buffered,
-  // so next_chunk can't park this (single) worker thread waiting on the codec
-  // thread waiting on us. Once the network side has ended, drain whatever's
-  // left. (No underrun = the ring simply plays out to silence until data
-  // resumes — the stream is never dropped.)
-  if (stream && !feedDone && Module._rb_stream_available(stream) < STREAM_PULL_MIN) {
-    schedulePump(30);
-    return;
-  }
-
-  const pcmPtr = Module._rb_decoder_next_chunk(dec, outLenPtr, outRatePtr);
-  if (!pcmPtr) { trackDecoded = true; schedulePump(20); return; } // end of track
+  // Never call the *blocking* next_chunk here: this is the Emscripten module's
+  // main thread and parking it stalls proxied ops (memory growth), which
+  // crashes the codec pthread. Poll instead and yield to the event loop —
+  // that also lets the live-stream feed loop run between polls.
+  const pcmPtr = Module._rb_decoder_try_next_chunk(dec, outLenPtr, outRatePtr, outStatePtr);
+  const state  = Module.HEAP32[outStatePtr >> 2];
+  if (state === 1) { schedulePump(5); return; }  // not ready yet — poll again
+  if (state === 2 || !pcmPtr) { trackDecoded = true; schedulePump(20); return; } // end
 
   const len  = Module.HEAPU32[outLenPtr  >> 2];
   const rate = Module.HEAPU32[outRatePtr >> 2];

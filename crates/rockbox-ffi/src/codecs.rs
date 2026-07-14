@@ -100,6 +100,63 @@ pub extern "C" fn rb_decoder_next_chunk(
     ptr
 }
 
+/// Non-blocking [`rb_decoder_next_chunk`]. Writes a state code to `*out_state`:
+/// `0` a chunk was produced (return value is the PCM buffer, as in
+/// [`rb_decoder_next_chunk`] — free with `rb_buffer_free`); `1` not ready yet
+/// (return null, poll again); `2` end of track / error (return null, stop).
+///
+/// Unlike [`rb_decoder_next_chunk`], this never parks the calling thread — use
+/// it from a thread that must stay responsive (an Emscripten module's main
+/// thread, which services proxied ops like memory growth). Poll it on a timer,
+/// yielding to the event loop between polls.
+#[no_mangle]
+pub extern "C" fn rb_decoder_try_next_chunk(
+    d: *mut RbDecoder,
+    out_len: *mut usize,
+    out_sample_rate: *mut u32,
+    out_state: *mut i32,
+) -> *mut i16 {
+    if !out_len.is_null() {
+        unsafe { *out_len = 0 };
+    }
+    if !out_sample_rate.is_null() {
+        unsafe { *out_sample_rate = 0 };
+    }
+    let set_state = |s: i32| {
+        if !out_state.is_null() {
+            unsafe { *out_state = s };
+        }
+    };
+    if d.is_null() {
+        set_state(2);
+        return std::ptr::null_mut();
+    }
+    let d = unsafe { &mut *d };
+    match d.inner.poll_chunk() {
+        std::task::Poll::Pending => {
+            set_state(1);
+            std::ptr::null_mut()
+        }
+        std::task::Poll::Ready(None) => {
+            set_state(2);
+            std::ptr::null_mut()
+        }
+        std::task::Poll::Ready(Some(chunk)) => {
+            let boxed = chunk.pcm.into_boxed_slice();
+            let len = boxed.len();
+            let ptr = Box::into_raw(boxed) as *mut i16;
+            if !out_len.is_null() {
+                unsafe { *out_len = len };
+            }
+            if !out_sample_rate.is_null() {
+                unsafe { *out_sample_rate = chunk.sample_rate };
+            }
+            set_state(0);
+            ptr
+        }
+    }
+}
+
 /// Request a seek to `ms` milliseconds (picked up at the codec's next command
 /// poll; PCM already queued from before the seek drains first). No-op on a
 /// null handle.
