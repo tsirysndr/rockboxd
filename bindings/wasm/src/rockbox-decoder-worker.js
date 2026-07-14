@@ -27,7 +27,7 @@
 /* global RockboxModule */
 
 const LIVE_SEGMENT = 32 * 1024;        // encoded bytes per live-radio decode
-const LIVE_PREBUFFER_SEC = 2.5;        // buffer before starting live playback
+const LIVE_PREBUFFER_SEC = 3;          // buffer before starting live playback
 const CHUNK = 8192;                    // i16 samples per PCM post (4096 frames)
 
 let Module     = null;
@@ -272,7 +272,7 @@ function xfadeApplies(auto) {
 
 /** Outgoing tail to keep for the fade-out (frames). */
 function holdFrames() {
-  if (xfadeCfg.mode === 'off') return 0;
+  if (live || xfadeCfg.mode === 'off') return 0; // radio doesn't crossfade
   return Math.round((xfadeCfg.foDelay + xfadeCfg.foDur) * sampleRate);
 }
 
@@ -351,6 +351,7 @@ function finalizeCrossfade() {
 // Keep the worklet queue short when crossfade can trigger on a manual skip,
 // so the fade starts near "now" (queued audio can't be pulled back).
 const highWater = () => {
+  if (live) return 5 * sampleRate; // radio: ride out network jitter
   const manualCapable = xfadeCfg.mode !== 'off' && xfadeCfg.mode !== 'auto-skip';
   return manualCapable ? Math.round(0.6 * sampleRate) : 3 * sampleRate;
 };
@@ -624,11 +625,108 @@ async function playLiveStream(resp, url, i, token, autoplay) {
   return runSegmentLoop(resp.body.getReader(), new Uint8Array(0), false, ext, token, url, i, demux);
 }
 
+// ── Frame-aligned segmentation ────────────────────────────────────────────
+// Slicing a stream at arbitrary byte offsets loses audio at EVERY boundary:
+// the codec drops the partial frame at the slice end, re-syncs past the
+// partial frame at the next slice's start, and (MP3) the bit reservoir's
+// back-references break — an audible gap/click every ~2 s of radio. So for
+// MP3 and ADTS AAC we parse frame headers in JS and cut only on frame
+// boundaries, and prepend the last frames of the previous segment as a
+// reservoir "primer" whose decoded samples are dropped from the output.
+
+/** Parse an MPEG-audio frame header at b[i] → {len, spf} or null. */
+function parseMpaFrame(b, i) {
+  if (i + 4 > b.length) return null;
+  if (b[i] !== 0xff || (b[i + 1] & 0xe0) !== 0xe0) return null;
+  const ver = (b[i + 1] >> 3) & 3;   // 3=MPEG1, 2=MPEG2, 0=MPEG2.5, 1=reserved
+  const layer = (b[i + 1] >> 1) & 3; // 1=III, 2=II, 3=I, 0=reserved
+  if (ver === 1 || layer === 0) return null;
+  const brIdx = b[i + 2] >> 4;
+  const srIdx = (b[i + 2] >> 2) & 3;
+  const pad = (b[i + 2] >> 1) & 1;
+  if (brIdx === 0 || brIdx === 15 || srIdx === 3) return null; // free-format unsupported
+  const v1 = ver === 3;
+  const sr = (v1 ? [44100, 48000, 32000]
+    : ver === 2 ? [22050, 24000, 16000] : [11025, 12000, 8000])[srIdx];
+  let table;
+  if (layer === 3)      table = v1 ? [0,32,64,96,128,160,192,224,256,288,320,352,384,416,448]
+                                   : [0,32,48,56,64,80,96,112,128,144,160,176,192,224,256];
+  else if (layer === 2) table = v1 ? [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384]
+                                   : [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160];
+  else                  table = v1 ? [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320]
+                                   : [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160];
+  const br = table[brIdx] * 1000;
+  let len, spf;
+  if (layer === 3)      { spf = 384;  len = (Math.floor(12 * br / sr) + pad) * 4; }
+  else if (layer === 2) { spf = 1152; len = Math.floor(144 * br / sr) + pad; }
+  else                  { spf = v1 ? 1152 : 576; len = Math.floor((v1 ? 144 : 72) * br / sr) + pad; }
+  return len >= 4 ? { len, spf } : null;
+}
+
+/** Parse an ADTS (AAC) frame header at b[i] → {len, spf} or null. */
+function parseAdtsFrame(b, i) {
+  if (i + 7 > b.length) return null;
+  if (b[i] !== 0xff || (b[i + 1] & 0xf6) !== 0xf0) return null;
+  const len = ((b[i + 3] & 0x03) << 11) | (b[i + 4] << 3) | (b[i + 5] >> 5);
+  return len >= 7 ? { len, spf: 1024 } : null;
+}
+
+/** Frame-aligned cutter over the shared `pending` buffer. Returns null for
+ *  unsupported formats (caller falls back to blind slicing). */
+function makeFramer(ext) {
+  const parse = ext === 'mp3' ? parseMpaFrame : ext === 'aac' ? parseAdtsFrame : null;
+  if (!parse) return null;
+  return { parse, synced: false, primer: null, primerFrames: ext === 'mp3' ? 3 : 1 };
+}
+
+/**
+ * Cut the next whole-frame segment (≥ LIVE_SEGMENT bytes unless `flush`) off
+ * `pending`. Returns `{seg, frames, spf, primerBytes}` and the shortened
+ * pending, or null when more data is needed.
+ */
+function takeAlignedSegment(fr, pending, flush) {
+  const { parse } = fr;
+  let start = 0;
+  if (!fr.synced) {
+    // Find a verified sync: a valid header whose length lands on another one.
+    let i = 0;
+    for (;;) {
+      if (i + 8 >= pending.length) return { need: pending }; // wait for more
+      const f = parse(pending, i);
+      if (f) {
+        if (i + f.len + 8 > pending.length) return { need: pending.slice(i) };
+        if (parse(pending, i + f.len)) { start = i; fr.synced = true; break; }
+      }
+      i++;
+    }
+  }
+  let off = start, frames = 0, spf = 0;
+  const offs = [];
+  while (off + 8 <= pending.length) {
+    const f = parse(pending, off);
+    if (!f) { fr.synced = false; break; } // glitch — cut what we have, resync after
+    if (off + f.len > pending.length) break; // incomplete tail frame — wait
+    offs.push(off);
+    off += f.len; frames++; spf = f.spf;
+    if (off - start >= LIVE_SEGMENT) break;
+  }
+  if (frames === 0) return { need: pending.slice(start) };
+  if (!flush && fr.synced && off - start < LIVE_SEGMENT) return { need: pending.slice(start) };
+  const seg = pending.slice(start, off);
+  const pIdx = Math.max(0, frames - fr.primerFrames);
+  return {
+    seg, frames, spf,
+    primerBytes: pending.slice(offs[pIdx], off),
+    rest: pending.slice(off),
+  };
+}
+
 /**
  * Progressive segment decoder shared by live streams and streamed-finite MP3/AAC.
  * Decodes `pending` (any pre-read head) then reads `reader` to the end, decoding
- * each ~32 KB segment with rb_decode_packet and streaming the PCM. Starts
- * playback once ~LIVE_PREBUFFER_SEC is queued. `demux` (or null) strips ICY.
+ * each frame-aligned ~LIVE_SEGMENT chunk with rb_decode_packet and streaming the
+ * PCM (gapless via the reservoir primer). Starts playback once
+ * ~LIVE_PREBUFFER_SEC is queued. `demux` (or null) strips ICY.
  */
 async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) {
   streaming = true;
@@ -638,20 +736,36 @@ async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) 
                           Math.max(4096, highWater() - 8192));
   let gotMeta = false;
   let started = false;
+  const framer = makeFramer(ext);
   const maybeStart = () => {
     if (!started && !userPaused && wlQueued >= prebuf) { started = true; setWorkletPaused(false); }
   };
-  const drainPending = async () => {
-    while (token === loadToken && pending.length >= LIVE_SEGMENT) {
-      const seg = pending.slice(0, LIVE_SEGMENT);
-      pending = pending.slice(LIVE_SEGMENT);
-      // Only mark meta as read once a segment actually decodes (the first
-      // segment of an MP3 is often just ID3/album-art bytes and fails).
-      if (await decodeSegment(seg, ext, token, !gotMeta, maybeStart)) gotMeta = true;
+  const drainPending = async (flush) => {
+    for (;;) {
+      if (token !== loadToken) return;
+      if (framer) {
+        const cut = takeAlignedSegment(framer, pending, flush);
+        if (cut.need !== undefined) { pending = cut.need; return; }
+        pending = cut.rest;
+        // Prepend the previous segment's tail frames so the decoder has the
+        // MP3 bit-reservoir data; their PCM is dropped via expectPcmFrames.
+        const payload = framer.primer ? concatBytes(framer.primer, cut.seg) : cut.seg;
+        const ok = await decodeSegment(payload, ext, token, !gotMeta, maybeStart,
+                                       cut.frames * cut.spf);
+        framer.primer = cut.primerBytes;
+        if (ok) gotMeta = true;
+      } else {
+        // Unknown framing (e.g. Ogg): blind fixed-size slices.
+        if (!flush && pending.length < LIVE_SEGMENT) return;
+        if (pending.length === 0) return;
+        const seg = pending.slice(0, LIVE_SEGMENT);
+        pending = pending.slice(Math.min(LIVE_SEGMENT, pending.length));
+        if (await decodeSegment(seg, ext, token, !gotMeta, maybeStart)) gotMeta = true;
+      }
     }
   };
   try {
-    await drainPending();
+    await drainPending(false);
     while (token === loadToken && !done) {
       const r = await reader.read();
       if (token !== loadToken) { await reader.cancel().catch(() => {}); return; }
@@ -660,9 +774,8 @@ async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) 
         if (audio.length) pending = concatBytes(pending, audio);
       }
       done = r.done;
-      await drainPending();
+      await drainPending(done);
     }
-    if (token === loadToken && pending.length) await decodeSegment(pending, ext, token, !gotMeta, maybeStart);
     if (token === loadToken) {
       if (!started && !userPaused) setWorkletPaused(false);
       await finishTrack(token);
@@ -698,7 +811,7 @@ async function finishTrack(token) {
 
 /** Decode one self-contained encoded packet in memory and stream its PCM.
  *  Returns true if the segment produced audio. */
-async function decodeSegment(bytes, ext, token, readMeta, maybeStart) {
+async function decodeSegment(bytes, ext, token, readMeta, maybeStart, expectPcmFrames = 0) {
   const dataPtr = copyPacket(bytes);
   const pcmPtr = Module._rb_decode_packet(dataPtr, bytes.length, allocPath(ext), outLenPtr, outRatePtr);
   const len = readU32(outLenPtr);
@@ -706,7 +819,16 @@ async function decodeSegment(bytes, ext, token, readMeta, maybeStart) {
   if (!pcmPtr || len < 2) { if (pcmPtr) Module._rb_buffer_free(pcmPtr, len); return false; }
   if (readMeta) updateLiveMeta({ codec: ext, sample_rate: rate });
 
+  // Reservoir-primer trim: `expectPcmFrames` is what the segment's own frames
+  // should produce; anything beyond it at the head is decoded primer audio
+  // (already played as part of the previous segment) — drop it. Computing the
+  // drop from the surplus (rather than a fixed primer size) stays correct
+  // when the decoder itself skips unprimed frames.
   let pos = 0;
+  if (expectPcmFrames > 0) {
+    const pcmFrames = len >> 1;
+    if (pcmFrames > expectPcmFrames) pos = (pcmFrames - expectPcmFrames) * 2;
+  }
   await streamRaw(pcmPtr, len, rate, () => pos, (v) => (pos = v), token, maybeStart);
   Module._rb_buffer_free(pcmPtr, len);
   return true;
