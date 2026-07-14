@@ -43,25 +43,36 @@ struct StreamReader {
 }
 
 impl Read for StreamReader {
+    /// Fill `out` **completely**, blocking for more data as needed. Only a
+    /// closed stream yields a short (possibly zero) read.
+    ///
+    /// This read-exact behaviour is deliberate: Rockbox codecs treat a read
+    /// that returns fewer bytes than requested as end-of-stream. Returning a
+    /// partial read just because the buffer momentarily held less than asked
+    /// would make the codec stop after the first gap — so we wait for the feed
+    /// to top the buffer up instead.
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         if out.is_empty() {
             return Ok(0);
         }
         let (lock, cv) = &*self.shared;
         let mut buf = lock.lock().unwrap();
-        loop {
+        let mut filled = 0;
+        while filled < out.len() {
             if !buf.data.is_empty() {
-                let n = out.len().min(buf.data.len());
-                for (slot, byte) in out[..n].iter_mut().zip(buf.data.drain(..n)) {
+                let n = (out.len() - filled).min(buf.data.len());
+                for (slot, byte) in out[filled..filled + n].iter_mut().zip(buf.data.drain(..n)) {
                     *slot = byte;
                 }
-                return Ok(n);
+                filled += n;
+                continue;
             }
             if buf.closed {
-                return Ok(0); // genuine end of stream
+                break; // genuine end of stream — return whatever we managed
             }
             buf = cv.wait(buf).unwrap();
         }
+        Ok(filled)
     }
 }
 
