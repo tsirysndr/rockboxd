@@ -66,6 +66,8 @@
   ;; ── wasm ─────────────────────────────────────────────────────
   wasm:build {:task (do (require 'console.wasm) ((resolve 'console.wasm/build)))}
   wasm:serve {:task (do (require 'console.wasm) ((resolve 'console.wasm/serve)))}
+  wasm:dev   {:doc  "Build the WASM core, then serve the web example."
+              :task (do (require 'console.wasm) ((resolve 'console.wasm/dev)))}
 
   ;; ── expo (mobile) ────────────────────────────────────────────
   expo:install    {:task (do (require 'console.expo) ((resolve 'console.expo/install)))}

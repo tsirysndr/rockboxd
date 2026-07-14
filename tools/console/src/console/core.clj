@@ -50,8 +50,9 @@
            [:build          "cargo build --release --workspace"]]}
 
    {:group "wasm" :ns 'console.wasm
-    :cmds [[:build          "bash scripts/build-wasm.sh -> web/rockboxd.{js,wasm}"]
-           [:serve          "node scripts/wasm-dev-server.mjs (COOP/COEP headers)"]]}
+    :cmds [[:build          "bash scripts/build-wasm.sh -> web/rockbox-core.{js,wasm}"]
+           [:serve          "node scripts/wasm-dev-server.mjs (COOP/COEP headers)"]
+           [:dev            "build the core, then serve the web example"]]}
 
    {:group "expo" :ns 'console.expo
     :cmds [[:install        "bun install"]
