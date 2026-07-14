@@ -44,6 +44,13 @@ export enum ChannelMode {
   Swap = "swap",
 }
 
+/** Headphone crossfeed mode. Setters also accept the raw int (0 off, 1 Meier, 2 custom). */
+export enum CrossfeedMode {
+  Off = "off",
+  Meier = "meier",
+  Custom = "custom",
+}
+
 export interface TrackMetadata {
   codec?: string;
   title?: string;
@@ -154,6 +161,16 @@ export class RockboxPlayer {
   setTone(bassDb: number, trebleDb: number): void;
   setToneCutoffs(bassHz: number, trebleHz: number): void;
   setSurround(delayMs: number, balance: number, fx1: number, fx2: number): void;
+  /** Headphone crossfeed. `mode`: CrossfeedMode (or the raw int). Gains in tenths of dB (≤0). */
+  setCrossfeed(
+    mode: CrossfeedMode | number,
+    directGain?: number,
+    crossLfGain?: number,
+    crossHfGain?: number,
+    hfCutoff?: number,
+  ): void;
+  /** Perceptual Bass Enhancement: strength 0–100, precut in tenths of dB (≤0). */
+  setPbe(strength: number, precut?: number): void;
   setChannelMode(mode: ChannelMode | number): void;
   setStereoWidth(percent: number): void;
   setCompressor(threshold: number, makeup: number, ratio: number, knee: number, release: number, attack: number): void;

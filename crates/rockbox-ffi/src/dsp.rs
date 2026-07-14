@@ -180,6 +180,33 @@ pub extern "C" fn rb_dsp_set_eq_precut(p: *mut Dsp, db: f32) {
     dsp!(p).set_eq_precut(db);
 }
 
+/// Headphone crossfeed. `mode`: 0 off, 1 Meier (fixed profile), 2 custom.
+/// `direct_gain`, `cross_lf_gain`, `cross_hf_gain` are in tenths of a dB (≤ 0);
+/// `hf_cutoff` in Hz. The `cross_*`/`hf_cutoff` params only apply in custom mode.
+#[no_mangle]
+pub extern "C" fn rb_dsp_set_crossfeed(
+    p: *mut Dsp,
+    mode: i32,
+    direct_gain: i32,
+    cross_lf_gain: i32,
+    cross_hf_gain: i32,
+    hf_cutoff: i32,
+) {
+    let dsp = dsp!(p);
+    dsp.set_crossfeed(mode);
+    dsp.set_crossfeed_direct_gain(direct_gain);
+    dsp.set_crossfeed_cross_params(cross_lf_gain, cross_hf_gain, hf_cutoff);
+}
+
+/// Perceptual Bass Enhancement (PBE). `strength` percent (0 = off … 100);
+/// `precut` headroom in tenths of a dB (≤ 0), applied before the boost.
+#[no_mangle]
+pub extern "C" fn rb_dsp_set_pbe(p: *mut Dsp, strength: i32, precut: i32) {
+    let dsp = dsp!(p);
+    dsp.pbe_enable(strength);
+    dsp.set_pbe_precut(precut);
+}
+
 /// Run interleaved stereo S16 frames through the pipeline. `input`/`in_len`
 /// describe the input samples (length must be even). On return `*out_len`
 /// holds the number of `i16` samples produced and the return value points

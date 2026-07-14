@@ -25,6 +25,7 @@ export const ChannelMode = Object.freeze({
   Stereo: 'stereo', Mono: 'mono', Custom: 'custom',
   MonoLeft: 'mono-left', MonoRight: 'mono-right', Karaoke: 'karaoke', Swap: 'swap',
 });
+export const CrossfeedMode = Object.freeze({ Off: 'off', Meier: 'meier', Custom: 'custom' });
 
 const REPEAT_NUM = { off: 0, one: 1, all: 2 };
 const REPEAT_STR = ['off', 'one', 'all'];
@@ -32,6 +33,7 @@ const RG_NUM = { track: 0, album: 1, shuffle: 2, off: 3 };
 const CHAN_NUM = {
   stereo: 0, mono: 1, custom: 2, 'mono-left': 3, 'mono-right': 4, karaoke: 5, swap: 6,
 };
+const CF_NUM = { off: 0, meier: 1, custom: 2 };
 /** Accept either an enum string or a raw number; fall back to `dflt`. */
 const toNum = (v, map, dflt = 0) => (typeof v === 'number' ? v : (map[v] ?? dflt));
 
@@ -138,6 +140,18 @@ export class RockboxPlayer {
   setTone(bassDb, trebleDb)       { this._save('bass', bassDb); this._save('treble', trebleDb); this._dsp('set_tone', [bassDb | 0, trebleDb | 0]); }
   setToneCutoffs(bassHz, trebleHz){ this._dsp('set_tone_cutoffs', [bassHz | 0, trebleHz | 0]); }
   setSurround(delayMs, balance, fx1, fx2) { this._dsp('set_surround', [delayMs | 0, balance | 0, fx1 | 0, fx2 | 0]); }
+  /** Crossfeed. `mode`: CrossfeedMode.Off | .Meier | .Custom (or 0/1/2).
+   *  Gains in tenths of dB (≤0). */
+  setCrossfeed(mode, directGain = -15, crossLfGain = -60, crossHfGain = -170, hfCutoff = 700) {
+    const n = toNum(mode, CF_NUM);
+    this._save('crossfeed', { mode: n, directGain, crossLfGain, crossHfGain, hfCutoff });
+    this._dsp('set_crossfeed', [n, directGain | 0, crossLfGain | 0, crossHfGain | 0, hfCutoff | 0]);
+  }
+  /** Perceptual Bass Enhancement: strength 0–100, precut in tenths of dB (≤0). */
+  setPbe(strength, precut = 0) {
+    this._save('pbe', { strength, precut });
+    this._dsp('set_pbe', [strength | 0, precut | 0]);
+  }
   /** ChannelMode.Stereo | .Mono | … (or the raw 0–6 index). */
   setChannelMode(mode)            { const n = toNum(mode, CHAN_NUM); this._save('channelMode', n); this._dsp('set_channel_config', [n]); }
   setStereoWidth(pct)             { this._save('stereoWidth', pct | 0); this._dsp('set_stereo_width', [pct | 0]); }
@@ -197,6 +211,8 @@ export class RockboxPlayer {
     if (s.channelMode != null) this._dsp('set_channel_config', [s.channelMode | 0]);
     if (s.stereoWidth != null) this._dsp('set_stereo_width', [s.stereoWidth | 0]);
     if (s.rgMode != null) this._dsp('set_replaygain', [s.rgMode | 0, s.rgNoclip ? 1 : 0, +s.rgPreamp || 0]);
+    if (s.crossfeed) this._dsp('set_crossfeed', [s.crossfeed.mode | 0, s.crossfeed.directGain | 0, s.crossfeed.crossLfGain | 0, s.crossfeed.crossHfGain | 0, s.crossfeed.hfCutoff | 0]);
+    if (s.pbe) this._dsp('set_pbe', [s.pbe.strength | 0, s.pbe.precut | 0]);
   }
 
   // ── Internal ────────────────────────────────────────────────────────────────

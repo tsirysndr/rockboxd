@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { RockboxPlayer, RepeatMode } from "rockbox-wasm";
 import { useRockbox } from "./useRockbox";
+import { DspPanel } from "./DspPanel";
 
 const CUTOFFS = RockboxPlayer.EQ_BAND_CUTOFFS;
 const REPEAT_CYCLE = [RepeatMode.Off, RepeatMode.One, RepeatMode.All];
@@ -248,6 +249,11 @@ export function App() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="mb-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-xl shadow-black/30">
+        <h2 className="mb-4 text-base font-semibold">DSP</h2>
+        <DspPanel apply={(fn) => ensureReady().then(fn)} />
       </section>
 
       <footer className="mt-6 text-center text-xs text-zinc-600">
