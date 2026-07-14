@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Tailwind v4 theme tokens (used as accent-* / bg-* etc. via the palette). */
+@theme {
+  --color-accent: #6366f1;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* Vertical EQ sliders. */
+.eq-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 6px;
+  height: 120px;
+}

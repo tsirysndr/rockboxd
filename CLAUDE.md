@@ -547,36 +547,41 @@ See `crates/expo/README.md` for the full architecture writeup.
 
 ## WASM browser build
 
-The WASM target is **lightweight**: it compiles only the extracted core crates
-— `rockbox-codecs` (decode), `rockbox-dsp` (EQ/DSP), `rockbox-metadata` (tags)
-— through the `rockbox-ffi` flat C ABI, into `web/rockbox-core.{js,wasm}`
-(~1.2 MB). There is **no firmware, no netstream, no playlist engine, no
-servers**; the player (queue, transport, output) is plain JavaScript in `web/`.
-See `WEBASSEMBLY.md` for the full writeup.
+The WASM target is **lightweight and single-threaded**: it compiles only the
+extracted core crates — `rockbox-codecs` (decode), `rockbox-dsp` (EQ/DSP),
+`rockbox-metadata` (tags) — through the `rockbox-ffi` flat C ABI. There is **no
+firmware, no netstream, no playlist engine, no servers**; the player (queue,
+transport, output) is plain JavaScript. It ships as the `rockbox-wasm` npm
+package under `bindings/wasm/`. See `WEBASSEMBLY.md` for the full writeup.
 
-Build: `bash scripts/build-wasm.sh`. Serve: `node scripts/wasm-dev-server.mjs`
-(COOP/COEP required for SharedArrayBuffer; COEP is `credentialless` so
-cross-origin webfonts still load).
+Build: `bash bindings/wasm/scripts/build.sh` → `bindings/wasm/dist/` with the
+wasm **embedded** (Emscripten `SINGLE_FILE`). Console: `bb wasm:build`,
+`bb wasm:example`, `bb wasm:dev`, `bb wasm:publish`.
 
 The build is two steps: `cargo rustc -p rockbox-ffi --no-default-features
 --crate-type staticlib` for `wasm32-unknown-emscripten` (`--no-default-features`
-drops the `player` feature → no `rockbox-playback`/`cpal`, which need a real
-output device), then an `emcc` link. Emscripten pthreads need
-`-Wl,--no-check-features` (prebuilt Rust std objects lack the `atomics`
-feature).
+drops the `player` feature → no `rockbox-playback`/`cpal`), then an `emcc` link
+**without `-pthread`**.
 
-### Browser architecture (three JS files)
+**No COOP/COEP / no SharedArrayBuffer.** Decoding is fully synchronous
+(`rb_decode_packet` / `rb_decode_file` run `rbcodec_run()` on the calling thread
+— no codec thread), so the module is single-threaded and the page needs no
+cross-origin isolation. The threaded `rb_decoder_*` API still exists but is
+unused by the browser (it would `pthread_create`, which the no-pthread build
+can't). This is also what fixed the earlier Emscripten-proxy / park-state
+crashes — a blocked module main thread was the root cause.
 
-- `web/rockbox.js` — main-thread `RockboxPlayer` facade: `AudioContext`, a
-  `GainNode` for volume (not a rockbox-dsp stage), events, and `postMessage`
-  to the Worker.
-- `web/rockbox-decoder-worker.js` — owns the WASM module; runs the whole
-  player loop (fetch → MEMFS → `rb_decoder_next_chunk` → `rb_dsp_process` →
-  resample) and writes PCM into a shared ring. Decode **must** be off the main
-  thread: `rockbox-codecs::Decoder` blocks on a `Condvar` (`Atomics.wait`),
-  which throws on the main browser thread.
-- `web/rockbox-audio-worklet.js` — `AudioWorkletProcessor` reading the shared
-  `SharedArrayBuffer` ring → speakers.
+### Browser architecture (three JS files under `bindings/wasm/src/`)
+
+- `rockbox.js` — main-thread `RockboxPlayer` facade: `AudioContext`, a
+  `GainNode` for volume, events, human-readable settings enums (`RepeatMode`
+  etc.), and `postMessage` to the Worker.
+- `rockbox-decoder-worker.js` — owns the WASM module; runs the player loop
+  (fetch → decode via `rb_decode_packet`/`rb_decode_file` → `rb_dsp_process` →
+  resample) and posts S16 PCM to the worklet over a **`MessagePort`** (no SAB).
+- `rockbox-audio-worklet.js` — `AudioWorkletProcessor` that queues the PCM
+  chunks and plays them, reporting consumed/queued frames back for backpressure
+  + elapsed time.
 
 ### Exposing new functions to JS
 

@@ -13,12 +13,13 @@
 #
 # There is NO firmware, no netstream, no playlist engine, no gRPC — just a
 # decode-a-chunk / run-DSP / read-metadata surface. The player (queue,
-# transport, scheduling, output) lives entirely in JavaScript (web/).
+# transport, scheduling, output) lives entirely in JavaScript (bindings/wasm).
 #
 # What this does:
 #   1. Builds rockbox-ffi as a wasm32-unknown-emscripten staticlib (the codec
 #      and DSP C sources are compiled to wasm by emcc via the `cc` crate).
-#   2. Links it into web/rockbox-core.js + web/rockbox-core.wasm with emcc.
+#   2. Links it into <out>/rockbox-core.js + <out>/rockbox-core.wasm with emcc
+#      (out = $OUTPUT_DIR, default bindings/wasm/dist).
 #
 # Prerequisites:
 #   - Emscripten SDK installed and activated (emsdk activate latest)
@@ -30,13 +31,13 @@
 #   bash scripts/build-wasm.sh --debug    # debug (-O0 -g)
 #
 # Output:
-#   web/rockbox-core.js    — Emscripten loader (MODULARIZE, EXPORT_NAME=RockboxModule)
-#   web/rockbox-core.wasm  — WebAssembly binary
+#   <out>/rockbox-core.js    — Emscripten loader (MODULARIZE, EXPORT_NAME=RockboxModule)
+#   <out>/rockbox-core.wasm  — WebAssembly binary (omitted when SINGLE_FILE=1)
 #
 # The decoder spawns a codec thread (Condvar handshake), so the module is
 # built with -pthread. WASM memory is therefore a SharedArrayBuffer, which
-# means the page must be served with COOP/COEP headers — see
-# scripts/wasm-dev-server.mjs.
+# means the page must be served with COOP/COEP headers — the Vite example
+# in bindings/wasm/example sets them (see its vite.config.ts).
 
 set -euo pipefail
 
@@ -78,7 +79,10 @@ echo "==> Using: $(emcc --version 2>&1 | head -1)"
 echo ""
 echo "==> Step 1: Build rockbox-ffi (decode + DSP + metadata) for wasm"
 
-RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals" \
+# Single-threaded: the browser decodes synchronously (rb_decode_packet /
+# rb_decode_file), so no wasm threads / shared memory — which means the page
+# does NOT need SharedArrayBuffer or COOP/COEP headers.
+RUSTFLAGS="-C target-feature=+bulk-memory,+mutable-globals" \
     cargo rustc \
         $CARGO_FLAG \
         --target wasm32-unknown-emscripten \
@@ -93,12 +97,12 @@ if [ ! -f "$RUST_LIB" ]; then
 fi
 echo "    librockbox_ffi.a: $(ls -lh "$RUST_LIB" | awk '{print $5}')"
 
-# ── Step 2: emcc link → web/rockbox-core.{js,wasm} ────────────────────────────
+# ── Step 2: emcc link → $OUTPUT_DIR/rockbox-core.{js,wasm} ───────────────────
 
 echo ""
 echo "==> Step 2: Link rockbox-core.{js,wasm} with emcc"
 
-OUTPUT_DIR="$ROOTDIR/web"
+OUTPUT_DIR="${OUTPUT_DIR:-$ROOTDIR/bindings/wasm/dist}"
 mkdir -p "$OUTPUT_DIR"
 
 # Every rb_* symbol JS calls. A missing entry is silently dead-stripped and
@@ -124,12 +128,17 @@ RUNTIME_METHODS='["UTF8ToString","stringToUTF8","lengthBytesUTF8",
     "getValue","setValue","FS"]'
 RUNTIME_METHODS="$(echo "$RUNTIME_METHODS" | tr -d '\n ')"
 
+# SINGLE_FILE=1 embeds the .wasm as base64 inside rockbox-core.js, so there is
+# no separate binary to serve — used by the npm package (bindings/wasm).
+SINGLE_FILE_FLAG=""
+if [ "${SINGLE_FILE:-0}" = "1" ]; then
+    SINGLE_FILE_FLAG="-sSINGLE_FILE=1"
+    echo "    (SINGLE_FILE: embedding wasm into rockbox-core.js)"
+fi
+
 emcc \
     -o "$OUTPUT_DIR/rockbox-core.js" \
     $EMCC_OPT \
-    -pthread \
-    -sPTHREAD_POOL_SIZE=4 \
-    -sPTHREAD_POOL_SIZE_STRICT=0 \
     -sALLOW_MEMORY_GROWTH=1 \
     -sINITIAL_MEMORY=67108864 \
     -sSTACK_SIZE=2097152 \
@@ -138,15 +147,16 @@ emcc \
     -sEXPORT_ES6=0 \
     -sNO_EXIT_RUNTIME=1 \
     -sENVIRONMENT=web,worker \
-    -Wl,--no-check-features \
+    $SINGLE_FILE_FLAG \
     "-sEXPORTED_FUNCTIONS=$EXPORTED_FUNCTIONS" \
     "-sEXPORTED_RUNTIME_METHODS=$RUNTIME_METHODS" \
     "$RUST_LIB"
 
 echo ""
 echo "✔ Build complete:"
-echo "    $OUTPUT_DIR/rockbox-core.js   ($(ls -lh "$OUTPUT_DIR/rockbox-core.js"   | awk '{print $5}'))"
-echo "    $OUTPUT_DIR/rockbox-core.wasm ($(ls -lh "$OUTPUT_DIR/rockbox-core.wasm" | awk '{print $5}'))"
+echo "    $OUTPUT_DIR/rockbox-core.js   ($(ls -lh "$OUTPUT_DIR/rockbox-core.js" | awk '{print $5}'))"
+[ -f "$OUTPUT_DIR/rockbox-core.wasm" ] && \
+    echo "    $OUTPUT_DIR/rockbox-core.wasm ($(ls -lh "$OUTPUT_DIR/rockbox-core.wasm" | awk '{print $5}'))"
 echo ""
-echo "Serve web/ with COOP/COEP headers (required for SharedArrayBuffer):"
-echo "  node scripts/wasm-dev-server.mjs"
+echo "This is the low-level core build. For the npm package + demo, use:"
+echo "  bash bindings/wasm/scripts/build.sh   # embeds wasm (SINGLE_FILE) into dist/"

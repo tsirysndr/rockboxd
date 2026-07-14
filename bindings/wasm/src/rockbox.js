@@ -1,32 +1,51 @@
 /**
- * RockboxPlayer — browser-side player built on the Rockbox decode + DSP core.
+ * RockboxPlayer — browser music player on the Rockbox decode + DSP core (WASM).
  *
  *   const player = new RockboxPlayer();
  *   await player.init();                 // call from a user gesture (click)
  *   player.setQueue(['song.flac'], true);
  *
- * Architecture (see web/README.md):
+ * Architecture (single-threaded build — no SharedArrayBuffer, no COOP/COEP):
  *
- *   main thread (this file)   UI facade, AudioContext + AudioWorklet, events
+ *   main thread (this file)   facade · AudioContext · GainNode(volume) · events
  *        │  commands ▼               ▲ events
- *   decoder Worker            rockbox-core.wasm: rockbox-codecs + rockbox-dsp
- *        │  PCM ▼ (shared ring)      + rockbox-metadata; owns queue/transport
- *   AudioWorklet              plays the ring → speakers
- *
- * The WASM module (rockbox-codecs) decodes on a pthread and blocks on a
- * Condvar, which is illegal on the main thread — so all decode/DSP work lives
- * in the Worker and only PCM crosses into the audio thread via a lock-free
- * SharedArrayBuffer ring. That needs COOP/COEP headers (crossOriginIsolated).
+ *   decoder Worker            rockbox-core.wasm (codecs + DSP + metadata);
+ *        │  PCM ▼ (MessagePort)      decodes synchronously, owns queue/transport
+ *   AudioWorklet              queues + plays the PCM → speakers
  */
 
 const EQ_BAND_CUTOFFS = [60, 200, 500, 1000, 2000, 4000, 7000, 10000, 14000, 20000];
 
+// ── Human-readable settings enums (translated to the DSP's ints internally) ──
+export const RepeatMode = Object.freeze({ Off: 'off', One: 'one', All: 'all' });
+export const ReplayGainMode = Object.freeze({
+  Off: 'off', Track: 'track', Album: 'album', Shuffle: 'shuffle',
+});
+export const ChannelMode = Object.freeze({
+  Stereo: 'stereo', Mono: 'mono', Custom: 'custom',
+  MonoLeft: 'mono-left', MonoRight: 'mono-right', Karaoke: 'karaoke', Swap: 'swap',
+});
+
+const REPEAT_NUM = { off: 0, one: 1, all: 2 };
+const REPEAT_STR = ['off', 'one', 'all'];
+const RG_NUM = { track: 0, album: 1, shuffle: 2, off: 3 };
+const CHAN_NUM = {
+  stereo: 0, mono: 1, custom: 2, 'mono-left': 3, 'mono-right': 4, karaoke: 5, swap: 6,
+};
+/** Accept either an enum string or a raw number; fall back to `dflt`. */
+const toNum = (v, map, dflt = 0) => (typeof v === 'number' ? v : (map[v] ?? dflt));
+
 export class RockboxPlayer {
   constructor(opts = {}) {
-    this._coreUrl    = opts.coreUrl    ?? './rockbox-core.js';
-    this._workletUrl = opts.workletUrl ?? new URL('./rockbox-audio-worklet.js', import.meta.url).href;
-    this._workerUrl  = opts.workerUrl  ?? new URL('./rockbox-decoder-worker.js', import.meta.url).href;
-    this._ringSeconds = opts.ringSeconds ?? 6;
+    // Resolve the three sibling assets. `baseUrl` is the easy path — point it
+    // at wherever you serve the package's dist/ files; each URL can also be
+    // overridden individually, else it defaults to a sibling of this module.
+    const rel = (name) => opts.baseUrl
+      ? `${String(opts.baseUrl).replace(/\/$/, '')}/${name}`
+      : new URL(`./${name}`, import.meta.url).href;
+    this._coreUrl    = opts.coreUrl    ?? rel('rockbox-core.js');
+    this._workletUrl = opts.workletUrl ?? rel('rockbox-audio-worklet.js');
+    this._workerUrl  = opts.workerUrl  ?? rel('rockbox-decoder-worker.js');
 
     this._ctx = null;
     this._node = null;
@@ -35,7 +54,7 @@ export class RockboxPlayer {
     this._listeners = {};
 
     // Latest snapshot pushed by the Worker (for synchronous UI reads).
-    this.state = { state: 'stopped', index: -1, queue_len: 0, shuffle: false, repeat: 0 };
+    this.state = { state: 'stopped', index: -1, queue_len: 0, shuffle: false, repeat: 'off' };
     this.progress = { elapsed_ms: 0, duration_ms: 0 };
     this.metadata = null;
     this.queue = [];
@@ -44,39 +63,27 @@ export class RockboxPlayer {
   /** Boot the audio graph + decoder Worker. Resolves when playback-ready. */
   async init() {
     if (this._ready) return;
-    if (typeof SharedArrayBuffer === 'undefined' || !self.crossOriginIsolated) {
-      throw new Error(
-        'crossOriginIsolated is false — serve with COOP/COEP headers ' +
-        '(Cross-Origin-Opener-Policy: same-origin, ' +
-        'Cross-Origin-Embedder-Policy: require-corp). See scripts/wasm-dev-server.mjs.');
-    }
 
     this._ctx = new AudioContext();
     await this._ctx.resume();
     await this._ctx.audioWorklet.addModule(this._workletUrl);
 
-    const rate       = this._ctx.sampleRate;
-    const ringFrames = Math.ceil(this._ringSeconds * rate);
-    this._controlSab = new SharedArrayBuffer(8 * Int32Array.BYTES_PER_ELEMENT);
-    this._audioSab   = new SharedArrayBuffer(ringFrames * 2 * Int16Array.BYTES_PER_ELEMENT);
-
-    // AudioWorklet (consumer)
     this._node = new AudioWorkletNode(this._ctx, 'rockbox-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { controlSab: this._controlSab, audioSab: this._audioSab, ringFrames },
     });
-    // Volume isn't part of the rockbox-dsp pipeline, so it lives here as a
-    // Web Audio GainNode between the worklet and the speakers.
+    // Volume isn't a rockbox-dsp stage, so it lives here as a Web Audio gain.
     this._gain = this._ctx.createGain();
     this._gain.gain.value = this._volume ?? 1;
     this._node.connect(this._gain).connect(this._ctx.destination);
     await this._once(this._node.port, 'ready');
     this._node.port.start?.();
 
-    // Decoder Worker (producer)
-    this._worker = new Worker(this._workerUrl);
+    // Decoder Worker. Tell it where the (self-contained) core module lives.
+    const workerUrl = new URL(this._workerUrl, import.meta.url);
+    workerUrl.searchParams.set('core', new URL(this._coreUrl, import.meta.url).href);
+    this._worker = new Worker(workerUrl.href);
     this._worker.onmessage = (e) => this._onWorker(e.data);
     await new Promise((res) => {
       const onReady = (e) => {
@@ -84,7 +91,12 @@ export class RockboxPlayer {
       };
       this._worker.addEventListener('message', onReady);
     });
-    this._post({ cmd: 'init', controlSab: this._controlSab, audioSab: this._audioSab, ringFrames, sampleRate: rate });
+
+    // Direct PCM channel: Worker → AudioWorklet (no SharedArrayBuffer).
+    const ch = new MessageChannel();
+    this._node.port.postMessage({ type: 'pcmport', port: ch.port1 }, [ch.port1]);
+    this._worker.postMessage({ cmd: 'pcmport', port: ch.port2 }, [ch.port2]);
+    this._worker.postMessage({ cmd: 'init', sampleRate: this._ctx.sampleRate });
 
     this._ready = true;
     this._restoreSettings();
@@ -106,7 +118,8 @@ export class RockboxPlayer {
   skipTo(index)  { this._ctx?.resume(); this._post({ cmd: 'skipTo', index }); }
   seek(ms)       { this._post({ cmd: 'seek', ms: ms | 0 }); }
   setShuffle(on) { this._post({ cmd: 'shuffle', enabled: !!on }); }
-  setRepeat(mode){ this._post({ cmd: 'repeat', mode: mode | 0 }); }
+  /** RepeatMode.Off | .One | .All (or 0 | 1 | 2). */
+  setRepeat(mode){ this._post({ cmd: 'repeat', mode: toNum(mode, REPEAT_NUM) }); }
 
   /** Output volume, 0.0..=1.0 (Web Audio GainNode; not a rockbox-dsp stage). */
   setVolume(v) {
@@ -125,15 +138,17 @@ export class RockboxPlayer {
   setTone(bassDb, trebleDb)       { this._save('bass', bassDb); this._save('treble', trebleDb); this._dsp('set_tone', [bassDb | 0, trebleDb | 0]); }
   setToneCutoffs(bassHz, trebleHz){ this._dsp('set_tone_cutoffs', [bassHz | 0, trebleHz | 0]); }
   setSurround(delayMs, balance, fx1, fx2) { this._dsp('set_surround', [delayMs | 0, balance | 0, fx1 | 0, fx2 | 0]); }
-  setChannelMode(mode)            { this._save('channelMode', mode | 0); this._dsp('set_channel_config', [mode | 0]); }
+  /** ChannelMode.Stereo | .Mono | … (or the raw 0–6 index). */
+  setChannelMode(mode)            { const n = toNum(mode, CHAN_NUM); this._save('channelMode', n); this._dsp('set_channel_config', [n]); }
   setStereoWidth(pct)             { this._save('stereoWidth', pct | 0); this._dsp('set_stereo_width', [pct | 0]); }
   setCompressor(threshold, makeup, ratio, knee, release, attack) {
     this._dsp('set_compressor', [threshold | 0, makeup | 0, ratio | 0, knee | 0, release | 0, attack | 0]);
   }
-  /** mode: 0 track, 1 album, 2 shuffle, 3 off. */
+  /** ReplayGainMode.Off | .Track | .Album | .Shuffle (or the raw int). */
   setReplaygain(mode, noclip, preampDb) {
-    this._save('rgMode', mode | 0); this._save('rgNoclip', !!noclip); this._save('rgPreamp', +preampDb);
-    this._dsp('set_replaygain', [mode | 0, noclip ? 1 : 0, +preampDb]);
+    const n = toNum(mode, RG_NUM, RG_NUM.off);
+    this._save('rgMode', n); this._save('rgNoclip', !!noclip); this._save('rgPreamp', +preampDb);
+    this._dsp('set_replaygain', [n, noclip ? 1 : 0, +preampDb]);
   }
 
   static get EQ_BAND_CUTOFFS() { return EQ_BAND_CUTOFFS.slice(); }
@@ -146,7 +161,11 @@ export class RockboxPlayer {
 
   _onWorker(msg) {
     switch (msg.type) {
-      case 'status':   this.state = msg; this._emit('status', msg); break;
+      case 'status': {
+        // Present repeat as an enum string to the app.
+        const s = { ...msg, repeat: REPEAT_STR[msg.repeat] ?? 'off' };
+        this.state = s; this._emit('status', s); break;
+      }
       case 'track':    this.metadata = msg.metadata; this._emit('track', msg); break;
       case 'progress': this.progress = msg; this.metadata = msg.metadata ?? this.metadata; this._emit('progress', msg); break;
       case 'queue':    this.queue = msg.urls; this._emit('queue', msg); break;
