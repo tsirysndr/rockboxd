@@ -5,16 +5,13 @@
 // must be built first: `bash ../scripts/build.sh` from bindings/wasm.
 
 import { cp, mkdir, access } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 
-// Resolve the installed package's entry → its dist/ directory (works whether
-// the file: dependency is symlinked or copied into node_modules).
-const distDir = dirname(require.resolve("rockbox-wasm"));
+// This example lives inside the package, so its built dist/ is two levels up.
+const distDir = resolve(here, "../../dist");
 const dest = resolve(here, "../public/rockbox");
 
 try {

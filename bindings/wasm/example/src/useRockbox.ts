@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import {
   RockboxPlayer,
+  RepeatMode,
   type ProgressEvent,
   type StatusEvent,
   type TrackEvent,
@@ -11,7 +12,7 @@ const INITIAL_STATUS: StatusEvent = {
   index: -1,
   queue_len: 0,
   shuffle: false,
-  repeat: 0,
+  repeat: RepeatMode.Off,
 };
 
 /**
