@@ -51,6 +51,35 @@ export enum CrossfeedMode {
   Custom = "custom",
 }
 
+/** When a track change crossfades (Rockbox's `crossfade` setting).
+ *  Setters also accept the raw int (0–5, in this order). */
+export enum CrossfadeMode {
+  Off = "off",
+  AutoSkip = "auto-skip",
+  ManualSkip = "manual-skip",
+  Shuffle = "shuffle",
+  ShuffleOrManualSkip = "shuffle-or-manual",
+  Always = "always",
+}
+
+/** How the outgoing track behaves during the crossfade overlap
+ *  (`crossfade_fade_out_mixmode`). */
+export enum CrossfadeMixMode {
+  /** Both tracks fade — outgoing ramps to silence as incoming ramps up. */
+  Crossfade = "crossfade",
+  /** Outgoing stays at full volume; the incoming track is mixed on top. */
+  Mix = "mix",
+}
+
+/** Crossfade options (seconds; Rockbox ranges — delays 0–7 s, durations 0–15 s). */
+export interface CrossfadeOptions {
+  fadeOutDelay?: number;
+  fadeOutDuration?: number;
+  fadeInDelay?: number;
+  fadeInDuration?: number;
+  mixMode?: CrossfadeMixMode | number;
+}
+
 export interface TrackMetadata {
   codec?: string;
   title?: string;
@@ -171,6 +200,8 @@ export class RockboxPlayer {
   ): void;
   /** Perceptual Bass Enhancement: strength 0–100, precut in tenths of dB (≤0). */
   setPbe(strength: number, precut?: number): void;
+  /** Rockbox crossfade (the pcmbuf algorithm). See CrossfadeMode / CrossfadeOptions. */
+  setCrossfade(mode: CrossfadeMode | number, opts?: CrossfadeOptions): void;
   setChannelMode(mode: ChannelMode | number): void;
   setStereoWidth(percent: number): void;
   setCompressor(threshold: number, makeup: number, ratio: number, knee: number, release: number, attack: number): void;

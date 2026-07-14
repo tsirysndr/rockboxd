@@ -26,6 +26,13 @@ export const ChannelMode = Object.freeze({
   MonoLeft: 'mono-left', MonoRight: 'mono-right', Karaoke: 'karaoke', Swap: 'swap',
 });
 export const CrossfeedMode = Object.freeze({ Off: 'off', Meier: 'meier', Custom: 'custom' });
+// Rockbox crossfade (pcmbuf): when a track change crossfades…
+export const CrossfadeMode = Object.freeze({
+  Off: 'off', AutoSkip: 'auto-skip', ManualSkip: 'manual-skip',
+  Shuffle: 'shuffle', ShuffleOrManualSkip: 'shuffle-or-manual', Always: 'always',
+});
+// …and how the outgoing track behaves during the overlap.
+export const CrossfadeMixMode = Object.freeze({ Crossfade: 'crossfade', Mix: 'mix' });
 
 const REPEAT_NUM = { off: 0, one: 1, all: 2 };
 const REPEAT_STR = ['off', 'one', 'all'];
@@ -152,6 +159,28 @@ export class RockboxPlayer {
     this._save('pbe', { strength, precut });
     this._dsp('set_pbe', [strength | 0, precut | 0]);
   }
+
+  /**
+   * Rockbox crossfade (the pcmbuf algorithm, ported to JS). `mode`:
+   * CrossfadeMode.Off | .AutoSkip | .ManualSkip | .Shuffle |
+   * .ShuffleOrManualSkip | .Always (or the raw 0–5 int). Options in seconds
+   * (Rockbox ranges — delays 0–7 s, durations 0–15 s):
+   * `{ fadeOutDelay, fadeOutDuration, fadeInDelay, fadeInDuration, mixMode }`
+   * with `mixMode`: CrossfadeMixMode.Crossfade (both fade) | .Mix (outgoing
+   * stays at full volume).
+   */
+  setCrossfade(mode, opts = {}) {
+    const cfg = {
+      mode: typeof mode === 'number' ? mode : String(mode),
+      fadeOutDelay:    +opts.fadeOutDelay    || 0,
+      fadeOutDuration: opts.fadeOutDuration != null ? +opts.fadeOutDuration : 2,
+      fadeInDelay:     +opts.fadeInDelay     || 0,
+      fadeInDuration:  opts.fadeInDuration  != null ? +opts.fadeInDuration  : 2,
+      mixMode: opts.mixMode ?? 'crossfade',
+    };
+    this._save('xfade', cfg);
+    this._post({ cmd: 'crossfade', ...cfg });
+  }
   /** ChannelMode.Stereo | .Mono | … (or the raw 0–6 index). */
   setChannelMode(mode)            { const n = toNum(mode, CHAN_NUM); this._save('channelMode', n); this._dsp('set_channel_config', [n]); }
   setStereoWidth(pct)             { this._save('stereoWidth', pct | 0); this._dsp('set_stereo_width', [pct | 0]); }
@@ -213,6 +242,7 @@ export class RockboxPlayer {
     if (s.rgMode != null) this._dsp('set_replaygain', [s.rgMode | 0, s.rgNoclip ? 1 : 0, +s.rgPreamp || 0]);
     if (s.crossfeed) this._dsp('set_crossfeed', [s.crossfeed.mode | 0, s.crossfeed.directGain | 0, s.crossfeed.crossLfGain | 0, s.crossfeed.crossHfGain | 0, s.crossfeed.hfCutoff | 0]);
     if (s.pbe) this._dsp('set_pbe', [s.pbe.strength | 0, s.pbe.precut | 0]);
+    if (s.xfade) this._post({ cmd: 'crossfade', ...s.xfade });
   }
 
   // ── Internal ────────────────────────────────────────────────────────────────

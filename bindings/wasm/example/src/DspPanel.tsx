@@ -1,6 +1,13 @@
 import { type ReactNode } from "react";
 import { useAtom } from "jotai";
-import { RockboxPlayer, ReplayGainMode, ChannelMode, CrossfeedMode } from "rockbox-wasm";
+import {
+  RockboxPlayer,
+  ReplayGainMode,
+  ChannelMode,
+  CrossfeedMode,
+  CrossfadeMode,
+  CrossfadeMixMode,
+} from "rockbox-wasm";
 import * as S from "./settings";
 
 /** Runs `fn` with the (booted) player — boots on first use. */
@@ -95,6 +102,27 @@ export function DspPanel({ apply }: { apply: Apply }) {
 
   const [channel, setChannel] = useAtom(S.channelAtom);
   const [width, setWidth] = useAtom(S.widthAtom);
+
+  // Crossfade (Rockbox pcmbuf)
+  const [xfMode, setXfMode] = useAtom(S.xfModeAtom);
+  const [xfFoDelay, setXfFoDelay] = useAtom(S.xfFoDelayAtom);
+  const [xfFoDur, setXfFoDur] = useAtom(S.xfFoDurAtom);
+  const [xfFiDelay, setXfFiDelay] = useAtom(S.xfFiDelayAtom);
+  const [xfFiDur, setXfFiDur] = useAtom(S.xfFiDurAtom);
+  const [xfMix, setXfMix] = useAtom(S.xfMixAtom);
+  const xf = (over: Partial<{
+    mode: CrossfadeMode; foDelay: number; foDur: number;
+    fiDelay: number; fiDur: number; mix: CrossfadeMixMode;
+  }> = {}) =>
+    apply((p) =>
+      p.setCrossfade(over.mode ?? xfMode, {
+        fadeOutDelay: over.foDelay ?? xfFoDelay,
+        fadeOutDuration: over.foDur ?? xfFoDur,
+        fadeInDelay: over.fiDelay ?? xfFiDelay,
+        fadeInDuration: over.fiDur ?? xfFiDur,
+        mixMode: over.mix ?? xfMix,
+      }),
+    );
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -204,6 +232,49 @@ export function DspPanel({ apply }: { apply: Apply }) {
         <Field label="Stereo width" value={`${width}%`}>
           <Slider min={0} max={255} value={width}
             onChange={(v) => { setWidth(v); apply((p) => p.setStereoWidth(v)); }} />
+        </Field>
+      </Card>
+
+      <Card title="Crossfade">
+        <Field label="Mode">
+          <Select<CrossfadeMode>
+            value={xfMode}
+            options={[
+              [CrossfadeMode.Off, "Off"],
+              [CrossfadeMode.AutoSkip, "Auto track change"],
+              [CrossfadeMode.ManualSkip, "Manual skip"],
+              [CrossfadeMode.Shuffle, "Shuffle"],
+              [CrossfadeMode.ShuffleOrManualSkip, "Shuffle or manual skip"],
+              [CrossfadeMode.Always, "Always"],
+            ]}
+            onChange={(v) => { setXfMode(v); xf({ mode: v }); }}
+          />
+        </Field>
+        <Field label="Fade-out delay" value={`${xfFoDelay} s`}>
+          <Slider min={0} max={7} value={xfFoDelay}
+            onChange={(v) => { setXfFoDelay(v); xf({ foDelay: v }); }} />
+        </Field>
+        <Field label="Fade-out duration" value={`${xfFoDur} s`}>
+          <Slider min={0} max={15} value={xfFoDur}
+            onChange={(v) => { setXfFoDur(v); xf({ foDur: v }); }} />
+        </Field>
+        <Field label="Fade-in delay" value={`${xfFiDelay} s`}>
+          <Slider min={0} max={7} value={xfFiDelay}
+            onChange={(v) => { setXfFiDelay(v); xf({ fiDelay: v }); }} />
+        </Field>
+        <Field label="Fade-in duration" value={`${xfFiDur} s`}>
+          <Slider min={0} max={15} value={xfFiDur}
+            onChange={(v) => { setXfFiDur(v); xf({ fiDur: v }); }} />
+        </Field>
+        <Field label="Fade-out mode">
+          <Select<CrossfadeMixMode>
+            value={xfMix}
+            options={[
+              [CrossfadeMixMode.Crossfade, "Crossfade (both fade)"],
+              [CrossfadeMixMode.Mix, "Mix (outgoing stays full)"],
+            ]}
+            onChange={(v) => { setXfMix(v); xf({ mix: v }); }}
+          />
         </Field>
       </Card>
     </div>

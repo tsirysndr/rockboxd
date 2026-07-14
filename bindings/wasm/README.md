@@ -8,7 +8,9 @@ to WebAssembly, wrapped in a small, batteries-included browser player.
 - 🎧 **Decodes** FLAC, MP3, Vorbis, Opus, ALAC, AAC, WavPack, WMA, APE, Musepack,
   WAV/AIFF and more — the real Rockbox codecs, not the browser's.
 - 🎚️ **10-band parametric EQ**, tone controls, ReplayGain, channel mixing,
-  stereo width, surround and a compressor — the Rockbox DSP chain.
+  stereo width, crossfeed, PBE, surround and a compressor — the Rockbox DSP chain.
+- 🎛️ **Rockbox crossfade** — the original pcmbuf algorithm (same modes and
+  parameters: fade in/out delay + duration, crossfade/mix) ported to JS.
 - 📻 **Live internet radio** (Icecast/SHOUTcast) with ICY now-playing metadata.
 - 📦 **The wasm is bundled in** — one `npm install`, nothing to download or
   serve separately.
@@ -144,6 +146,7 @@ new RockboxPlayer({
 | `setChannelMode(mode)` / `setStereoWidth(pct)`      | `ChannelMode.Stereo\|.Mono\|…`     |
 | `setSurround(delayMs, balance, fx1, fx2)`           | Haas surround                      |
 | `setCompressor(thr, makeup, ratio, knee, rel, atk)` | dynamic-range compressor           |
+| `setCrossfade(mode, opts?)`                         | `CrossfadeMode.Off\|.AutoSkip\|.ManualSkip\|.Shuffle\|.ShuffleOrManualSkip\|.Always`; opts: fade in/out delay + duration (s), `mixMode` |
 
 Settings-value **enums** are exported (and each setter also accepts the raw
 int):

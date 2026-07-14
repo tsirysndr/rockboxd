@@ -55,6 +55,15 @@ let streaming  = false; // a progressive segment loop (live or streamed-finite) 
 let loadToken  = 0;    // bumped on every track change / stop
 let curInRate  = 0;
 
+// ── Crossfade (Rockbox pcmbuf port — see crates/rockbox-playback/src/crossfade.rs)
+// Settings in seconds, mirroring apps/settings_list.c ranges & defaults.
+let xfadeCfg = { mode: 'off', foDelay: 0, foDur: 2, fiDelay: 0, fiDur: 2, mix: 'crossfade' };
+let xfade    = null; // active mixer state (armed at a crossfaded transition)
+let holdChunks = []; // outgoing-tail holdback: decoded PCM not yet sent to the worklet
+let holdLen  = 0;    // frames currently held
+let postedFrames = 0; // frames posted to the worklet since its last flush
+let trackBase = 0;   // posted-frame epoch where the current track audibly starts
+
 // Finite-track decoded PCM, kept alive so we can seek within it.
 let rawPtr = 0, rawLen = 0, rawRate = 0, finitePos = 0;
 
@@ -84,13 +93,26 @@ onmessage = (e) => {
     case 'stop':       return stop();
     case 'next':       return skip(+1);
     case 'prev':       return skip(-1);
-    case 'skipTo':     return startTrack(msg.index, 0, true);
+    case 'skipTo':     return beginManual(msg.index);
     case 'seek':       return seek(msg.ms);
     case 'shuffle':    shuffle = !!msg.enabled; return emitStatus();
     case 'repeat':     repeat  = msg.mode | 0;  return emitStatus();
+    case 'crossfade':  return setXfadeCfg(msg);
     case 'dsp':        return applyDsp(msg.name, msg.args);
   }
 };
+
+function setXfadeCfg(m) {
+  const MODES = ['off', 'auto-skip', 'manual-skip', 'shuffle', 'shuffle-or-manual', 'always'];
+  xfadeCfg = {
+    mode: typeof m.mode === 'number' ? (MODES[m.mode] || 'off') : (m.mode || 'off'),
+    foDelay: Math.max(0, +m.fadeOutDelay    || 0),
+    foDur:   Math.max(0, +m.fadeOutDuration || 0),
+    fiDelay: Math.max(0, +m.fadeInDelay     || 0),
+    fiDur:   Math.max(0, +m.fadeInDuration  || 0),
+    mix: (m.mixMode === 1 || m.mixMode === 'mix') ? 'mix' : 'crossfade',
+  };
+}
 
 function onInit(msg) {
   sampleRate = msg.sampleRate;
@@ -108,25 +130,201 @@ function onPcmPort(port) {
 }
 
 // ── Worklet transport ─────────────────────────────────────────────────────
-function flushWorklet() { pcmPort && pcmPort.postMessage({ type: 'flush' }); wlConsumed = 0; wlQueued = 0; }
+function flushWorklet() {
+  pcmPort && pcmPort.postMessage({ type: 'flush' });
+  wlConsumed = 0; wlQueued = 0; postedFrames = 0; trackBase = 0;
+}
 function setWorkletPaused(v) { pcmPort && pcmPort.postMessage({ type: 'paused', value: v }); }
 
 /** Copy `procLen` i16 samples at HEAP16[procPtr…] out of the heap, free the
- *  heap buffer, and transfer the copy to the worklet. */
+ *  heap buffer, and run the copy through the output pipeline
+ *  (crossfade mixer → tail holdback → worklet). */
 function postPcm(procPtr, procLen) {
   const start = procPtr >> 1;
   const copy = Module.HEAP16.slice(start, start + procLen); // detached copy
   Module._rb_buffer_free(procPtr, procLen);
-  pcmPort.postMessage({ pcm: copy.buffer }, [copy.buffer]);
+  pushPcm(copy);
+}
+
+/** Final hop: transfer an Int16Array to the worklet. */
+function emitPcm(arr) {
+  pcmPort.postMessage({ pcm: arr.buffer }, [arr.buffer]);
   // Local accounting: count the queued frames immediately. The worklet's
   // periodic 'level' reports overwrite this with the truth, but those are
   // macrotasks — a tight decode loop chained on microtasks would never see
   // them, think the queue is empty, and blast the whole track through with
   // no backpressure.
-  wlQueued += procLen >> 1;
+  const frames = arr.length >> 1;
+  wlQueued += frames;
+  postedFrames += frames;
 }
 
-const highWater = () => 3 * sampleRate; // keep ≤ ~3 s buffered in the worklet
+/** Output pipeline: crossfade-mix if a fade is armed, then hold back the
+ *  newest `holdFrames()` so a transition has an outgoing tail to fade. */
+function pushPcm(arr) {
+  if (xfade) {
+    for (const part of xfadeMix(arr)) holdPush(part);
+    return;
+  }
+  holdPush(arr);
+}
+
+function holdPush(arr) {
+  const H = holdFrames();
+  if (H <= 0) { emitPcm(arr); return; }
+  holdChunks.push(arr);
+  holdLen += arr.length >> 1;
+  while (holdChunks.length && holdLen - (holdChunks[0].length >> 1) >= H) {
+    const c = holdChunks.shift();
+    holdLen -= c.length >> 1;
+    emitPcm(c);
+  }
+}
+
+/** Take the held tail as one flat buffer (for a crossfaded transition). */
+function takeTail() {
+  const tail = new Int16Array(holdLen * 2);
+  let off = 0;
+  for (const c of holdChunks) { tail.set(c, off); off += c.length; }
+  holdChunks = []; holdLen = 0;
+  return tail;
+}
+
+/** Send everything held to the worklet (plain, non-crossfaded track end). */
+function flushHold() {
+  for (const c of holdChunks) emitPcm(c);
+  holdChunks = []; holdLen = 0;
+}
+
+function dropHold() { holdChunks = []; holdLen = 0; }
+
+// ── Rockbox pcmbuf crossfade, ported from apps/pcmbuf.c via
+//    crates/rockbox-playback/src/crossfade.rs (Q16 gains, Bresenham ramps,
+//    saturating mix). ──────────────────────────────────────────────────────
+const XF_UNITY = 1 << 16;
+
+/** Linear fade stepper — pcmbuf.c mixfader_init / mixfader_step. */
+class MixFader {
+  constructor(start, end, nframes) {
+    const nsamp2 = nframes * 2;
+    this.endfac = end;
+    this.nsamp2 = nsamp2;
+    if (nsamp2 === 0) { this.factor = end; this.ferr = 0; this.dfquo = 0; this.dfrem = 0; this.dfinc = 0; return; }
+    const dfact2 = 2 * Math.abs(end - start);
+    this.factor = start;
+    this.ferr = dfact2 >> 1;
+    this.dfinc = end < start ? -1 : 1;
+    this.dfquo = Math.trunc(dfact2 / nsamp2) * this.dfinc;
+    this.dfrem = dfact2 - Math.trunc(dfact2 / nsamp2) * nsamp2;
+  }
+  step() {
+    if (this.factor === this.endfac) return;
+    this.factor += this.dfquo;
+    this.ferr += this.dfrem;
+    if (this.ferr >= this.nsamp2) { this.factor += this.dfinc; this.ferr -= this.nsamp2; }
+  }
+}
+
+/** pcmbuf.c mixfade_sample(): apply a Q16 gain with rounding. */
+const mixfadeSample = (factor, s) => (factor * s + (XF_UNITY >> 1)) >> 16;
+const clip16 = (s) => (s > 32767 ? 32767 : s < -32768 ? -32768 : s);
+
+/** Does a transition crossfade? `auto` = the track ended on its own. */
+function xfadeApplies(auto) {
+  switch (xfadeCfg.mode) {
+    case 'auto-skip':         return auto;
+    case 'manual-skip':       return !auto;
+    case 'shuffle':           return shuffle;
+    case 'shuffle-or-manual': return shuffle || !auto;
+    case 'always':            return true;
+    default:                  return false;
+  }
+}
+
+/** Outgoing tail to keep for the fade-out (frames). */
+function holdFrames() {
+  if (xfadeCfg.mode === 'off') return 0;
+  return Math.round((xfadeCfg.foDelay + xfadeCfg.foDur) * sampleRate);
+}
+
+/** Arm the mixer with the outgoing track's tail at a transition. */
+function armCrossfade(tail) {
+  const fr = (s) => Math.round(s * sampleRate);
+  const foDelay = fr(xfadeCfg.foDelay), foDur = fr(xfadeCfg.foDur);
+  const fiDelay = fr(xfadeCfg.fiDelay), fiDur = fr(xfadeCfg.fiDur);
+  const region = Math.max(foDelay + foDur, fiDelay + fiDur, tail.length >> 1);
+  xfade = {
+    tail, pos: 0, region, foDelay, foDur, fiDelay, fiDur,
+    mix: xfadeCfg.mix === 'mix',
+    fo: new MixFader(XF_UNITY, 0, foDur),
+    fi: new MixFader(0, XF_UNITY, fiDur),
+  };
+}
+
+/** Gains for the current region frame (stepping the faders). */
+function xfadeGains(x) {
+  let og;
+  if (x.mix) og = XF_UNITY;
+  else if (x.pos < x.foDelay) og = XF_UNITY;
+  else if (x.pos < x.foDelay + x.foDur) { og = x.fo.factor; x.fo.step(); }
+  else og = 0;
+  let ig;
+  if (x.pos < x.fiDelay) ig = 0;
+  else if (x.pos < x.fiDelay + x.fiDur) { ig = x.fi.factor; x.fi.step(); }
+  else ig = XF_UNITY;
+  return [og, ig];
+}
+
+/** Mix an incoming chunk against the outgoing tail; returns arrays to emit.
+ *  Frames past the crossfade region pass through untouched. */
+function xfadeMix(chunk) {
+  const x = xfade;
+  const chunkFrames = chunk.length >> 1;
+  const n = Math.min(x.region - x.pos, chunkFrames);
+  const tailFrames = x.tail.length >> 1;
+  const out = new Int16Array(n * 2);
+  for (let f = 0; f < n; f++) {
+    const [og, ig] = xfadeGains(x);
+    const t = x.pos < tailFrames ? x.pos * 2 : -1;
+    const tl = t >= 0 ? x.tail[t] : 0;
+    const tr = t >= 0 ? x.tail[t + 1] : 0;
+    out[f * 2]     = clip16(mixfadeSample(og, tl) + mixfadeSample(ig, chunk[f * 2]));
+    out[f * 2 + 1] = clip16(mixfadeSample(og, tr) + mixfadeSample(ig, chunk[f * 2 + 1]));
+    x.pos++;
+  }
+  const parts = [out];
+  if (x.pos >= x.region) {
+    xfade = null;
+    if (n < chunkFrames) parts.push(chunk.slice(n * 2)); // remainder passes through
+  }
+  return parts;
+}
+
+/** Incoming track ended while the fade was still active — play the rest of
+ *  the outgoing tail out through its fade so it doesn't cut. */
+function finalizeCrossfade() {
+  const x = xfade;
+  if (!x) return null;
+  xfade = null;
+  const tailFrames = x.tail.length >> 1;
+  const n = Math.max(0, tailFrames - x.pos);
+  if (n <= 0) return null;
+  const out = new Int16Array(n * 2);
+  for (let f = 0; f < n; f++) {
+    const [og] = xfadeGains(x);
+    out[f * 2]     = clip16(mixfadeSample(og, x.tail[x.pos * 2]));
+    out[f * 2 + 1] = clip16(mixfadeSample(og, x.tail[x.pos * 2 + 1]));
+    x.pos++;
+  }
+  return out;
+}
+
+// Keep the worklet queue short when crossfade can trigger on a manual skip,
+// so the fade starts near "now" (queued audio can't be pulled back).
+const highWater = () => {
+  const manualCapable = xfadeCfg.mode !== 'off' && xfadeCfg.mode !== 'auto-skip';
+  return manualCapable ? Math.round(0.6 * sampleRate) : 3 * sampleRate;
+};
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /**
@@ -219,7 +417,7 @@ function formatExt(contentType, url) {
   return e === 'bin' ? 'mp3' : e;
 }
 
-async function startTrack(i, seekMs, autoplay) {
+async function startTrack(i, seekMs, autoplay, xfadeTail = null) {
   if (i < 0 || i >= queue.length) { stop(); return; }
   const token = ++loadToken;
   const url = queue[i];
@@ -230,10 +428,20 @@ async function startTrack(i, seekMs, autoplay) {
   index = i;
   curInRate = 0;
   seekBaseMs = seekMs || 0;
-  flushWorklet();
-  // Hold the worklet while the new track loads/prebuffers; the buffered path
-  // unpauses on play and the segment loop unpauses once prebuffered.
-  setWorkletPaused(true);
+  if (xfadeTail && xfadeTail.length) {
+    // Crossfaded transition: keep the worklet playing (no flush, no pause);
+    // the incoming track's PCM will be mixed against this outgoing tail.
+    xfade = null; // a still-active fade's remainder was captured in the tail
+    armCrossfade(xfadeTail);
+    trackBase = postedFrames + Math.round(xfadeCfg.fiDelay * sampleRate);
+  } else {
+    xfade = null;
+    dropHold(); // a skip discards un-played audio
+    flushWorklet();
+    // Hold the worklet while the new track loads/prebuffers; the buffered path
+    // unpauses on play and the segment loop unpauses once prebuffered.
+    setWorkletPaused(true);
+  }
   Module._rb_dsp_flush(dsp);
 
   let resp;
@@ -312,12 +520,22 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
   postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
   if (autoplay || playing) { playing = true; userPaused = false; setWorkletPaused(false); }
   emitStatus();
-  // Stream the decoded buffer; when it's fully posted, let the worklet PLAY
-  // it out before advancing (advancing early would flush the queued tail).
-  // A seek can rewind the cursor while draining — go stream again.
+  // Stream the decoded buffer; when it's fully posted, either crossfade into
+  // the next track (natural end) or let the worklet PLAY the queue out before
+  // advancing. A seek can rewind the cursor while draining — stream again.
   for (;;) {
     const finished = await streamRaw(rawPtr, rawLen, rawRate, () => finitePos, (v) => (finitePos = v), token);
     if (!finished || token !== loadToken) return;
+    const fin = finalizeCrossfade(); // this track started mid-fade and is short
+    if (fin) holdPush(fin);
+    const nxt = nextAfterEnd();
+    if (nxt != null && xfadeApplies(true) && holdLen > 0) {
+      const tail = takeTail();
+      freeRaw();
+      startTrack(nxt, 0, true, tail);
+      return;
+    }
+    flushHold();
     const r = await waitForDrain(token, () => finitePos < rawLen);
     if (r === 'aborted') return;
     if (r === 'again') continue;
@@ -384,7 +602,10 @@ async function playLiveStream(resp, url, i, token, autoplay) {
  */
 async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) {
   streaming = true;
-  const prebuf = Math.round(LIVE_PREBUFFER_SEC * sampleRate);
+  // Prebuffer target must stay below the worklet high-water mark or the
+  // backpressure gate would stop feeding before playback ever starts.
+  const prebuf = Math.min(Math.round(LIVE_PREBUFFER_SEC * sampleRate),
+                          Math.max(4096, highWater() - 8192));
   let gotMeta = false;
   let started = false;
   const maybeStart = () => {
@@ -414,13 +635,35 @@ async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) 
     if (token === loadToken && pending.length) await decodeSegment(pending, ext, token, !gotMeta, maybeStart);
     if (token === loadToken) {
       if (!started && !userPaused) setWorkletPaused(false);
-      // Everything is decoded but the worklet may hold several seconds of
-      // un-played audio — advancing now would flush it. Play it out first.
-      if ((await waitForDrain(token)) === 'done') advanceAfterEnd();
+      await finishTrack(token);
     }
   } catch (err) {
-    if (token === loadToken) { postMessage({ type: 'error', message: `stream error: ${url} (${err})`, index: i }); advanceAfterEnd(); }
+    if (token === loadToken) { postMessage({ type: 'error', message: `stream error: ${url} (${err})`, index: i }); flushHold(); advanceAfterEnd(); }
   }
+}
+
+/** What plays after the current track ends naturally (or null to stop). */
+function nextAfterEnd() {
+  if (repeat === 1) return index; // repeat one
+  const next = index + 1;
+  if (next < queue.length) return next;
+  if (repeat === 2 && queue.length) return 0; // repeat all → wrap
+  return null;
+}
+
+/** Natural end of a track: crossfade into the next when configured, else
+ *  play the held tail + worklet queue out, then advance. */
+async function finishTrack(token) {
+  if (token !== loadToken) return;
+  const fin = finalizeCrossfade(); // still mid-fade (very short track)
+  if (fin) holdPush(fin);
+  const nxt = nextAfterEnd();
+  if (nxt != null && xfadeApplies(true) && holdLen > 0) {
+    startTrack(nxt, 0, true, takeTail());
+    return;
+  }
+  flushHold();
+  if ((await waitForDrain(token)) === 'done') advanceAfterEnd();
 }
 
 /** Decode one self-contained encoded packet in memory and stream its PCM.
@@ -480,6 +723,8 @@ function stop() {
   loadToken++;
   playing = false; userPaused = false; live = false; streaming = false;
   freeRaw();
+  xfade = null;
+  dropHold();
   flushWorklet();
   curMeta = null;
   emitStatus();
@@ -499,6 +744,8 @@ function skip(dir) {
 function seek(ms) {
   if (live || !rawPtr) return; // live isn't seekable
   seekBaseMs = ms;
+  xfade = null;
+  dropHold();
   flushWorklet();
   Module._rb_dsp_flush(dsp);
   curInRate = 0;
@@ -595,7 +842,7 @@ function emitProgress() {
     state: stateName(),
     index,
     live,
-    elapsed_ms: seekBaseMs + Math.round(wlConsumed * 1000 / sampleRate),
+    elapsed_ms: seekBaseMs + Math.round(Math.max(0, wlConsumed - trackBase) * 1000 / sampleRate),
     duration_ms: curMeta ? (curMeta.duration_ms | 0) : 0,
     metadata: curMeta,
   });

@@ -112,8 +112,9 @@ in `scripts/build-wasm.sh` — a missing entry is silently dead-stripped.
 
 ## Known limitations
 
-- **Crossfade / crossfeed / PBE / dither / pitch** aren't exposed: the WASM DSP
-  surface is what `rockbox-ffi`'s `dsp.rs` exposes.
+- **Dither / pitch** aren't exposed: the WASM DSP surface is what
+  `rockbox-ffi`'s `dsp.rs` exposes. (Crossfeed and PBE are; crossfade is the
+  Rockbox pcmbuf algorithm ported to JS in the decoder worker.)
 - **Live streams** aren't seekable and report `duration_ms: 0`.
 - Large finite files are decoded whole before playback (the incremental,
   seek-while-streaming decoder needs a codec thread, which the single-threaded

@@ -9,6 +9,8 @@ import {
   ReplayGainMode,
   ChannelMode,
   CrossfeedMode,
+  CrossfadeMode,
+  CrossfadeMixMode,
 } from "rockbox-wasm";
 
 const CUTOFFS = RockboxPlayer.EQ_BAND_CUTOFFS;
@@ -41,6 +43,14 @@ export const compRatioAtom = atomWithStorage("rb.compRatio", 2);
 export const channelAtom = atomWithStorage<ChannelMode>("rb.channel", ChannelMode.Stereo);
 export const widthAtom = atomWithStorage("rb.width", 100);
 
+// Crossfade (Rockbox pcmbuf) — delays 0–7 s, durations 0–15 s.
+export const xfModeAtom = atomWithStorage<CrossfadeMode>("rb.xfMode", CrossfadeMode.Off);
+export const xfFoDelayAtom = atomWithStorage("rb.xfFoDelay", 0);
+export const xfFoDurAtom = atomWithStorage("rb.xfFoDur", 2);
+export const xfFiDelayAtom = atomWithStorage("rb.xfFiDelay", 0);
+export const xfFiDurAtom = atomWithStorage("rb.xfFiDur", 2);
+export const xfMixAtom = atomWithStorage<CrossfadeMixMode>("rb.xfMix", CrossfadeMixMode.Crossfade);
+
 export interface Settings {
   volume: number;
   eqEnabled: boolean;
@@ -61,6 +71,12 @@ export interface Settings {
   compRatio: number;
   channel: ChannelMode;
   width: number;
+  xfMode: CrossfadeMode;
+  xfFoDelay: number;
+  xfFoDur: number;
+  xfFiDelay: number;
+  xfFiDur: number;
+  xfMix: CrossfadeMixMode;
 }
 
 /** Read the current value of every setting atom as a plain snapshot. */
@@ -85,6 +101,12 @@ export function useSettingsSnapshot(): Settings {
     compRatio: useAtomValue(compRatioAtom),
     channel: useAtomValue(channelAtom),
     width: useAtomValue(widthAtom),
+    xfMode: useAtomValue(xfModeAtom),
+    xfFoDelay: useAtomValue(xfFoDelayAtom),
+    xfFoDur: useAtomValue(xfFoDurAtom),
+    xfFiDelay: useAtomValue(xfFiDelayAtom),
+    xfFiDur: useAtomValue(xfFiDurAtom),
+    xfMix: useAtomValue(xfMixAtom),
   };
 }
 
@@ -102,4 +124,11 @@ export function applySettings(p: RockboxPlayer, s: Settings) {
   p.setCompressor(s.compThresh, 0, s.compRatio, 0, 0, 0);
   p.setChannelMode(s.channel);
   p.setStereoWidth(s.width);
+  p.setCrossfade(s.xfMode, {
+    fadeOutDelay: s.xfFoDelay,
+    fadeOutDuration: s.xfFoDur,
+    fadeInDelay: s.xfFiDelay,
+    fadeInDuration: s.xfFiDur,
+    mixMode: s.xfMix,
+  });
 }
