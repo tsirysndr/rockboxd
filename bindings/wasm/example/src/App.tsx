@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAtom } from "jotai";
 import { RockboxPlayer, RepeatMode } from "rockbox-wasm";
 import { useRockbox } from "./useRockbox";
 import { DspPanel } from "./DspPanel";
+import {
+  applySettings,
+  eqEnabledAtom,
+  eqGainsAtom,
+  useSettingsSnapshot,
+  volumeAtom,
+} from "./settings";
 
 const CUTOFFS = RockboxPlayer.EQ_BAND_CUTOFFS;
 const REPEAT_CYCLE = [RepeatMode.Off, RepeatMode.One, RepeatMode.All];
@@ -25,9 +33,18 @@ export function App() {
 
   const [url, setUrl] = useState("");
   const [seeking, setSeeking] = useState<number | null>(null);
-  const [volume, setVolume] = useState(100);
-  const [eqEnabled, setEqEnabled] = useState(false);
-  const [eqGains, setEqGains] = useState<number[]>(() => CUTOFFS.map(() => 0));
+  // Persisted UI state (localStorage via jotai).
+  const [volume, setVolume] = useAtom(volumeAtom);
+  const [eqEnabled, setEqEnabled] = useAtom(eqEnabledAtom);
+  const [eqGains, setEqGains] = useAtom(eqGainsAtom);
+  const settings = useSettingsSnapshot();
+
+  // When the engine boots, push every persisted setting so the audio matches
+  // the restored UI.
+  useEffect(() => {
+    if (ready) applySettings(getPlayer(), settings);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   const md = track?.metadata ?? null;
   const live = progress?.live ?? track?.live ?? false;

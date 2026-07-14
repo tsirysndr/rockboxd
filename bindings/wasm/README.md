@@ -89,8 +89,9 @@ player.on("track", (t) => console.log("now playing:", t.metadata?.title ?? t.url
 > `init()` (and the first `play()`) must be reachable from a user gesture —
 > browsers won't start an `AudioContext` otherwise.
 
-There's a full **React + TypeScript + Vite** example in [`example/`](./example)
-(install the package via a relative `file:` dependency).
+There's a full **React + TypeScript + Vite + Tailwind** example in
+[`example/`](./example) — all controls (transport, EQ, the whole DSP chain)
+with settings persisted to localStorage via jotai.
 
 ## Live radio
 

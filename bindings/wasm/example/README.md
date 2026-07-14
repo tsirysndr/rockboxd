@@ -1,8 +1,13 @@
 # rockbox-wasm — React + TypeScript + Vite example
 
-A minimal player UI (now-playing, transport, seek, volume, 10-band EQ, live
-radio) built with React + Vite on top of [`rockbox-wasm`](../), installed as a
-relative `file:..` dependency.
+A player UI (now-playing, transport, seek, volume, 10-band EQ, the full DSP
+chain, live radio) built with React + Vite + Tailwind v4 on top of
+[`rockbox-wasm`](../). All settings persist to localStorage via
+[jotai](https://jotai.org) `atomWithStorage`.
+
+Because this example lives *inside* the package, it resolves `rockbox-wasm` to
+the local build (`../dist`) with a Vite alias + tsconfig `paths` rather than an
+npm install — a real consumer would just `bun add rockbox-wasm`.
 
 ## Run it
 
@@ -15,8 +20,7 @@ bun install
 bun run dev            # → http://localhost:5173
 ```
 
-`bun install` links the parent package via `"rockbox-wasm": "file:.."`. A
-`copy-wasm` step (run automatically before `dev`/`build`) copies the built
+A `copy-wasm` step (run automatically before `dev`/`build`) copies the built
 `dist/` into `public/rockbox`, and the app points at it with
 `new RockboxPlayer({ baseUrl: "/rockbox" })`.
 
@@ -24,8 +28,12 @@ No COOP/COEP headers are required — the build is single-threaded.
 
 ## Files
 
-- `src/App.tsx` — the UI
+- `src/App.tsx` — the UI (transport, seek, volume, EQ)
+- `src/DspPanel.tsx` — the full DSP chain (ReplayGain, tone, crossfeed, PBE,
+  surround, compressor, channel)
+- `src/settings.ts` — all settings as jotai `atomWithStorage` atoms +
+  `applySettings` (pushed to the player once the engine boots)
 - `src/useRockbox.ts` — a hook that owns a `RockboxPlayer` and mirrors its
   events into React state
 - `scripts/copy-wasm.mjs` — copies the package's `dist/` into `public/rockbox`
-- `vite.config.ts` — React + Tailwind v4 plugins
+- `vite.config.ts` — React + Tailwind v4 + the `rockbox-wasm` → `../dist` alias

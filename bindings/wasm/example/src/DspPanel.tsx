@@ -1,5 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { useAtom } from "jotai";
 import { RockboxPlayer, ReplayGainMode, ChannelMode, CrossfeedMode } from "rockbox-wasm";
+import * as S from "./settings";
 
 /** Runs `fn` with the (booted) player — boots on first use. */
 type Apply = (fn: (p: RockboxPlayer) => void) => void | Promise<void>;
@@ -18,8 +20,7 @@ function Field({ label, value, children }: { label: string; value?: ReactNode; c
 }
 
 function Slider(props: {
-  min: number; max: number; step?: number; value: number;
-  onChange: (v: number) => void;
+  min: number; max: number; step?: number; value: number; onChange: (v: number) => void;
 }) {
   return (
     <input
@@ -41,8 +42,7 @@ function Select<T extends string | number>(props: {
     <select
       value={String(props.value)}
       onChange={(e) => {
-        const raw = e.target.value;
-        const opt = props.options.find(([v]) => String(v) === raw);
+        const opt = props.options.find(([v]) => String(v) === e.target.value);
         if (opt) props.onChange(opt[0]);
       }}
       className="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100"
@@ -61,49 +61,40 @@ const Card = ({ title, children }: { title: string; children: ReactNode }) => (
   </div>
 );
 
-// ── the panel ────────────────────────────────────────────────────────────────
+// ── the panel — all state is persisted via jotai atomWithStorage ─────────────
 export function DspPanel({ apply }: { apply: Apply }) {
-  // ReplayGain
-  const [rgMode, setRgMode] = useState<ReplayGainMode>(ReplayGainMode.Off);
-  const [rgPreamp, setRgPreamp] = useState(0);
-  const [rgNoclip, setRgNoclip] = useState(false);
+  const [rgMode, setRgMode] = useAtom(S.rgModeAtom);
+  const [rgPreamp, setRgPreamp] = useAtom(S.rgPreampAtom);
+  const [rgNoclip, setRgNoclip] = useAtom(S.rgNoclipAtom);
   const rg = (mode = rgMode, preamp = rgPreamp, noclip = rgNoclip) =>
     apply((p) => p.setReplaygain(mode, noclip, preamp));
 
-  // Tone (bass + treble go together)
-  const [bass, setBass] = useState(0);
-  const [treble, setTreble] = useState(0);
+  const [bass, setBass] = useAtom(S.bassAtom);
+  const [treble, setTreble] = useAtom(S.trebleAtom);
   const tone = (b = bass, t = treble) => apply((p) => p.setTone(b, t));
 
-  // EQ precut
-  const [precut, setPrecut] = useState(0);
+  const [precut, setPrecut] = useAtom(S.eqPrecutAtom);
 
-  // Crossfeed
-  const [cfMode, setCfMode] = useState<CrossfeedMode>(CrossfeedMode.Off);
-  const [cfDirect, setCfDirect] = useState(-1.5); // dB
+  const [cfMode, setCfMode] = useAtom(S.cfModeAtom);
+  const [cfDirect, setCfDirect] = useAtom(S.cfDirectAtom);
   const cf = (mode = cfMode, direct = cfDirect) =>
     apply((p) => p.setCrossfeed(mode, Math.round(direct * 10)));
 
-  // PBE
-  const [pbe, setPbe] = useState(0);
-  const [pbePrecut, setPbePrecut] = useState(0); // dB of headroom
-  const applyPbe = (s = pbe, pc = pbePrecut) =>
-    apply((p) => p.setPbe(s, -Math.round(pc * 10)));
+  const [pbe, setPbe] = useAtom(S.pbeAtom);
+  const [pbePrecut, setPbePrecut] = useAtom(S.pbePrecutAtom);
+  const applyPbe = (s = pbe, pc = pbePrecut) => apply((p) => p.setPbe(s, -Math.round(pc * 10)));
 
-  // Haas surround
-  const [surDelay, setSurDelay] = useState(0);
-  const [surBalance, setSurBalance] = useState(35);
+  const [surDelay, setSurDelay] = useAtom(S.surDelayAtom);
+  const [surBalance, setSurBalance] = useAtom(S.surBalanceAtom);
   const sur = (d = surDelay, b = surBalance) => apply((p) => p.setSurround(d, b, 0, 0));
 
-  // Compressor
-  const [compThresh, setCompThresh] = useState(0); // 0 = off
-  const [compRatio, setCompRatio] = useState(2);
+  const [compThresh, setCompThresh] = useAtom(S.compThreshAtom);
+  const [compRatio, setCompRatio] = useAtom(S.compRatioAtom);
   const comp = (thr = compThresh, ratio = compRatio) =>
     apply((p) => p.setCompressor(thr, 0, ratio, 0, 0, 0));
 
-  // Channel / width
-  const [channel, setChannel] = useState<ChannelMode>(ChannelMode.Stereo);
-  const [width, setWidth] = useState(100);
+  const [channel, setChannel] = useAtom(S.channelAtom);
+  const [width, setWidth] = useAtom(S.widthAtom);
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
