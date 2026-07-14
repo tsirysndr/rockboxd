@@ -128,6 +128,8 @@ new RockboxPlayer({
 | `await init()`                      | Boot the audio graph + worker (from a click) |
 | `setQueue(urls, autoplay?)`         | Replace the queue                          |
 | `enqueue(url)` / `clearQueue()`     | Append / empty the queue                   |
+| `insert(urls, mode?, index?)`       | Rockbox insertion modes: `InsertMode.PlayNext\|.PlayLast\|.Insert\|.Prepend\|.InsertShuffled\|.InsertLastShuffled\|.Replace\|.AtIndex` |
+| `removeAt(i)`                       | Remove a queue entry (current → hard-cut to slide-in) |
 | `play()` `pause()` `toggle()` `stop()` | Transport                               |
 | `next()` `prev()` `skipTo(i)` `seek(ms)` | Navigation                            |
 | `setShuffle(bool)`                  | Toggle shuffle                             |
@@ -161,6 +163,14 @@ player.setChannelMode(ChannelMode.Mono);
 
 `RockboxPlayer.EQ_BAND_CUTOFFS` gives the 10 default band centre frequencies.
 DSP/EQ settings persist to `localStorage` and re-apply on the next `init()`.
+
+### M3U playlists
+
+`loadM3uUrl(url, autoplay?)` / `enqueueM3uUrl(url, mode?)` fetch and load an
+`.m3u`/`.m3u8` into the queue (relative entries resolve against the playlist
+URL); `loadM3u(text, opts?)` / `enqueueM3u(text, opts?)` work from text;
+`exportM3u()` returns the queue as `.m3u8` text; statics `parseM3u`,
+`serializeM3u`, `isM3uUrl` for raw playlist handling.
 
 ### Events
 

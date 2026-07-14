@@ -3,6 +3,7 @@ import {
   RockboxPlayer,
   RepeatMode,
   type ProgressEvent,
+  type QueueEvent,
   type StatusEvent,
   type TrackEvent,
 } from "rockbox-wasm";
@@ -26,6 +27,8 @@ export function useRockbox() {
   const [status, setStatus] = useState<StatusEvent>(INITIAL_STATUS);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [track, setTrack] = useState<TrackEvent | null>(null);
+  const [queue, setQueue] = useState<QueueEvent>({ urls: [], index: -1 });
+  const [queueSeen, setQueueSeen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const getPlayer = useCallback(() => {
@@ -35,6 +38,7 @@ export function useRockbox() {
       p.on("status", setStatus);
       p.on("progress", setProgress);
       p.on("track", setTrack);
+      p.on("queue", (q) => { setQueueSeen(true); setQueue(q); });
       p.on("error", (e) => setError(e.message));
       ref.current = p;
     }
@@ -56,5 +60,5 @@ export function useRockbox() {
     return p;
   }, [getPlayer]);
 
-  return { getPlayer, ensureReady, ready, status, progress, track, error };
+  return { getPlayer, ensureReady, ready, status, progress, track, queue, queueSeen, error };
 }

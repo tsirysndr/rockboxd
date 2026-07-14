@@ -86,6 +86,8 @@ onmessage = (e) => {
     case 'pcmport':    return onPcmPort(msg.port);
     case 'setQueue':   return setQueue(msg.urls, msg.autoplay);
     case 'enqueue':    return enqueue(msg.url);
+    case 'insert':     return insertTracks(msg.urls, msg.position, msg.index | 0);
+    case 'removeAt':   return removeAt(msg.index | 0);
     case 'clearQueue': return clearQueue();
     case 'play':       return play();
     case 'pause':      return pause();
@@ -453,6 +455,7 @@ async function startTrack(i, seekMs, autoplay, xfadeTail = null) {
   live = false;
   streaming = false;
   index = i;
+  lastInsertPos = -1; // new playing track resets the Insert chain anchor
   curInRate = 0;
   seekBaseMs = seekMs || 0;
   if (xfadeTail && xfadeTail.length) {
@@ -791,7 +794,86 @@ function enqueue(url) {
   emitQueue();
   if (playing && !rawPtr && !live && !streaming) startTrack(index >= 0 ? index : 0, 0, true);
 }
-function clearQueue() { queue = []; index = -1; stop(); emitQueue(); }
+function clearQueue() { queue = []; index = -1; lastInsertPos = -1; stop(); emitQueue(); }
+
+// Chain anchor for the 'insert' mode: like Rockbox, consecutive Inserts land
+// after the previously inserted batch, not each directly after the current
+// track. Reset whenever the playing track changes.
+let lastInsertPos = -1;
+
+/** Insert `urls` with a Rockbox insertion mode (see apps/playlist.c):
+ *  prepend | insert | insert-next (play next) | insert-last (play last) |
+ *  insert-shuffled | insert-last-shuffled | replace | index. */
+function insertTracks(urls, position, atIndex) {
+  const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean).map(String);
+  if (list.length === 0) return;
+
+  if (position === 'replace') { setQueue(list, false); return; }
+
+  const shuffleArr = (a) => {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  let pos;
+  switch (position) {
+    case 'prepend':       pos = 0; break;
+    case 'insert':        // chain after the previous Insert batch
+      pos = lastInsertPos > index && lastInsertPos <= queue.length
+        ? lastInsertPos : index + 1;
+      break;
+    case 'insert-next':   pos = index + 1; break;
+    case 'insert-shuffled': {                // random slot after current
+      const lo = index + 1;
+      pos = lo + Math.floor(Math.random() * (queue.length - lo + 1));
+      break;
+    }
+    case 'insert-last-shuffled': shuffleArr(list); pos = queue.length; break;
+    case 'index':         pos = Math.max(0, Math.min(queue.length, atIndex)); break;
+    case 'insert-last':
+    default:              pos = queue.length; break;
+  }
+
+  queue.splice(pos, 0, ...list);
+  if (index >= 0 && pos <= index) index += list.length; // renumber current
+  lastInsertPos = pos + list.length;
+  emitQueue();
+  if (playing && !rawPtr && !live && !streaming) startTrack(index >= 0 ? index : 0, 0, true);
+}
+
+/** Remove queue entry `i` (Rockbox semantics): removing a track before the
+ *  current one keeps it playing; removing the current track hard-cuts to the
+ *  one that slides into its place; removing the last remaining track stops. */
+function removeAt(i) {
+  if (i < 0 || i >= queue.length) return;
+  const wasCurrent = i === index;
+  queue.splice(i, 1);
+  if (queue.length === 0) { index = -1; stop(); emitQueue(); return; }
+  if (i < index) {
+    index--; // current track unaffected — just renumber
+  } else if (wasCurrent) {
+    if (i < queue.length) {
+      // hard-cut to the track that slides into the removed slot
+      emitQueue();
+      startTrack(i, 0, playing && !userPaused);
+      return;
+    }
+    // removed the tail while it was playing — nothing slides in: stop,
+    // but keep the rest of the queue
+    index = queue.length - 1;
+    loadToken++;
+    playing = false; userPaused = false; live = false; streaming = false;
+    freeRaw();
+    xfade = null;
+    dropHold();
+    flushWorklet();
+    curMeta = null;
+  }
+  emitQueue();
+}
 
 // ── DSP passthrough ─────────────────────────────────────────────────────────
 function applyDsp(name, args) {
@@ -862,7 +944,12 @@ function stateName() {
 function emitStatus() {
   postMessage({ type: 'status', state: stateName(), index, queue_len: queue.length, shuffle, repeat });
 }
-function emitQueue() { postMessage({ type: 'queue', urls: queue, index }); }
+function emitQueue() {
+  postMessage({ type: 'queue', urls: queue, index });
+  // The queue length is part of the status snapshot too — keep it live so a
+  // "+ Queue" click updates the "n / m" display immediately.
+  emitStatus();
+}
 function emitProgress() {
   postMessage({
     type: 'progress',

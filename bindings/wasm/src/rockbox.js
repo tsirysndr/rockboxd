@@ -33,6 +33,20 @@ export const CrossfadeMode = Object.freeze({
 });
 // …and how the outgoing track behaves during the overlap.
 export const CrossfadeMixMode = Object.freeze({ Crossfade: 'crossfade', Mix: 'mix' });
+// Rockbox playlist insertion modes (apps/playlist.c).
+export const InsertMode = Object.freeze({
+  Prepend: 'prepend',
+  Insert: 'insert',                          // after the previous Insert batch
+  PlayNext: 'insert-next',                   // directly after the current track
+  PlayLast: 'insert-last',                   // append to the end
+  InsertShuffled: 'insert-shuffled',         // random slot after the current track
+  InsertLastShuffled: 'insert-last-shuffled',// append the batch in random order
+  Replace: 'replace',                        // replace the whole queue
+  AtIndex: 'index',                          // explicit position (index arg)
+});
+// rockbox-ffi's historical int encoding for insertion positions.
+const INSERT_STR = ['prepend', 'insert', 'insert-next', 'insert-last',
+  'insert-shuffled', 'insert-last-shuffled', 'replace', 'index'];
 
 const REPEAT_NUM = { off: 0, one: 1, all: 2 };
 const REPEAT_STR = ['off', 'one', 'all'];
@@ -117,6 +131,22 @@ export class RockboxPlayer {
   // ── Transport ───────────────────────────────────────────────────────────
   setQueue(urls, autoplay = false) { this.queue = urls.slice(); this._post({ cmd: 'setQueue', urls, autoplay }); }
   enqueue(url)   { this.queue.push(url); this._post({ cmd: 'enqueue', url }); }
+  /**
+   * Insert one URL or an array of URLs with a Rockbox insertion mode —
+   * InsertMode.PlayNext | .PlayLast | .Insert | .Prepend | .InsertShuffled |
+   * .InsertLastShuffled | .Replace | .AtIndex (or the raw 0–7 int). `index`
+   * is only used with InsertMode.AtIndex. The `queue` event delivers the
+   * updated ordering (shuffled modes are decided worker-side).
+   */
+  insert(urls, mode = InsertMode.PlayLast, index = 0) {
+    const list = Array.isArray(urls) ? urls : [urls];
+    const position = typeof mode === 'number' ? (INSERT_STR[mode] ?? 'insert-last') : mode;
+    this._post({ cmd: 'insert', urls: list, position, index: index | 0 });
+  }
+
+  /** Remove the queue entry at `index` (0-based). Removing the current track
+   *  hard-cuts to the one that slides into its place. */
+  removeAt(index){ this.queue.splice(index, 1); this._post({ cmd: 'removeAt', index: index | 0 }); }
   clearQueue()   { this.queue = []; this._post({ cmd: 'clearQueue' }); }
   play()         { this._ctx?.resume(); this._post({ cmd: 'play' }); }
   pause()        { this._post({ cmd: 'pause' }); }
@@ -195,6 +225,85 @@ export class RockboxPlayer {
   }
 
   static get EQ_BAND_CUTOFFS() { return EQ_BAND_CUTOFFS.slice(); }
+
+  // ── M3U / M3U8 playlists (plain JS — the queue is URLs, no wasm needed) ───
+
+  /** Whether `url` looks like an .m3u / .m3u8 playlist. */
+  static isM3uUrl(url) { return /\.m3u8?(?:[?#]|$)/i.test(String(url)); }
+
+  /**
+   * Parse `.m3u` / `.m3u8` text into entries `{url, title, durationMs}`
+   * (title/durationMs null without an `#EXTINF`). Relative paths resolve
+   * against `baseUrl` (pass the playlist's own URL).
+   */
+  static parseM3u(text, baseUrl) {
+    const entries = [];
+    let title = null, durationMs = null;
+    for (const raw of String(text).split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith('#EXTINF:')) {
+        const body = line.slice(8);
+        const comma = body.indexOf(',');
+        const dur = parseFloat(comma >= 0 ? body.slice(0, comma) : body);
+        durationMs = Number.isFinite(dur) && dur > 0 ? Math.round(dur * 1000) : null;
+        title = comma >= 0 ? (body.slice(comma + 1).trim() || null) : null;
+        continue;
+      }
+      if (line.startsWith('#')) continue; // other directives / comments
+      let url = line;
+      if (baseUrl) { try { url = new URL(line, baseUrl).href; } catch (_) {} }
+      entries.push({ url, title, durationMs });
+      title = null; durationMs = null;
+    }
+    return entries;
+  }
+
+  /** Serialize entries (strings or `{url, title?, durationMs?}`) to `.m3u8` text. */
+  static serializeM3u(entries) {
+    const lines = ['#EXTM3U'];
+    for (const e of entries) {
+      const url = typeof e === 'string' ? e : e.url;
+      const title = (typeof e === 'string' ? null : e.title)
+        ?? decodeURIComponent(url.split('/').pop() || url);
+      const dur = typeof e === 'string' ? null : e.durationMs;
+      lines.push(`#EXTINF:${dur != null ? Math.round(dur / 1000) : -1},${title}`);
+      lines.push(url);
+    }
+    return lines.join('\n') + '\n';
+  }
+
+  /** Replace the queue with a playlist's entries; returns the URLs. */
+  loadM3u(text, { autoplay = false, baseUrl } = {}) {
+    const urls = RockboxPlayer.parseM3u(text, baseUrl).map((e) => e.url);
+    this.setQueue(urls, autoplay);
+    return urls;
+  }
+
+  /** Add a playlist's entries to the queue (default: play last) with any
+   *  InsertMode; returns the URLs. */
+  enqueueM3u(text, { baseUrl, mode = InsertMode.PlayLast } = {}) {
+    const urls = RockboxPlayer.parseM3u(text, baseUrl).map((e) => e.url);
+    this.insert(urls, mode);
+    return urls;
+  }
+
+  /** Fetch an .m3u/.m3u8 URL and replace the queue with it. */
+  async loadM3uUrl(url, autoplay = false) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return this.loadM3u(await resp.text(), { autoplay, baseUrl: url });
+  }
+
+  /** Fetch an .m3u/.m3u8 URL and add it to the queue (any InsertMode). */
+  async enqueueM3uUrl(url, mode = InsertMode.PlayLast) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return this.enqueueM3u(await resp.text(), { baseUrl: url, mode });
+  }
+
+  /** The current queue as `.m3u8` text (e.g. to offer as a download). */
+  exportM3u() { return RockboxPlayer.serializeM3u(this.queue); }
 
   // ── Events ────────────────────────────────────────────────────────────────
   /** on('status'|'track'|'progress'|'queue'|'error', cb) */

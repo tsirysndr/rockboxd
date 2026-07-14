@@ -80,6 +80,33 @@ export interface CrossfadeOptions {
   mixMode?: CrossfadeMixMode | number;
 }
 
+/** Rockbox playlist insertion modes (apps/playlist.c). Setters also accept
+ *  the raw int (0–7, in this order). */
+export enum InsertMode {
+  Prepend = "prepend",
+  /** After the previous Insert batch (Rockbox's chained "Insert"). */
+  Insert = "insert",
+  /** Directly after the current track. */
+  PlayNext = "insert-next",
+  /** Append to the end of the queue. */
+  PlayLast = "insert-last",
+  /** A random slot after the current track. */
+  InsertShuffled = "insert-shuffled",
+  /** Append the batch in random order. */
+  InsertLastShuffled = "insert-last-shuffled",
+  /** Replace the whole queue. */
+  Replace = "replace",
+  /** Explicit position (pass `index`). */
+  AtIndex = "index",
+}
+
+/** One `.m3u` / `.m3u8` entry. */
+export interface M3uEntry {
+  url: string;
+  title: string | null;
+  durationMs: number | null;
+}
+
 export interface TrackMetadata {
   codec?: string;
   title?: string;
@@ -168,6 +195,12 @@ export class RockboxPlayer {
   // Transport
   setQueue(urls: string[], autoplay?: boolean): void;
   enqueue(url: string): void;
+  /** Insert URL(s) with a Rockbox insertion mode; `index` only applies to
+   *  InsertMode.AtIndex. */
+  insert(urls: string | string[], mode?: InsertMode | number, index?: number): void;
+  /** Remove the queue entry at `index` (0-based). Removing the current track
+   *  hard-cuts to the one that slides into its place. */
+  removeAt(index: number): void;
   clearQueue(): void;
   play(): void;
   pause(): void;
@@ -209,6 +242,26 @@ export class RockboxPlayer {
 
   /** The 10 default EQ band centre frequencies (Hz). */
   static readonly EQ_BAND_CUTOFFS: number[];
+
+  // M3U / M3U8 playlists
+  /** Whether `url` looks like an .m3u / .m3u8 playlist. */
+  static isM3uUrl(url: string): boolean;
+  /** Parse playlist text; relative paths resolve against `baseUrl`. */
+  static parseM3u(text: string, baseUrl?: string): M3uEntry[];
+  /** Serialize entries (strings or M3uEntry-likes) to `.m3u8` text. */
+  static serializeM3u(
+    entries: (string | { url: string; title?: string | null; durationMs?: number | null })[],
+  ): string;
+  /** Replace the queue with a playlist's entries; returns the URLs. */
+  loadM3u(text: string, opts?: { autoplay?: boolean; baseUrl?: string }): string[];
+  /** Add a playlist's entries to the queue with any InsertMode; returns the URLs. */
+  enqueueM3u(text: string, opts?: { baseUrl?: string; mode?: InsertMode | number }): string[];
+  /** Fetch an .m3u/.m3u8 URL and replace the queue with it. */
+  loadM3uUrl(url: string, autoplay?: boolean): Promise<string[]>;
+  /** Fetch an .m3u/.m3u8 URL and add it to the queue. */
+  enqueueM3uUrl(url: string, mode?: InsertMode | number): Promise<string[]>;
+  /** The current queue as `.m3u8` text. */
+  exportM3u(): string;
 
   // Events
   on<K extends keyof RockboxEventMap>(event: K, cb: (data: RockboxEventMap[K]) => void): this;

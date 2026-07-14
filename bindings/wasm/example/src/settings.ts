@@ -17,6 +17,10 @@ const CUTOFFS = RockboxPlayer.EQ_BAND_CUTOFFS;
 
 export const volumeAtom = atomWithStorage("rb.volume", 100);
 
+/** The play queue (URLs), persisted so a reload restores it. Not part of the
+ *  DSP snapshot — App saves it on every `queue` event and restores on boot. */
+export const queueAtom = atomWithStorage<string[]>("rb.queue", []);
+
 export const eqEnabledAtom = atomWithStorage("rb.eqEnabled", false);
 export const eqGainsAtom = atomWithStorage<number[]>("rb.eqGains", CUTOFFS.map(() => 0));
 export const eqPrecutAtom = atomWithStorage("rb.eqPrecut", 0);
