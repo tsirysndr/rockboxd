@@ -29,26 +29,32 @@ class RockboxProcessor extends AudioWorkletProcessor {
     this._pcm = null;     // MessagePort to the Worker
     this._blocks = 0;
 
+    // The node port is only used for the one-time PCM-port handshake. All PCM
+    // *and* control messages (paused/flush) come from the Worker over that PCM
+    // port, so they're handled together in _onPcm — routing control over a
+    // different channel is what made pause/stop lag behind the buffered queue.
     this.port.onmessage = (e) => {
-      const m = e.data;
-      if (m.type === 'pcmport') {
-        this._pcm = m.port;
-        this._pcm.onmessage = (ev) => {
-          const a = new Int16Array(ev.data.pcm);
-          this._queue.push(a);
-          this._queued += a.length >> 1;
-        };
-      } else if (m.type === 'paused') {
-        this._paused = !!m.value;
-      } else if (m.type === 'flush') {
-        this._queue = [];
-        this._cur = null;
-        this._pos = 0;
-        this._queued = 0;
-        this._consumed = 0;
+      if (e.data.type === 'pcmport') {
+        this._pcm = e.data.port;
+        this._pcm.onmessage = (ev) => this._onPcm(ev.data);
       }
     };
     this.port.postMessage({ type: 'ready' });
+  }
+
+  _onPcm(m) {
+    if (m.type === 'paused') { this._paused = !!m.value; return; }
+    if (m.type === 'flush') {
+      this._queue = [];
+      this._cur = null;
+      this._pos = 0;
+      this._queued = 0;
+      this._consumed = 0;
+      return;
+    }
+    const a = new Int16Array(m.pcm); // interleaved-stereo S16 frames
+    this._queue.push(a);
+    this._queued += a.length >> 1;
   }
 
   process(_inputs, outputs) {
