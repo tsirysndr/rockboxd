@@ -10268,14 +10268,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rockbox-wasm"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "rockbox-webui"
 version = "0.1.0"
 dependencies = [

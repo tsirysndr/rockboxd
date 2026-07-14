@@ -1,8 +1,11 @@
 /**
- * Minimal HTTP dev server for the rockboxd WASM module.
+ * Minimal HTTP dev server for the Rockbox WASM decode + DSP core.
  *
  * Serves the web/ directory with the COOP/COEP headers that SharedArrayBuffer
- * (and therefore Emscripten pthreads) require in the browser.
+ * (and therefore Emscripten pthreads) require in the browser. COEP is
+ * `credentialless` rather than `require-corp` so the page stays
+ * crossOriginIsolated while still being able to pull cross-origin webfonts
+ * (Outfit / Lexend / a monospace) from Google Fonts.
  *
  * Usage:
  *   node scripts/wasm-dev-server.mjs          # port 8080
@@ -46,7 +49,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
       'Content-Type':                MIME[ext] ?? 'application/octet-stream',
       'Cross-Origin-Opener-Policy':  'same-origin',
-      'Cross-Origin-Embedder-Policy':'require-corp',
+      'Cross-Origin-Embedder-Policy':'credentialless',
       'Cache-Control':               'no-store',
     });
     res.end(data);

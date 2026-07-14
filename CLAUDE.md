@@ -547,75 +547,52 @@ See `crates/expo/README.md` for the full architecture writeup.
 
 ## WASM browser build
 
-The WASM target compiles the Rockbox C firmware + a thin Rust shim
-(`crates/wasm/`) into `web/rockboxd.{js,wasm}` via Emscripten.
-Build with `bash scripts/build-wasm.sh`; serve `web/` with
-`node scripts/wasm-dev-server.mjs` (COOP/COEP headers required for
-SharedArrayBuffer).
+The WASM target is **lightweight**: it compiles only the extracted core crates
+— `rockbox-codecs` (decode), `rockbox-dsp` (EQ/DSP), `rockbox-metadata` (tags)
+— through the `rockbox-ffi` flat C ABI, into `web/rockbox-core.{js,wasm}`
+(~1.2 MB). There is **no firmware, no netstream, no playlist engine, no
+servers**; the player (queue, transport, output) is plain JavaScript in `web/`.
+See `WEBASSEMBLY.md` for the full writeup.
 
-### Exposing new C/Rust functions to JS
+Build: `bash scripts/build-wasm.sh`. Serve: `node scripts/wasm-dev-server.mjs`
+(COOP/COEP required for SharedArrayBuffer; COEP is `credentialless` so
+cross-origin webfonts still load).
 
-Every `#[no_mangle] pub extern "C"` function in `crates/wasm/src/lib.rs`
-that JavaScript needs to call **must** appear in the `EXPORTED_FUNCTIONS`
-list in `scripts/build-wasm.sh`. Emscripten only creates the
-`Module._functionName` JS wrapper for listed symbols; missing entries are
-silently dead-stripped and `Module._rb_foo` evaluates to `undefined` at
-runtime. `rockbox.js` guards every call with:
+The build is two steps: `cargo rustc -p rockbox-ffi --no-default-features
+--crate-type staticlib` for `wasm32-unknown-emscripten` (`--no-default-features`
+drops the `player` feature → no `rockbox-playback`/`cpal`, which need a real
+output device), then an `emcc` link. Emscripten pthreads need
+`-Wl,--no-check-features` (prebuilt Rust std objects lack the `atomics`
+feature).
 
-```javascript
-const fn = this._mod[`_${name}`];
-if (typeof fn !== 'function') return; // export absent in this build
-```
+### Browser architecture (three JS files)
 
-so a missing export fails silently — no error, no effect. The checklist
-for adding a new export:
+- `web/rockbox.js` — main-thread `RockboxPlayer` facade: `AudioContext`, a
+  `GainNode` for volume (not a rockbox-dsp stage), events, and `postMessage`
+  to the Worker.
+- `web/rockbox-decoder-worker.js` — owns the WASM module; runs the whole
+  player loop (fetch → MEMFS → `rb_decoder_next_chunk` → `rb_dsp_process` →
+  resample) and writes PCM into a shared ring. Decode **must** be off the main
+  thread: `rockbox-codecs::Decoder` blocks on a `Condvar` (`Atomics.wait`),
+  which throws on the main browser thread.
+- `web/rockbox-audio-worklet.js` — `AudioWorkletProcessor` reading the shared
+  `SharedArrayBuffer` ring → speakers.
 
-1. Implement `rb_<name>` in `crates/wasm/src/lib.rs` with `#[no_mangle]`.
-2. Add `"_rb_<name>"` to `EXPORTED_FUNCTIONS` in `scripts/build-wasm.sh`.
-3. Add the JS-side wrapper in `web/rockbox.js`.
-4. Rebuild (`bash scripts/build-wasm.sh`) — a Rust-only recompile is not
-   enough; the emcc link step must re-run to pick up the new export.
+### Exposing new functions to JS
+
+1. Add the `rb_*` function to `rockbox-ffi` (`crates/rockbox-ffi/src/`).
+2. Add `"_rb_<name>"` to `EXPORTED_FUNCTIONS` in `scripts/build-wasm.sh` —
+   missing entries are silently dead-stripped (`Module._rb_foo === undefined`).
+3. Call it from the decoder Worker / add a `RockboxPlayer` method.
+4. Rebuild — the emcc link step must re-run to pick up the new export.
 
 ### DSP / EQ value units
 
-Rockbox's DSP layer stores all gain and Q values in **tenths**, not whole
-units. Passing plain integers silently produces 10× weaker effects:
-
-| Field                       | Unit         | Example       |
-| --------------------------- | ------------ | ------------- |
-| `eq_band_setting.gain`      | dB × 10      | −80 = −8.0 dB |
-| `eq_band_setting.q`         | Q × 10       | 70 = Q 7.0    |
-| `eq_band_setting.cutoff`    | Hz (raw)     | 4000 = 4 kHz  |
-| `dsp_set_eq_precut(precut)` | tenths of dB | 120 = 12.0 dB |
-
-`filter_pk_coefs` / `filter_ls_coefs` / `filter_hs_coefs` in
-`lib/rbcodec/dsp/dsp_filter.c` document this:
-*"Q factor value multiplied by ten"* / *"decibel value multiplied by ten"*.
-
-In `web/rockbox.js`, `setEqBand` multiplies the slider gain (plain dB)
-by 10 before calling `rb_set_eq_band`:
-
-```javascript
-this._call('rb_set_eq_band', [b, cutoff | 0, q | 0, (gain | 0) * 10]);
-```
-
-### EQ real-time updates vs. crossfade buffer resize
-
-- **EQ / replaygain**: call `dsp_set_eq_coefs()` / `replaygain_update()`
-  directly in the `wasm_cmd` thread handler. New coefficients take effect
-  for all audio decoded after the call. The pre-decoded audio in pcmbuf
-  (~3 s for the WASM build) plays out with the old settings first — a
-  smooth, cut-free transition. **Do not post `Q_AUDIO_REMAKE_AUDIO_BUFFER`
-  for EQ changes.** REMAKE calls `pcmbuf_play_stop()` which causes an
-  audible cut and codec seek on every slider move.
-
-- **Crossfade**: changing the mode requires resizing the pcmbuf (the
-  crossfade window changes the required buffer size). Always call
-  `pcmbuf_request_crossfade_enable(mode)` from the handler, then post
-  `Q_AUDIO_REMAKE_AUDIO_BUFFER` when audio is playing so the audio thread
-  calls `pcmbuf_init()` → `pcmbuf_finish_crossfade_enable()` with the new
-  size. When stopped, skip the REMAKE — the next `pcmbuf_init()` at
-  track-start will pick up `crossfade_enable_request` automatically.
+The **`rockbox-dsp` FFI takes plain units** — `rb_dsp_set_eq_band(dsp, band,
+cutoff_hz, q, gain_db)` uses a plain `f32` Q and plain-dB gain; `rb_dsp_set_eq_precut(db)`
+is plain dB. The crate converts to Rockbox's internal tenths for you, so do
+**not** pre-multiply by 10 (unlike the old firmware `rb_set_eq_band`, which
+took `dB × 10`).
 
 ## Useful commands
 
