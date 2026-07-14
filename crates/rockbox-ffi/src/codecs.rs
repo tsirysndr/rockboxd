@@ -99,6 +99,97 @@ pub extern "C" fn rb_decoder_next_chunk(
     ptr
 }
 
+/// Decode a whole self-contained encoded file (already written into the module
+/// FS at `path`) to interleaved-stereo `i16` PCM in one **synchronous** call —
+/// no codec thread is spawned and nothing blocks on a channel, so this is safe
+/// to call from a thread that must not park or spawn (an Emscripten module's
+/// main thread). Writes the sample count to `*out_len` and the codec rate to
+/// `*out_sample_rate`; returns a heap buffer to free with
+/// `rb_buffer_free(ptr, *out_len)`, or null on failure / empty output.
+///
+/// This is the building block for decoding a live stream in JavaScript: feed it
+/// one self-contained chunk at a time and forward the PCM to the audio output.
+#[no_mangle]
+pub extern "C" fn rb_decode_file(
+    path: *const c_char,
+    out_len: *mut usize,
+    out_sample_rate: *mut u32,
+) -> *mut i16 {
+    if !out_len.is_null() {
+        unsafe { *out_len = 0 };
+    }
+    if !out_sample_rate.is_null() {
+        unsafe { *out_sample_rate = 0 };
+    }
+    let Some(path) = cstr(path) else {
+        return std::ptr::null_mut();
+    };
+    match rockbox_codecs::decode_file_sync(path) {
+        Ok(buf) if !buf.pcm.is_empty() => {
+            let boxed = buf.pcm.into_boxed_slice();
+            let len = boxed.len();
+            let ptr = Box::into_raw(boxed) as *mut i16;
+            if !out_len.is_null() {
+                unsafe { *out_len = len };
+            }
+            if !out_sample_rate.is_null() {
+                unsafe { *out_sample_rate = buf.sample_rate };
+            }
+            ptr
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Decode a self-contained encoded packet held in memory (`data`/`len`) to
+/// interleaved-stereo `i16` PCM in one **synchronous** call — no codec thread,
+/// no file. `format_ext` names the container/codec (`"mp3"`, `"aac"`, `"ogg"`,
+/// …). Writes the sample count to `*out_len` and the rate to
+/// `*out_sample_rate`; returns a heap buffer to free with
+/// `rb_buffer_free(ptr, *out_len)`, or null on failure / empty output.
+///
+/// This is the "bytes in, PCM out" primitive for driving a live stream from a
+/// host loop: read a chunk off the network, hand it here, forward the PCM.
+///
+/// # Safety
+/// `data` must point to at least `len` readable bytes; `format_ext` a valid C
+/// string.
+#[no_mangle]
+pub unsafe extern "C" fn rb_decode_packet(
+    data: *const u8,
+    len: usize,
+    format_ext: *const c_char,
+    out_len: *mut usize,
+    out_sample_rate: *mut u32,
+) -> *mut i16 {
+    if !out_len.is_null() {
+        *out_len = 0;
+    }
+    if !out_sample_rate.is_null() {
+        *out_sample_rate = 0;
+    }
+    if data.is_null() || len == 0 {
+        return std::ptr::null_mut();
+    }
+    let ext = cstr(format_ext).unwrap_or("mp3");
+    let bytes = std::slice::from_raw_parts(data, len);
+    match rockbox_codecs::decode_bytes_sync(bytes, ext) {
+        Ok(buf) if !buf.pcm.is_empty() => {
+            let boxed = buf.pcm.into_boxed_slice();
+            let n = boxed.len();
+            let ptr = Box::into_raw(boxed) as *mut i16;
+            if !out_len.is_null() {
+                *out_len = n;
+            }
+            if !out_sample_rate.is_null() {
+                *out_sample_rate = buf.sample_rate;
+            }
+            ptr
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
 /// Request a seek to `ms` milliseconds (picked up at the codec's next command
 /// poll; PCM already queued from before the seek drains first). No-op on a
 /// null handle.

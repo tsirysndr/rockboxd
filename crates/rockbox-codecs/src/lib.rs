@@ -461,6 +461,135 @@ impl Decoder {
     }
 }
 
+/// A fully-decoded audio buffer: interleaved-stereo `i16` PCM plus its rate.
+pub struct DecodedBuffer {
+    pub pcm: Vec<i16>,
+    pub sample_rate: u32,
+}
+
+struct SyncSinkCtx {
+    pcm: Vec<i16>,
+    sample_rate: u32,
+}
+
+/// Sink for [`decode_file_sync`]: appends every decoded block to the buffer.
+unsafe extern "C" fn sync_sink_trampoline(
+    user: *mut c_void,
+    pcm: *const i16,
+    frames: usize,
+    frequency: std::ffi::c_ulong,
+) {
+    let ctx = &mut *(user as *mut SyncSinkCtx);
+    ctx.pcm
+        .extend_from_slice(std::slice::from_raw_parts(pcm, frames * 2));
+    ctx.sample_rate = frequency as u32;
+}
+
+/// Decode a whole self-contained audio file **synchronously on the calling
+/// thread** — unlike [`Decoder`], no codec thread is spawned and nothing
+/// blocks on a channel. That makes it safe to call from a context where
+/// spawning/joining a thread or a blocking recv is unreliable (an Emscripten
+/// module's main thread). Returns all the PCM at once, so prefer [`Decoder`]
+/// for large files where you want it incrementally.
+///
+/// Blocks while another decode / `Decoder` is in flight (codec state is global).
+pub fn decode_file_sync<P: AsRef<Path>>(path: P) -> Result<DecodedBuffer, Error> {
+    let path = path.as_ref();
+    let c_path =
+        CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::InvalidPath)?;
+
+    GATE.acquire();
+
+    let mut sink = Box::new(SyncSinkCtx {
+        pcm: Vec::new(),
+        sample_rate: 0,
+    });
+    let rc = unsafe {
+        rbcodec_set_sink(
+            Some(sync_sink_trampoline),
+            &mut *sink as *mut SyncSinkCtx as *mut c_void,
+        );
+        rbcodec_open(c_path.as_ptr())
+    };
+    if rc != 0 {
+        unsafe { rbcodec_set_sink(None, std::ptr::null_mut()) };
+        GATE.release();
+        return Err(match rc {
+            -1 => Error::Open(path.to_path_buf()),
+            -2 => Error::Parse(path.to_path_buf()),
+            -3 => Error::CodecNotAvailable(String::new()),
+            -6 => Error::OutOfMemory,
+            _ => Error::CodecInit(path.to_path_buf()),
+        });
+    }
+
+    // Runs the codec to completion on THIS thread, appending PCM via the sink.
+    let _status = unsafe { rbcodec_run() };
+    unsafe {
+        rbcodec_close();
+        rbcodec_set_sink(None, std::ptr::null_mut());
+    }
+    GATE.release();
+
+    Ok(DecodedBuffer {
+        pcm: sink.pcm,
+        sample_rate: sink.sample_rate,
+    })
+}
+
+/// Decode a self-contained encoded packet held **in memory** to PCM, fully
+/// **synchronously on the calling thread** (no codec thread, no file). Like
+/// [`decode_file_sync`] but the source is a byte buffer read through an
+/// in-memory cursor; `format_ext` names the container/codec (`"mp3"`, `"aac"`,
+/// `"ogg"`, …) since there's no filename to sniff. Ideal for decoding a live
+/// stream chunk-by-chunk in a host that just wants "bytes in, PCM out".
+///
+/// Blocks while another decode / `Decoder` is in flight (codec state is global).
+pub fn decode_bytes_sync(bytes: &[u8], format_ext: &str) -> Result<DecodedBuffer, Error> {
+    let c_ext = CString::new(format_ext).map_err(|_| Error::InvalidPath)?;
+
+    GATE.acquire();
+
+    let mut sink = Box::new(SyncSinkCtx {
+        pcm: Vec::new(),
+        sample_rate: 0,
+    });
+    let mut reader = Box::new(ReaderCtx {
+        reader: Box::new(std::io::Cursor::new(bytes.to_vec())),
+    });
+    let rc = unsafe {
+        rbcodec_set_sink(
+            Some(sync_sink_trampoline),
+            &mut *sink as *mut SyncSinkCtx as *mut c_void,
+        );
+        rbcodec_open_stream(
+            Some(stream_read_trampoline),
+            &mut *reader as *mut ReaderCtx as *mut c_void,
+            c_ext.as_ptr(),
+        )
+    };
+    if rc != 0 {
+        unsafe { rbcodec_set_sink(None, std::ptr::null_mut()) };
+        GATE.release();
+        return Err(match rc {
+            -3 => Error::CodecNotAvailable(format_ext.to_string()),
+            _ => Error::CodecInit(std::path::PathBuf::from(format_ext)),
+        });
+    }
+
+    let _status = unsafe { rbcodec_run() };
+    unsafe {
+        rbcodec_close();
+        rbcodec_set_sink(None, std::ptr::null_mut());
+    }
+    GATE.release();
+
+    Ok(DecodedBuffer {
+        pcm: sink.pcm,
+        sample_rate: sink.sample_rate,
+    })
+}
+
 impl Drop for Decoder {
     fn drop(&mut self) {
         // Only halt-and-drain when the track is still decoding. If it

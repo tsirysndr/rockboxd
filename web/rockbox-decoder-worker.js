@@ -49,6 +49,7 @@ let decPath = null;     // MEMFS path of the current file
 
 // scratch out-param cells (allocated once)
 let outLenPtr = 0, outRatePtr = 0, procLenPtr = 0, pathPtr = 0, pathCap = 0;
+let pktPtr = 0, pktCap = 0; // scratch for copying an encoded packet into the heap
 
 // ── Player state ──────────────────────────────────────────────────────────
 let queue      = [];    // array of URL strings
@@ -63,7 +64,6 @@ let curMeta    = null;  // metadata JSON of the current track
 let loadToken  = 0;     // bumped on every track change / stop — cancels stale async work
 let pumpTimer  = null;
 let live       = false; // current track is an unbounded live stream
-let liveSeg    = 0;     // MEMFS filename counter for live segments
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 // Resolve the core module URL against THIS worker so emscripten spawns its
@@ -323,6 +323,9 @@ async function playLiveStream(resp, url, i, token, autoplay) {
   postMessage({ type: 'track', index: i, url, live: true, metadata: curMeta });
   emitStatus();
 
+  Module._rb_dsp_flush(dsp); // reset the resampler/DSP for the new source
+  curInRate = 0;
+
   const demux = metaint > 0 ? new IcyDemux(metaint, onIcyTitle) : null;
   const reader = resp.body.getReader();
   const prebufFrames = Math.round(LIVE_PREBUFFER_SEC * sampleRate);
@@ -432,39 +435,42 @@ class IcyDemux {
  * Every `dec` use is preceded by a token check with no `await` in between.
  */
 async function decodeSegment(bytes, ext, token, readMeta) {
-  const path = `/live_${token}_${liveSeg++}.${ext}`;
-  Module.FS.writeFile(path, bytes);
-  dec = Module._rb_decoder_open(allocPath(path));
-  if (!dec) { try { Module.FS.unlink(path); } catch (_) {} return; } // skip undecodable slice
-  decPath = path;
-  curInRate = 0;
-  Module._rb_dsp_flush(dsp);
+  // Copy the encoded packet into the wasm heap and decode it synchronously,
+  // in memory — no pthread spawn, no blocking recv, no MEMFS file. Returns all
+  // of the segment's PCM at once.
+  const dataPtr = copyPacket(bytes);
+  const extPtr  = allocPath(ext);
+  const pcmPtr  = Module._rb_decode_packet(dataPtr, bytes.length, extPtr, outLenPtr, outRatePtr);
+  const len  = Module.HEAPU32[outLenPtr  >> 2];
+  const rate = Module.HEAPU32[outRatePtr >> 2];
+  if (!pcmPtr || len < 2) { if (pcmPtr) Module._rb_buffer_free(pcmPtr, len); return; }
 
-  if (readMeta) {
-    // Merge the decoded codec/rate into curMeta without clobbering ICY fields
-    // (station / StreamTitle) that may already be set.
-    const m = readMetadata();
-    if (m) updateLiveMeta({ codec: m.codec, sample_rate: m.sample_rate,
-                            bitrate: m.bitrate || (curMeta && curMeta.bitrate) || 0 });
-  }
+  if (readMeta) updateLiveMeta({ codec: ext, sample_rate: rate });
 
-  for (;;) {
-    if (token !== loadToken) return;              // aborted — closeDecoder owns `dec`
+  // Resample (to the AudioContext rate) + run the DSP chain over the whole
+  // segment, then stream the result into the ring at playback pace.
+  if (rate && rate !== curInRate) { Module._rb_dsp_set_input_frequency(dsp, rate); curInRate = rate; }
+  const procPtr = Module._rb_dsp_process(dsp, pcmPtr, len, procLenPtr);
+  const procLen = Module.HEAPU32[procLenPtr >> 2];
+  Module._rb_buffer_free(pcmPtr, len);
+  if (!procPtr) return;
+
+  await writeToRing(procPtr >> 1, procLen >> 1, token);
+  Module._rb_buffer_free(procPtr, procLen);
+}
+
+/** Copy `frames` frames from HEAP16[srcIdx…] into the ring, awaiting space so
+ *  we never overrun the worklet. Returns early if the load is superseded. */
+async function writeToRing(srcIdx, frames, token) {
+  let done = 0;
+  while (done < frames) {
+    if (token !== loadToken) return;
     if (userPaused) { await sleep(30); continue; }
-    if (freeFrames() < (ringFrames >> 2)) { await sleep(15); continue; } // ring backpressure
-
-    const pcmPtr = Module._rb_decoder_next_chunk(dec, outLenPtr, outRatePtr);
-    if (!pcmPtr) break;                            // segment fully decoded
-    const len  = Module.HEAPU32[outLenPtr  >> 2];
-    const rate = Module.HEAPU32[outRatePtr >> 2];
-    pushChunk(pcmPtr, len, rate);
-    Module._rb_buffer_free(pcmPtr, len);
-  }
-
-  if (token === loadToken && dec) {
-    Module._rb_decoder_free(dec); dec = null;
-    try { Module.FS.unlink(path); } catch (_) {}
-    decPath = null;
+    const free = freeFrames();
+    if (free < 128) { await sleep(10); continue; }
+    const n = Math.min(free, frames - done);
+    writeFrames(srcIdx + done * 2, n);
+    done += n;
   }
 }
 
@@ -612,4 +618,16 @@ function allocPath(str) {
   }
   Module.stringToUTF8(str, pathPtr, pathCap);
   return pathPtr;
+}
+
+/** Copy an encoded packet into the wasm heap; returns its pointer. */
+function copyPacket(bytes) {
+  const n = bytes.length;
+  if (n > pktCap) {
+    if (pktPtr) Module._free(pktPtr);
+    pktPtr = Module._malloc(n);
+    pktCap = n;
+  }
+  Module.HEAPU8.set(bytes, pktPtr);
+  return pktPtr;
 }
