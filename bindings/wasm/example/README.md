@@ -5,6 +5,8 @@ chain, live radio) built with React + Vite + Tailwind v4 on top of
 [`rockbox-wasm`](../). All settings persist to localStorage via
 [jotai](https://jotai.org) `atomWithStorage`.
 
+![The example app — now-playing with codec/bitrate metadata, seek bar, transport, volume and the 10-band equalizer](../preview.png)
+
 Because this example lives *inside* the package, it resolves `rockbox-wasm` to
 the local build (`../dist`) with a Vite alias + tsconfig `paths` rather than an
 npm install — a real consumer would just `bun add rockbox-wasm`.

@@ -3,6 +3,8 @@
 The [Rockbox](https://www.rockbox.org) audio **decoders** and **DSP** compiled
 to WebAssembly, wrapped in a small, batteries-included browser player.
 
+![rockbox-wasm player — transport, seek, volume and 10-band EQ in the browser](https://raw.githubusercontent.com/tsirysndr/rockboxd/master/bindings/wasm/preview.png)
+
 - 🎧 **Decodes** FLAC, MP3, Vorbis, Opus, ALAC, AAC, WavPack, WMA, APE, Musepack,
   WAV/AIFF and more — the real Rockbox codecs, not the browser's.
 - 🎚️ **10-band parametric EQ**, tone controls, ReplayGain, channel mixing,
