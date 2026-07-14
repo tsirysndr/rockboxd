@@ -11,11 +11,17 @@
  * MessagePort; the worklet queues and plays it and reports back how much it has
  * consumed / has queued so we can pace decoding and report elapsed time.
  *
- *   - Finite file (has Content-Length): fetched whole, tags via rb_meta_read_json,
- *     decoded via rb_decode_file → full metadata, duration, seeking.
- *   - Live stream (no Content-Length): read the network in ~32 KB segments,
- *     decode each with rb_decode_packet, stream the PCM out. ICY StreamTitle is
- *     demuxed for now-playing metadata.
+ *   - Finite MP3/AAC: streamed progressively as it downloads (~32 KB segments
+ *     via rb_decode_packet) so playback starts fast and a big file is never
+ *     held whole. Not seekable in this mode.
+ *   - Other finite files (FLAC/Ogg/ALAC/…): a mid-file chunk has no header, so
+ *     the whole stream is drained then decoded with rb_decode_file → tags,
+ *     duration, seeking.
+ *   - Live stream (no Content-Length): same ~32 KB segment path; ICY StreamTitle
+ *     is demuxed for now-playing metadata.
+ *
+ * Format is detected from the file's magic bytes, then Content-Type, then the
+ * URL extension (so extension-less URLs like /tracks/<id> work).
  */
 
 /* global RockboxModule */
@@ -45,6 +51,7 @@ let repeat     = 0;    // 0 off, 1 one, 2 all
 let shuffle    = false;
 let curMeta    = null;
 let live       = false;
+let streaming  = false; // a progressive segment loop (live or streamed-finite) is active
 let loadToken  = 0;    // bumped on every track change / stop
 let curInRate  = 0;
 
@@ -151,6 +158,27 @@ function extOf(url) {
   const m = /\.([A-Za-z0-9]{1,5})(?:[?#]|$)/.exec(url);
   return m ? m[1].toLowerCase() : 'bin';
 }
+
+/** Detect the audio format from a buffer's magic bytes; returns a Rockbox file
+ *  extension or null. Handles the common cases so extension-less URLs decode. */
+function sniffExt(b) {
+  if (b.length < 12) return null;
+  const tag = (i, s) => { for (let j = 0; j < s.length; j++) if (b[i + j] !== s.charCodeAt(j)) return false; return true; };
+  if (tag(0, 'fLaC')) return 'flac';
+  if (tag(0, 'OggS')) return 'ogg';                       // vorbis / opus / speex
+  if (tag(0, 'RIFF') && tag(8, 'WAVE')) return 'wav';
+  if (tag(0, 'FORM') && tag(8, 'AIFF')) return 'aiff';
+  if (tag(4, 'ftyp')) return 'm4a';                       // MP4 / M4A (AAC, ALAC)
+  if (tag(0, 'wvpk')) return 'wv';                        // WavPack
+  if (tag(0, 'MAC ')) return 'ape';                       // Monkey's Audio
+  if (tag(0, 'TTA1')) return 'tta';                       // True Audio
+  if (tag(0, 'MPCK') || tag(0, 'MP+')) return 'mpc';      // Musepack
+  if (tag(0, '.snd')) return 'au';
+  if (tag(0, 'ID3')) return 'mp3';                        // ID3-tagged MP3
+  if (b[0] === 0xff && (b[1] & 0xe6) === 0xe2) return 'mp3'; // MPEG audio frame sync
+  if (b[0] === 0xff && (b[1] & 0xf6) === 0xf0) return 'aac'; // ADTS AAC
+  return null;
+}
 function formatExt(contentType, url) {
   const ct = (contentType || '').toLowerCase();
   if (ct.includes('mpeg') || ct.includes('mp3')) return 'mp3';
@@ -169,6 +197,7 @@ async function startTrack(i, seekMs, autoplay) {
 
   freeRaw();
   live = false;
+  streaming = false;
   index = i;
   curInRate = 0;
   seekBaseMs = seekMs || 0;
@@ -192,22 +221,52 @@ async function startTrack(i, seekMs, autoplay) {
   return playFinite(resp, url, i, token, seekMs, autoplay);
 }
 
-/** Finite file: buffer whole → tags + full decode → seekable playback. */
+/**
+ * Finite file. Sniff the head, then either:
+ *   - MP3/AAC — decode progressively in ~32 KB segments as it downloads, so
+ *     playback starts within ~a second and memory stays bounded (a big file
+ *     is never held whole). Not seekable in this mode.
+ *   - anything else (FLAC/Ogg/ALAC/…) — a mid-file chunk has no header, so we
+ *     drain the whole stream then whole-file decode (tags, duration, seeking).
+ */
 async function playFinite(resp, url, i, token, seekMs, autoplay) {
-  let bytes;
-  try { bytes = new Uint8Array(await resp.arrayBuffer()); }
-  catch (err) {
-    postMessage({ type: 'error', message: `fetch failed: ${url} (${err})`, index: i });
-    if (token === loadToken) skipAfterError(i);
-    return;
+  const reader = resp.body.getReader();
+  let head = new Uint8Array(0);
+  let done = false;
+  while (head.length < 16 && !done) {
+    let r;
+    try { r = await reader.read(); }
+    catch (err) {
+      postMessage({ type: 'error', message: `fetch failed: ${url} (${err})`, index: i });
+      if (token === loadToken) skipAfterError(i);
+      return;
+    }
+    if (token !== loadToken) { reader.cancel().catch(() => {}); return; }
+    if (r.value && r.value.length) head = concatBytes(head, r.value);
+    done = r.done;
   }
-  if (token !== loadToken) return;
+  // Magic bytes → Content-Type → URL extension.
+  const ext = sniffExt(head) || formatExt(resp.headers.get('content-type'), url);
 
-  const path = `/track.${extOf(url)}`;
+  if (ext === 'mp3' || ext === 'aac') {
+    live = false; playing = true; userPaused = false;
+    Module._rb_dsp_flush(dsp); curInRate = 0;
+    curMeta = { codec: ext, duration_ms: 0 };
+    postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
+    emitStatus();
+    return runSegmentLoop(reader, head, done, ext, token, url, i, null);
+  }
+
+  // Buffer the rest, then whole-file decode (seekable).
+  const bytes = await drainToBytes(reader, head, done, token);
+  if (!bytes || token !== loadToken) return;
+
+  const path = `/track.${ext}`;
   Module.FS.writeFile(path, bytes);
   const p = allocPath(path);
   curMeta = readMetaJson(p);
   applyTrackReplaygain(curMeta);
+  Module._rb_dsp_flush(dsp); curInRate = 0;
   rawPtr = Module._rb_decode_file(p, outLenPtr, outRatePtr);
   rawLen = Module.HEAPU32[outLenPtr >> 2];
   rawRate = Module.HEAPU32[outRatePtr >> 2] || (curMeta && curMeta.sample_rate) || sampleRate;
@@ -218,19 +277,35 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
     return;
   }
   finitePos = Math.min(rawLen, Math.floor((seekMs || 0) * rawRate / 1000) * 2);
-
   postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
   if (autoplay || playing) { playing = true; userPaused = false; setWorkletPaused(false); }
   emitStatus();
+  const finished = await streamRaw(rawPtr, rawLen, rawRate, () => finitePos, (v) => (finitePos = v), token);
+  if (finished && token === loadToken) { freeRaw(); advanceAfterEnd(); }
+}
 
-  const done = await streamRaw(rawPtr, rawLen, rawRate, () => finitePos, (v) => (finitePos = v), token);
-  if (done && token === loadToken) { freeRaw(); advanceAfterEnd(); }
+/** Drain the rest of `reader` (after `head`) into one buffer. */
+async function drainToBytes(reader, head, done, token) {
+  const chunks = head.length ? [head] : [];
+  let total = head.length;
+  while (!done) {
+    let r;
+    try { r = await reader.read(); } catch (_) { return null; }
+    if (token !== loadToken) { reader.cancel().catch(() => {}); return null; }
+    if (r.value && r.value.length) { chunks.push(r.value); total += r.value.length; }
+    done = r.done;
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
 }
 
 /** Live stream: read the network, decode ~32 KB segments, stream the PCM. */
 async function playLiveStream(resp, url, i, token, autoplay) {
   live = true;
   playing = true; userPaused = false;
+  Module._rb_dsp_flush(dsp); curInRate = 0;
   const ext = formatExt(resp.headers.get('content-type'), url);
 
   let metaint = 0;
@@ -255,32 +330,42 @@ async function playLiveStream(resp, url, i, token, autoplay) {
   emitStatus();
 
   const demux = metaint > 0 ? new IcyDemux(metaint, onIcyTitle) : null;
-  const reader = resp.body.getReader();
+  return runSegmentLoop(resp.body.getReader(), new Uint8Array(0), false, ext, token, url, i, demux);
+}
+
+/**
+ * Progressive segment decoder shared by live streams and streamed-finite MP3/AAC.
+ * Decodes `pending` (any pre-read head) then reads `reader` to the end, decoding
+ * each ~32 KB segment with rb_decode_packet and streaming the PCM. Starts
+ * playback once ~LIVE_PREBUFFER_SEC is queued. `demux` (or null) strips ICY.
+ */
+async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) {
+  streaming = true;
   const prebuf = Math.round(LIVE_PREBUFFER_SEC * sampleRate);
-  let pending = new Uint8Array(0);
   let gotMeta = false;
   let started = false;
-
   const maybeStart = () => {
     if (!started && !userPaused && wlQueued >= prebuf) { started = true; setWorkletPaused(false); }
   };
-
+  const drainPending = async () => {
+    while (token === loadToken && pending.length >= LIVE_SEGMENT) {
+      const seg = pending.slice(0, LIVE_SEGMENT);
+      pending = pending.slice(LIVE_SEGMENT);
+      await decodeSegment(seg, ext, token, !gotMeta, maybeStart);
+      gotMeta = true;
+    }
+  };
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
+    await drainPending();
+    while (token === loadToken && !done) {
+      const r = await reader.read();
       if (token !== loadToken) { await reader.cancel().catch(() => {}); return; }
-      if (value && value.length) {
-        const audio = demux ? demux.push(value) : value;
+      if (r.value && r.value.length) {
+        const audio = demux ? demux.push(r.value) : r.value;
         if (audio.length) pending = concatBytes(pending, audio);
       }
-      while (token === loadToken && pending.length >= LIVE_SEGMENT) {
-        const seg = pending.slice(0, LIVE_SEGMENT);
-        pending = pending.slice(LIVE_SEGMENT);
-        await decodeSegment(seg, ext, token, !gotMeta, maybeStart);
-        gotMeta = true;
-        if (token !== loadToken) return;
-      }
-      if (done) break;
+      done = r.done;
+      await drainPending();
     }
     if (token === loadToken && pending.length) await decodeSegment(pending, ext, token, !gotMeta, maybeStart);
     if (token === loadToken) { if (!started && !userPaused) setWorkletPaused(false); advanceAfterEnd(); }
@@ -335,14 +420,14 @@ function advanceAfterEnd() {
 // ── Transport ───────────────────────────────────────────────────────────────
 function play() {
   if (queue.length === 0) return;
-  if (!live && !rawPtr) { startTrack(index >= 0 ? index : 0, 0, true); return; }
+  if (!rawPtr && !live && !streaming) { startTrack(index >= 0 ? index : 0, 0, true); return; }
   playing = true; userPaused = false; setWorkletPaused(false);
   emitStatus();
 }
 function pause() { userPaused = true; setWorkletPaused(true); emitStatus(); }
 function stop() {
   loadToken++;
-  playing = false; userPaused = false; live = false;
+  playing = false; userPaused = false; live = false; streaming = false;
   freeRaw();
   flushWorklet();
   curMeta = null;
@@ -379,7 +464,7 @@ function setQueue(urls, autoplay) {
 function enqueue(url) {
   queue.push(url);
   emitQueue();
-  if (playing && !live && !rawPtr) startTrack(index >= 0 ? index : 0, 0, true);
+  if (playing && !rawPtr && !live && !streaming) startTrack(index >= 0 ? index : 0, 0, true);
 }
 function clearQueue() { queue = []; index = -1; stop(); emitQueue(); }
 
@@ -446,7 +531,7 @@ function concatBytes(a, b) {
 
 // ── Events to the main thread ───────────────────────────────────────────────
 function stateName() {
-  if (!playing && !live && !rawPtr) return 'stopped';
+  if (!playing && !live && !rawPtr && !streaming) return 'stopped';
   return userPaused ? 'paused' : 'playing';
 }
 function emitStatus() {
