@@ -83,6 +83,7 @@
   .seek { display: flex; align-items: center; gap: .6rem; margin: .8rem 0 .2rem; }
   .seek .t { font-family: var(--font-mono); font-size: .78rem; color: var(--muted); min-width: 3.2rem; }
   .seek .t.right { text-align: right; }
+  .seek .t.live { color: #ff4d5e; font-weight: 600; letter-spacing: .06em; }
   input[type=range] { -webkit-appearance: none; appearance: none; height: 5px; border-radius: 3px;
     background: var(--line); outline: none; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px;
@@ -375,19 +376,31 @@ $('width').addEventListener('input', (e) => {
 // ── Player events → UI ─────────────────────────────────────────────────────
 player.on('track', (m) => {
   const md = m.metadata || {};
-  $('track-title').textContent  = md.title || m.url.split('/').pop() || 'Unknown';
-  $('track-artist').textContent = [md.artist, md.album].filter(Boolean).join(' — ');
+  const fallback = decodeURIComponent(m.url.split('/').pop() || '') || 'Unknown';
+  $('track-title').textContent  = md.title || (m.live ? new URL(m.url).host : fallback);
+  $('track-artist').textContent = m.live ? 'Live stream'
+                                         : [md.artist, md.album].filter(Boolean).join(' — ');
   const bits = [md.codec, md.sample_rate && `${(md.sample_rate / 1000).toFixed(1)} kHz`,
                 md.bitrate && `${md.bitrate} kbps`].filter(Boolean);
   $('track-meta').textContent = bits.join('  ·  ');
 });
 
 player.on('progress', (p) => {
-  $('elapsed').textContent  = fmt(p.elapsed_ms);
-  $('duration').textContent = fmt(p.duration_ms);
-  if (!seeking) {
-    const frac = p.duration_ms > 0 ? p.elapsed_ms / p.duration_ms : 0;
-    $('seek').value = Math.round(frac * 1000);
+  $('elapsed').textContent = fmt(p.elapsed_ms);
+  if (p.live) {
+    // Infinite stream: no timeline. Show a LIVE badge and lock the seek bar full.
+    $('duration').textContent = 'LIVE';
+    $('duration').classList.add('live');
+    $('seek').value = 1000;
+    $('seek').disabled = true;
+  } else {
+    $('duration').textContent = fmt(p.duration_ms);
+    $('duration').classList.remove('live');
+    $('seek').disabled = false;
+    if (!seeking) {
+      const frac = p.duration_ms > 0 ? p.elapsed_ms / p.duration_ms : 0;
+      $('seek').value = Math.round(frac * 1000);
+    }
   }
 });
 

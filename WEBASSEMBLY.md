@@ -151,8 +151,12 @@ in `include/rockbox_ffi.h`). Every symbol JS calls is listed in
 `EXPORTED_FUNCTIONS` in `scripts/build-wasm.sh` — a missing entry is silently
 dead-stripped and `Module._rb_foo` becomes `undefined` at runtime.
 
-- **Decode**: `rb_decoder_open`, `rb_decoder_next_chunk`, `rb_decoder_seek_ms`,
-  `rb_decoder_metadata_json`, `rb_decoder_finished`, `rb_decoder_free`
+- **Decode (file)**: `rb_decoder_open`, `rb_decoder_next_chunk`,
+  `rb_decoder_seek_ms`, `rb_decoder_metadata_json`, `rb_decoder_finished`,
+  `rb_decoder_free`
+- **Decode (live stream)**: `rb_stream_new`, `rb_stream_feed`,
+  `rb_stream_close`, `rb_stream_available`, `rb_stream_free`,
+  `rb_decoder_open_stream`
 - **DSP**: `rb_dsp_new`, `rb_dsp_set_input_frequency`, `rb_dsp_process`,
   `rb_dsp_eq_enable`, `rb_dsp_set_eq_band`, `rb_dsp_set_eq_precut`,
   `rb_dsp_set_tone`, `rb_dsp_set_surround`, `rb_dsp_set_channel_config`,
@@ -173,8 +177,20 @@ dead-stripped and `Module._rb_foo` becomes `undefined` at runtime.
 All codecs in `rockbox-codecs` (its default feature set): FLAC, MP3, Vorbis,
 Opus, ALAC, WavPack, AAC, WMA/WMA Pro, APE, TTA, Musepack, Speex, AC3, WAV /
 AIFF / AU family, and more. Sources are `http(s)://` URLs (subject to CORS) or
-files served from `web/`. The Worker writes each fetched file to MEMFS before
-decoding.
+files served from `web/`.
+
+**Finite vs. live.** The Worker branches on the response's **`Content-Length`**
+(and `icy-*`) headers:
+
+- *Finite file* (has `Content-Length`) — buffered whole into MEMFS, then
+  `rb_decoder_open`. Full metadata, duration and **seeking**.
+- *Live / infinite stream* (no `Content-Length`, e.g. Icecast/SHOUTcast radio)
+  — the response body is streamed and pushed chunk-by-chunk into a blocking
+  reader via `rb_stream_feed`; `rb_decoder_open_stream` decodes it forever. An
+  empty-but-open buffer *parks* the codec (a network stall plays out to silence
+  and resumes — the stream is never dropped), and the input buffer is bounded
+  (backpressure above ~8 MB), so it never grows unbounded. No seeking; the UI
+  shows a **LIVE** badge and unknown duration.
 
 ## Known limitations
 

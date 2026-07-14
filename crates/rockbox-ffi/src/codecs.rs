@@ -13,10 +13,11 @@ use rockbox_codecs::Decoder;
 use std::os::raw::c_char;
 use std::time::Duration;
 
-/// Opaque decoder handle. Create with [`rb_decoder_open`], destroy with
+/// Opaque decoder handle. Create with [`rb_decoder_open`] (or
+/// [`crate::rb_decoder_open_stream`] for live/infinite sources), destroy with
 /// [`rb_decoder_free`].
 pub struct RbDecoder {
-    inner: Decoder,
+    pub(crate) inner: Decoder,
 }
 
 /// Open the audio file at `path` and start decoding. Returns null if `path`

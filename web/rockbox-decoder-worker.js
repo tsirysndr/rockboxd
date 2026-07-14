@@ -36,6 +36,12 @@ let decPath = null;     // MEMFS path of the current file
 
 // scratch out-param cells (allocated once)
 let outLenPtr = 0, outRatePtr = 0, procLenPtr = 0, pathPtr = 0, pathCap = 0;
+let feedPtr = 0, feedCap = 0; // scratch for copying fetched bytes into wasm heap
+
+// Live-stream tuning (bytes).
+const STREAM_PREBUFFER = 128 * 1024; // buffer this much before opening the codec
+const STREAM_PULL_MIN  = 64 * 1024;  // only decode when this much is buffered
+const STREAM_CAP       = 8 * 1024 * 1024; // backpressure the fetch above this
 
 // ── Player state ──────────────────────────────────────────────────────────
 let queue      = [];    // array of URL strings
@@ -49,6 +55,8 @@ let curInRate  = 0;     // last input rate handed to the DSP
 let curMeta    = null;  // metadata JSON of the current track
 let loadToken  = 0;     // cancels stale async track loads
 let pumpTimer  = null;
+let stream     = 0;     // *RbStream for a live/infinite source (0 = finite file)
+let live       = false; // current track is an unbounded live stream
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 // Resolve the core module URL against THIS worker so emscripten spawns its
@@ -147,6 +155,16 @@ function pump() {
   // Keep the ring at most ~half full (a couple of seconds of look-ahead).
   if (freeFrames() < (ringFrames >> 1)) { schedulePump(15); return; }
 
+  // For a live stream only decode when there's ample encoded input buffered,
+  // so next_chunk can't park this (single) worker thread waiting on the codec
+  // thread waiting on us. Once the network side has ended, drain whatever's
+  // left. (No underrun = the ring simply plays out to silence until data
+  // resumes — the stream is never dropped.)
+  if (stream && !feedDone && Module._rb_stream_available(stream) < STREAM_PULL_MIN) {
+    schedulePump(30);
+    return;
+  }
+
   const pcmPtr = Module._rb_decoder_next_chunk(dec, outLenPtr, outRatePtr);
   if (!pcmPtr) { trackDecoded = true; schedulePump(20); return; } // end of track
 
@@ -170,15 +188,33 @@ function pump() {
 
 // ── Track lifecycle ─────────────────────────────────────────────────────────
 function closeDecoder() {
+  // For a live stream, close it FIRST so the codec thread's blocked read
+  // returns EOF and rb_decoder_free's thread-join can complete (otherwise it
+  // would hang forever), then free the stream buffer.
+  if (stream) Module._rb_stream_close(stream);
   if (dec) { Module._rb_decoder_free(dec); dec = null; }
+  if (stream) { Module._rb_stream_free(stream); stream = 0; }
   if (decPath) { try { Module.FS.unlink(decPath); } catch (_) {} decPath = null; }
   trackDecoded = false;
+  live = false;
   curInRate = 0;
 }
 
 function extOf(url) {
   const m = /\.([A-Za-z0-9]{1,5})(?:[?#]|$)/.exec(url);
   return m ? m[1].toLowerCase() : 'bin';
+}
+
+/** Codec/container hint for a live stream, from Content-Type then URL. */
+function formatExt(contentType, url) {
+  const ct = (contentType || '').toLowerCase();
+  if (ct.includes('mpeg') || ct.includes('mp3')) return 'mp3';
+  if (ct.includes('aac') || ct.includes('aacp')) return 'aac';
+  if (ct.includes('ogg') || ct.includes('opus') || ct.includes('vorbis')) return 'ogg';
+  if (ct.includes('flac')) return 'flac';
+  if (ct.includes('wav')) return 'wav';
+  const e = extOf(url);
+  return e === 'bin' ? 'mp3' : e; // radio URLs often have no extension → assume mp3
 }
 
 /** Fetch, open and (optionally) start playing queue entry `i` from `seekMs`. */
@@ -192,17 +228,40 @@ async function startTrack(i, seekMs, autoplay) {
   index = i;
   flushRing(Math.round((seekMs || 0) * sampleRate / 1000));
 
-  let bytes;
+  let resp;
   try {
-    const resp = await fetch(url);
+    resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    bytes = new Uint8Array(await resp.arrayBuffer());
   } catch (err) {
     postMessage({ type: 'error', message: `fetch failed: ${url} (${err})`, index: i });
     if (token === loadToken) skipAfterError(i);
     return;
   }
   if (token !== loadToken) return; // a newer load superseded this one
+
+  // Detection: a Content-Length (or a byte range) means a finite, seekable
+  // file. No length — chunked / Icecast / SHOUTcast — means an unbounded live
+  // stream. `icy-*` headers (when CORS-exposed) are a hard live signal.
+  const hasLength = resp.headers.get('content-length') != null;
+  const icy = resp.headers.get('icy-metaint') != null ||
+              resp.headers.get('icy-name')    != null;
+  const isLive = icy || !hasLength;
+
+  if (isLive) return openLiveStream(resp, url, i, token, autoplay);
+  return openFiniteFile(resp, url, i, token, seekMs, autoplay);
+}
+
+/** Finite file: buffer it whole into MEMFS → full metadata + seeking. */
+async function openFiniteFile(resp, url, i, token, seekMs, autoplay) {
+  let bytes;
+  try {
+    bytes = new Uint8Array(await resp.arrayBuffer());
+  } catch (err) {
+    postMessage({ type: 'error', message: `fetch failed: ${url} (${err})`, index: i });
+    if (token === loadToken) skipAfterError(i);
+    return;
+  }
+  if (token !== loadToken) return;
 
   const path = `/track_${token}.${extOf(url)}`;
   Module.FS.writeFile(path, bytes);
@@ -215,15 +274,90 @@ async function startTrack(i, seekMs, autoplay) {
     return;
   }
   decPath = path;
+  live = false;
 
   curMeta = readMetadata();
   applyTrackReplaygain(curMeta);
   Module._rb_dsp_flush(dsp);
-
   if (seekMs) Module._rb_decoder_seek_ms(dec, seekMs);
 
-  postMessage({ type: 'track', index: i, url, metadata: curMeta });
+  postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
+  startIfPlaying(autoplay);
+}
 
+let feedDone = false; // the network reader for the current stream has ended
+
+/** Live stream: push bytes to a blocking reader; never buffer the whole thing. */
+async function openLiveStream(resp, url, i, token, autoplay) {
+  const ext = formatExt(resp.headers.get('content-type'), url);
+  const st = Module._rb_stream_new();
+  stream = st;
+  live = true;
+  feedDone = false;
+
+  const reader = resp.body.getReader();
+
+  // Background feeder: pull network chunks and push them to the blocking
+  // reader for the life of the track. `st` is captured so we never touch the
+  // global `stream` after a track change frees it — the token guard returns
+  // before any handle use once this load is superseded.
+  const feeding = (async () => {
+    try {
+      for (;;) {
+        if (token !== loadToken) { await reader.cancel().catch(() => {}); return; }
+        if (Module._rb_stream_available(st) > STREAM_CAP) { await sleep(50); continue; }
+        const { done, value } = await reader.read();
+        if (token !== loadToken) { await reader.cancel().catch(() => {}); return; }
+        if (done) { Module._rb_stream_close(st); feedDone = true; return; }
+        if (value && value.length) feedStream(st, value);
+      }
+    } catch (err) {
+      if (token === loadToken) {
+        Module._rb_stream_close(st); feedDone = true;
+        postMessage({ type: 'error', message: `stream read error: ${url} (${err})`, index: i });
+      }
+    }
+  })();
+
+  // Wait for the prebuffer (or an early end of the stream) before opening.
+  while (token === loadToken && !feedDone &&
+         Module._rb_stream_available(st) < STREAM_PREBUFFER) {
+    await sleep(30);
+  }
+  if (token !== loadToken) return;
+
+  const p = allocPath(ext);
+  dec = Module._rb_decoder_open_stream(st, p);
+  if (!dec) {
+    Module._rb_stream_close(st);
+    await feeding.catch(() => {});
+    Module._rb_stream_free(st); stream = 0; live = false;
+    postMessage({ type: 'error', message: `cannot decode live stream (${ext}): ${url}`, index: i });
+    skipAfterError(i);
+    return;
+  }
+
+  curMeta = readMetadata() || { codec: ext, duration_ms: 0 };
+  curMeta.duration_ms = 0; // unknown / infinite
+  Module._rb_dsp_flush(dsp);
+
+  postMessage({ type: 'track', index: i, url, live: true, metadata: curMeta });
+  startIfPlaying(autoplay);
+}
+
+function feedStream(st, chunk) {
+  const n = chunk.length;
+  if (n > feedCap) {
+    if (feedPtr) Module._free(feedPtr);
+    feedPtr = Module._malloc(n);
+    feedCap = n;
+  }
+  Module.HEAPU8.set(chunk, feedPtr);
+  Module._rb_stream_feed(st, feedPtr, n);
+}
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+function startIfPlaying(autoplay) {
   if (autoplay || playing) {
     playing    = true;
     userPaused = false;
@@ -350,6 +484,7 @@ function emitProgress() {
     type: 'progress',
     state: stateName(),
     index,
+    live,
     elapsed_ms:  Math.round(played * 1000 / sampleRate),
     duration_ms: curMeta ? (curMeta.duration_ms | 0) : 0,
     metadata: curMeta,
