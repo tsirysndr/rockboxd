@@ -64,8 +64,15 @@
   check      {:task (do (require 'console.dev) ((resolve 'console.dev/check)))}
 
   ;; ── wasm ─────────────────────────────────────────────────────
-  wasm:build {:task (do (require 'console.wasm) ((resolve 'console.wasm/build)))}
-  wasm:serve {:task (do (require 'console.wasm) ((resolve 'console.wasm/serve)))}
+  wasm:build   {:doc  "Build the rockbox-wasm npm package (dist/)."
+                :task (do (require 'console.wasm) ((resolve 'console.wasm/build)))}
+  wasm:example {:doc  "Run the Vite + React + TS example."
+                :task (do (require 'console.wasm) ((resolve 'console.wasm/example)))}
+  wasm:dev     {:doc  "Build the package, then run the example."
+                :task (do (require 'console.wasm) ((resolve 'console.wasm/dev)))}
+  wasm:publish {:doc  "Build, then npm publish rockbox-wasm. Usage: bb wasm:publish [args...]"
+                :task (do (require 'console.wasm)
+                          (apply (resolve 'console.wasm/publish) *command-line-args*))}
 
   ;; ── expo (mobile) ────────────────────────────────────────────
   expo:install    {:task (do (require 'console.expo) ((resolve 'console.expo/install)))}

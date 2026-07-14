@@ -16,12 +16,14 @@
 mod codecs;
 mod dsp;
 mod meta;
+#[cfg(feature = "player")]
 mod player;
 mod util;
 
 pub use codecs::*;
 pub use dsp::*;
 pub use meta::*;
+#[cfg(feature = "player")]
 pub use player::*;
 pub use util::*;
 

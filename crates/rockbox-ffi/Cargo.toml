@@ -15,10 +15,19 @@ categories = ["multimedia::audio", "external-ffi-bindings"]
 # lib (rlib): so Rust integration tests can call the exported functions.
 crate-type = ["cdylib", "staticlib", "lib"]
 
+[features]
+default = ["player"]
+# The `player` half wraps `rockbox-playback`, which owns a live `cpal`
+# output stream and a background engine thread. That needs a real audio
+# device, so it is gated off for targets without one (e.g. the browser /
+# `wasm32-unknown-emscripten`, where JS + Web Audio drive playback and only
+# the decode + DSP + metadata surface is compiled in).
+player = ["dep:rockbox-playback"]
+
 [dependencies]
 rockbox-codecs = { version = "0.2.0", path = "../rockbox-codecs" }
 rockbox-dsp = { version = "0.3.0", path = "../rockbox-dsp" }
 rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
-rockbox-playback = { version = "0.4.0", path = "../rockbox-playback" }
+rockbox-playback = { version = "0.4.0", path = "../rockbox-playback", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

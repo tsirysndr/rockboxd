@@ -53,6 +53,7 @@ cargo build --release -p rockbox-ffi
 | Swift          | [`swift/`](swift)              | `dlopen` (pure Swift)         | `swift run rockbox-ffi-smoke`                     |
 | Kotlin         | [`kotlin/`](kotlin)            | Java FFM (Panama, JDK 22+)    | `mise exec -- gradle smoke`                       |
 | Clojure        | [`clojure/`](clojure)          | Java FFM (Panama, JDK 22+)    | `mise exec -- clojure -M:smoke`                   |
+| WASM (browser) | [`wasm/`](wasm)                | Emscripten, single-threaded   | `bash wasm/scripts/build.sh` (npm: `rockbox-wasm`) |
 
 Each binding exposes the same three surfaces with matching method names:
 

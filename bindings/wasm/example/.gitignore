@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-ssr
+public/rockbox
+*.local
+*.tsbuildinfo
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.DS_Store

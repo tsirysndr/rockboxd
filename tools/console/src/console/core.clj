@@ -50,8 +50,10 @@
            [:build          "cargo build --release --workspace"]]}
 
    {:group "wasm" :ns 'console.wasm
-    :cmds [[:build          "bash scripts/build-wasm.sh -> web/rockboxd.{js,wasm}"]
-           [:serve          "node scripts/wasm-dev-server.mjs (COOP/COEP headers)"]]}
+    :cmds [[:build          "bash bindings/wasm/scripts/build.sh -> rockbox-wasm dist/"]
+           [:example        "run the Vite + React + TS example (bun install + dev)"]
+           [:dev            "build the package, then run the example"]
+           [:publish        "build, then npm publish (args pass through)"]]}
 
    {:group "expo" :ns 'console.expo
     :cmds [[:install        "bun install"]
