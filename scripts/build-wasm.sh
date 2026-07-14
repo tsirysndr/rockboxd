@@ -126,7 +126,7 @@ EXPORTED_FUNCTIONS="$(echo "$EXPORTED_FUNCTIONS" | tr -d '\n ')"
 
 RUNTIME_METHODS='["UTF8ToString","stringToUTF8","lengthBytesUTF8",
     "HEAP8","HEAPU8","HEAP16","HEAPU16","HEAP32","HEAPU32","HEAPF32",
-    "getValue","setValue","FS"]'
+    "getValue","setValue","FS","wasmMemory"]'
 RUNTIME_METHODS="$(echo "$RUNTIME_METHODS" | tr -d '\n ')"
 
 # SINGLE_FILE=1 embeds the .wasm as base64 inside rockbox-core.js, so there is

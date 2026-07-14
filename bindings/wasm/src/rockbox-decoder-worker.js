@@ -125,8 +125,36 @@ function onPcmPort(port) {
   pcmPort = port;
   pcmPort.onmessage = (e) => {
     const m = e.data;
-    if (m.type === 'level') { wlConsumed = m.consumed; wlQueued = m.queued; }
+    if (m.type === 'level') {
+      // Derive the queue from monotonic counters instead of trusting the
+      // worklet's snapshot: `m.queued` describes a PAST state and counts
+      // in-flight (posted but not yet delivered) chunks as zero. Trusting it
+      // collapsed backpressure, "finished" the track in seconds, and the
+      // end-of-track flush then wiped the audio right as it arrived.
+      wlConsumed = m.consumed;
+      wlQueued = Math.max(0, postedFrames - wlConsumed);
+    }
   };
+}
+
+// ── Live heap views ─────────────────────────────────────────────────────────
+// ALLOW_MEMORY_GROWTH replaces the wasm memory buffer when the heap grows,
+// which detaches any previously created view — including the Module.HEAPxx
+// snapshots. A detached Int16Array has length 0, so a stale `HEAP16.slice`
+// silently returns EMPTY chunks (audio dies while everything "works").
+// Always build a fresh view over the LIVE buffer for every access.
+function liveBuf() {
+  const m = Module.wasmMemory;
+  return m ? m.buffer : Module.HEAPU8.buffer;
+}
+function copyI16(bytePtr, samples) {
+  return new Int16Array(liveBuf(), bytePtr, samples).slice(); // detached-proof copy
+}
+function readU32(bytePtr) {
+  return new Uint32Array(liveBuf(), bytePtr, 1)[0];
+}
+function writeU8(bytes, bytePtr) {
+  new Uint8Array(liveBuf(), bytePtr, bytes.length).set(bytes);
 }
 
 // ── Worklet transport ─────────────────────────────────────────────────────
@@ -140,23 +168,22 @@ function setWorkletPaused(v) { pcmPort && pcmPort.postMessage({ type: 'paused', 
  *  heap buffer, and run the copy through the output pipeline
  *  (crossfade mixer → tail holdback → worklet). */
 function postPcm(procPtr, procLen) {
-  const start = procPtr >> 1;
-  const copy = Module.HEAP16.slice(start, start + procLen); // detached copy
+  const copy = copyI16(procPtr, procLen);
   Module._rb_buffer_free(procPtr, procLen);
   pushPcm(copy);
 }
 
 /** Final hop: transfer an Int16Array to the worklet. */
 function emitPcm(arr) {
-  pcmPort.postMessage({ pcm: arr.buffer }, [arr.buffer]);
-  // Local accounting: count the queued frames immediately. The worklet's
-  // periodic 'level' reports overwrite this with the truth, but those are
-  // macrotasks — a tight decode loop chained on microtasks would never see
-  // them, think the queue is empty, and blast the whole track through with
-  // no backpressure.
+  // Read the length BEFORE posting: the transfer detaches arr.buffer, after
+  // which arr.length is 0 — counting after the post makes every chunk count
+  // as zero frames, backpressure never engages, the track "finishes"
+  // instantly and the end-of-track flush wipes the audio (the "plays one
+  // second then stops" bug).
   const frames = arr.length >> 1;
-  wlQueued += frames;
+  pcmPort.postMessage({ pcm: arr.buffer }, [arr.buffer]);
   postedFrames += frames;
+  wlQueued = Math.max(0, postedFrames - wlConsumed);
 }
 
 /** Output pipeline: crossfade-mix if a fade is armed, then hold back the
@@ -344,7 +371,7 @@ async function streamRaw(ptr, len, rate, getPos, setPos, token, onProgress) {
     if (wlQueued > highWater()) { await sleep(20); continue; }
     const chunkLen = Math.min(CHUNK, len - pos);
     const procPtr = Module._rb_dsp_process(dsp, ptr + pos * 2, chunkLen, procLenPtr);
-    const procLen = Module.HEAPU32[procLenPtr >> 2];
+    const procLen = readU32(procLenPtr);
     setPos(pos + chunkLen);
     if (procPtr && procLen >= 2) postPcm(procPtr, procLen);
     else if (procPtr) Module._rb_buffer_free(procPtr, procLen);
@@ -508,8 +535,8 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
   applyTrackReplaygain(curMeta);
   Module._rb_dsp_flush(dsp); curInRate = 0;
   rawPtr = Module._rb_decode_file(p, outLenPtr, outRatePtr);
-  rawLen = Module.HEAPU32[outLenPtr >> 2];
-  rawRate = Module.HEAPU32[outRatePtr >> 2] || (curMeta && curMeta.sample_rate) || sampleRate;
+  rawLen = readU32(outLenPtr);
+  rawRate = readU32(outRatePtr) || (curMeta && curMeta.sample_rate) || sampleRate;
   try { Module.FS.unlink(path); } catch (_) {}
   if (!rawPtr || rawLen < 2) {
     postMessage({ type: 'error', message: `cannot decode: ${url}`, index: i });
@@ -671,8 +698,8 @@ async function finishTrack(token) {
 async function decodeSegment(bytes, ext, token, readMeta, maybeStart) {
   const dataPtr = copyPacket(bytes);
   const pcmPtr = Module._rb_decode_packet(dataPtr, bytes.length, allocPath(ext), outLenPtr, outRatePtr);
-  const len = Module.HEAPU32[outLenPtr >> 2];
-  const rate = Module.HEAPU32[outRatePtr >> 2];
+  const len = readU32(outLenPtr);
+  const rate = readU32(outRatePtr);
   if (!pcmPtr || len < 2) { if (pcmPtr) Module._rb_buffer_free(pcmPtr, len); return false; }
   if (readMeta) updateLiveMeta({ codec: ext, sample_rate: rate });
 
@@ -858,6 +885,6 @@ function allocPath(str) {
 function copyPacket(bytes) {
   const n = bytes.length;
   if (n > pktCap) { if (pktPtr) Module._free(pktPtr); pktPtr = Module._malloc(n); pktCap = n; }
-  Module.HEAPU8.set(bytes, pktPtr);
+  writeU8(bytes, pktPtr);
   return pktPtr;
 }
