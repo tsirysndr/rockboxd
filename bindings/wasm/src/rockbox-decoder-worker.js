@@ -118,6 +118,12 @@ function postPcm(procPtr, procLen) {
   const copy = Module.HEAP16.slice(start, start + procLen); // detached copy
   Module._rb_buffer_free(procPtr, procLen);
   pcmPort.postMessage({ pcm: copy.buffer }, [copy.buffer]);
+  // Local accounting: count the queued frames immediately. The worklet's
+  // periodic 'level' reports overwrite this with the truth, but those are
+  // macrotasks — a tight decode loop chained on microtasks would never see
+  // them, think the queue is empty, and blast the whole track through with
+  // no backpressure.
+  wlQueued += procLen >> 1;
 }
 
 const highWater = () => 3 * sampleRate; // keep ≤ ~3 s buffered in the worklet
@@ -145,6 +151,29 @@ async function streamRaw(ptr, len, rate, getPos, setPos, token, onProgress) {
     if (procPtr && procLen >= 2) postPcm(procPtr, procLen);
     else if (procPtr) Module._rb_buffer_free(procPtr, procLen);
     if (onProgress) onProgress();
+  }
+}
+
+/**
+ * Wait for the worklet's queue to finish PLAYING before auto-advancing —
+ * advancing early would flush audio that hasn't been heard yet (the "track
+ * stops after a few seconds" bug: everything decoded fast, then the advance
+ * flushed the queue). Returns 'done' | 'aborted' | 'again' (the optional
+ * `again()` predicate signals a seek rewound the cursor, so stream more).
+ * A stall watchdog bails out if the queue stops shrinking while unpaused
+ * (broken level reports must not wedge the queue advance forever).
+ */
+async function waitForDrain(token, again) {
+  let last = wlQueued;
+  let stall = 0;
+  for (;;) {
+    if (token !== loadToken) return 'aborted';
+    if (again && again()) return 'again';
+    if (wlQueued <= 0) return 'done';
+    await sleep(50);
+    if (userPaused) { stall = 0; continue; }
+    if (wlQueued < last) { last = wlQueued; stall = 0; }
+    else if (++stall > 40) return 'done'; // ~2 s with no progress
   }
 }
 
@@ -202,6 +231,9 @@ async function startTrack(i, seekMs, autoplay) {
   curInRate = 0;
   seekBaseMs = seekMs || 0;
   flushWorklet();
+  // Hold the worklet while the new track loads/prebuffers; the buffered path
+  // unpauses on play and the segment loop unpauses once prebuffered.
+  setWorkletPaused(true);
   Module._rb_dsp_flush(dsp);
 
   let resp;
@@ -280,8 +312,19 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
   postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
   if (autoplay || playing) { playing = true; userPaused = false; setWorkletPaused(false); }
   emitStatus();
-  const finished = await streamRaw(rawPtr, rawLen, rawRate, () => finitePos, (v) => (finitePos = v), token);
-  if (finished && token === loadToken) { freeRaw(); advanceAfterEnd(); }
+  // Stream the decoded buffer; when it's fully posted, let the worklet PLAY
+  // it out before advancing (advancing early would flush the queued tail).
+  // A seek can rewind the cursor while draining — go stream again.
+  for (;;) {
+    const finished = await streamRaw(rawPtr, rawLen, rawRate, () => finitePos, (v) => (finitePos = v), token);
+    if (!finished || token !== loadToken) return;
+    const r = await waitForDrain(token, () => finitePos < rawLen);
+    if (r === 'aborted') return;
+    if (r === 'again') continue;
+    break;
+  }
+  freeRaw();
+  advanceAfterEnd();
 }
 
 /** Drain the rest of `reader` (after `head`) into one buffer. */
@@ -351,8 +394,9 @@ async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) 
     while (token === loadToken && pending.length >= LIVE_SEGMENT) {
       const seg = pending.slice(0, LIVE_SEGMENT);
       pending = pending.slice(LIVE_SEGMENT);
-      await decodeSegment(seg, ext, token, !gotMeta, maybeStart);
-      gotMeta = true;
+      // Only mark meta as read once a segment actually decodes (the first
+      // segment of an MP3 is often just ID3/album-art bytes and fails).
+      if (await decodeSegment(seg, ext, token, !gotMeta, maybeStart)) gotMeta = true;
     }
   };
   try {
@@ -368,24 +412,31 @@ async function runSegmentLoop(reader, pending, done, ext, token, url, i, demux) 
       await drainPending();
     }
     if (token === loadToken && pending.length) await decodeSegment(pending, ext, token, !gotMeta, maybeStart);
-    if (token === loadToken) { if (!started && !userPaused) setWorkletPaused(false); advanceAfterEnd(); }
+    if (token === loadToken) {
+      if (!started && !userPaused) setWorkletPaused(false);
+      // Everything is decoded but the worklet may hold several seconds of
+      // un-played audio — advancing now would flush it. Play it out first.
+      if ((await waitForDrain(token)) === 'done') advanceAfterEnd();
+    }
   } catch (err) {
     if (token === loadToken) { postMessage({ type: 'error', message: `stream error: ${url} (${err})`, index: i }); advanceAfterEnd(); }
   }
 }
 
-/** Decode one self-contained encoded packet in memory and stream its PCM. */
+/** Decode one self-contained encoded packet in memory and stream its PCM.
+ *  Returns true if the segment produced audio. */
 async function decodeSegment(bytes, ext, token, readMeta, maybeStart) {
   const dataPtr = copyPacket(bytes);
   const pcmPtr = Module._rb_decode_packet(dataPtr, bytes.length, allocPath(ext), outLenPtr, outRatePtr);
   const len = Module.HEAPU32[outLenPtr >> 2];
   const rate = Module.HEAPU32[outRatePtr >> 2];
-  if (!pcmPtr || len < 2) { if (pcmPtr) Module._rb_buffer_free(pcmPtr, len); return; }
+  if (!pcmPtr || len < 2) { if (pcmPtr) Module._rb_buffer_free(pcmPtr, len); return false; }
   if (readMeta) updateLiveMeta({ codec: ext, sample_rate: rate });
 
   let pos = 0;
   await streamRaw(pcmPtr, len, rate, () => pos, (v) => (pos = v), token, maybeStart);
   Module._rb_buffer_free(pcmPtr, len);
+  return true;
 }
 
 function skipAfterError(i) {
