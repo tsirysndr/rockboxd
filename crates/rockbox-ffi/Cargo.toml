@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-ffi"
-version = "0.3.0"
+version = "0.3.1"
 description = "Flat C ABI over rockbox-dsp + rockbox-metadata + rockbox-playback, for language bindings (Python, TypeScript, Elixir, Gleam, …)"
 authors = { workspace = true }
 edition = { workspace = true }
@@ -25,9 +25,9 @@ default = ["player"]
 player = ["dep:rockbox-playback"]
 
 [dependencies]
-rockbox-codecs = { version = "0.2.0", path = "../rockbox-codecs" }
+rockbox-codecs = { version = "0.2.1", path = "../rockbox-codecs" }
 rockbox-dsp = { version = "0.3.0", path = "../rockbox-dsp" }
 rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
-rockbox-playback = { version = "0.4.0", path = "../rockbox-playback", optional = true }
+rockbox-playback = { version = "0.4.1", path = "../rockbox-playback", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

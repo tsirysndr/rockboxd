@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-codecs"
-version = "0.2.0"
+version = "0.2.1"
 description = "Rockbox audio decoders (FLAC, MP3, Vorbis, ALAC, WavPack, WAV/ADPCM, …) as a reusable decoding library"
 authors = { workspace = true }
 edition = { workspace = true }

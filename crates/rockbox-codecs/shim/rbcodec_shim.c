@@ -772,8 +772,16 @@ static unsigned int afmt_for_ext(const char *ext)
         return AFMT_OPUS;
     if (!strcasecmp(ext, "flac"))
         return AFMT_FLAC;
+    /* A raw "aac" stream is an ADTS/ADIF bitstream (content-type audio/aac,
+     * audio/aacp, audio/x-aac), NOT an MP4 container — so it must use the
+     * bitstream decoder (aac_bsf), the same mapping Rockbox's own
+     * get_afmt_from_content_type() and the .aac file extension use. Routing it
+     * to AFMT_MP4_AAC runs the libm4a demuxer, which needs moov/mdat atoms and
+     * fails outright on a raw ADTS frame stream (HE-AAC radio played silence).
+     * The MP4 container path is only reachable via .m4a/.mp4, which stream
+     * through the seekable/file route (moov isn't self-describing forward). */
     if (!strcasecmp(ext, "aac"))
-        return AFMT_MP4_AAC;
+        return AFMT_AAC_BSF;
     if (!strcasecmp(ext, "m4a") || !strcasecmp(ext, "mp4"))
         return AFMT_MP4_AAC;
     if (!strcasecmp(ext, "wv"))
