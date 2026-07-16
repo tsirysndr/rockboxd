@@ -260,7 +260,7 @@
         # then paste the printed hash below.
         cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
           src  = rustSrc;
-          hash = "sha256-JaAKEAyXXSmJwU/DBJOkwOwkTtn0aQuQrdq4xx+ZFVY=";
+          hash = "sha256-xp2nWa6nX2Q2tV8q1cpvPHEgHPMLaJB3PFI6CaFrRE8=";
         };
 
         # ── Rust staticlibs (separately cached) ──────────────────────────────
