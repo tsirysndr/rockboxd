@@ -1,6 +1,6 @@
 [project]
 name = "rockbox-ffi"
-version = "0.5.0"
+version = "0.5.1"
 description = "Python bindings for the Rockbox DSP / metadata / playback engine"
 readme = "README.md"
 requires-python = ">=3.9"

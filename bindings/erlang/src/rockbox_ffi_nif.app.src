@@ -2,7 +2,7 @@
  [{description,
    "Shared Erlang NIF over the librockbox_ffi C ABI (Rockbox DSP / metadata "
    "/ codecs / playback). The Elixir and Gleam bindings depend on this."},
-  {vsn, "1.1.0"},
+  {vsn, "1.1.1"},
   {registered, []},
   %% crypto/inets/ssl/public_key back the first-load NIF download + checksum
   %% verify in rockbox_ffi_nif:ensure_cached/1. kernel/stdlib are mandatory.
