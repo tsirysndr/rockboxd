@@ -95,7 +95,7 @@ onmessage = (e) => {
     case 'stop':       return stop();
     case 'next':       return skip(+1);
     case 'prev':       return skip(-1);
-    case 'skipTo':     return beginManual(msg.index);
+    case 'skipTo':     return startTrack(msg.index | 0, 0, true);
     case 'seek':       return seek(msg.ms);
     case 'shuffle':    shuffle = !!msg.enabled; return emitStatus();
     case 'repeat':     repeat  = msg.mode | 0;  return emitStatus();
