@@ -67,6 +67,14 @@ let trackBase = 0;   // posted-frame epoch where the current track audibly start
 // Finite-track decoded PCM, kept alive so we can seek within it.
 let rawPtr = 0, rawLen = 0, rawRate = 0, finitePos = 0;
 
+// Gapless prefetch: the predicted next track's raw file bytes, fetched into
+// memory during the current track's playback so an auto-advance decodes
+// straight from RAM with no network wait (the "silence before the next track"
+// gap). Whole-file (drain) formats only — MP3/AAC already start fast via
+// progressive streaming.
+let prefetch = null;     // { url, bytes: Uint8Array }
+let prefetchUrl = null;  // url currently being fetched (single-flight guard)
+
 // ── Boot ────────────────────────────────────────────────────────────────────
 const CORE_URL = new URLSearchParams(self.location.search).get('core')
   || new URL('rockbox-core.js', self.location.href).href;
@@ -475,6 +483,16 @@ async function startTrack(i, seekMs, autoplay, xfadeTail = null) {
   }
   Module._rb_dsp_flush(dsp);
 
+  // Gapless fast-path: if we prefetched this track's bytes during the previous
+  // one, decode straight from memory — no network round-trip, no re-drain.
+  if (prefetch && prefetch.url === url) {
+    const bytes = prefetch.bytes;
+    prefetch = null;
+    const ext = sniffExt(bytes.subarray(0, 16)) || formatExt(null, url);
+    return playDecodedBytes(bytes, ext, url, i, token, seekMs, autoplay);
+  }
+  prefetch = null; // any earlier prefetch predicted a different next track
+
   let resp;
   try {
     resp = await fetch(url);
@@ -531,7 +549,13 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
   // Buffer the rest, then whole-file decode (seekable).
   const bytes = await drainToBytes(reader, head, done, token);
   if (!bytes || token !== loadToken) return;
+  return playDecodedBytes(bytes, ext, url, i, token, seekMs, autoplay);
+}
 
+/** Whole-file decode a fully-buffered track, then stream it. Shared by the
+ *  drain path (playFinite) and the gapless prefetch fast-path (startTrack), so
+ *  an auto-advance whose bytes were prefetched decodes straight from memory. */
+async function playDecodedBytes(bytes, ext, url, i, token, seekMs, autoplay) {
   const path = `/track.${ext}`;
   Module.FS.writeFile(path, bytes);
   const p = allocPath(path);
@@ -551,6 +575,9 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
   postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
   if (autoplay || playing) { playing = true; userPaused = false; setWorkletPaused(false); }
   emitStatus();
+  // Now that this track is decoded and playing, prefetch the next one's bytes
+  // in the background so its transition is gapless.
+  void prefetchNext();
   // Stream the decoded buffer; when it's fully posted, either crossfade into
   // the next track (natural end) or let the worklet PLAY the queue out before
   // advancing. A seek can rewind the cursor while draining — stream again.
@@ -574,6 +601,37 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
   }
   freeRaw();
   advanceAfterEnd();
+}
+
+/** Fetch the predicted next track's bytes into memory while the current track
+ *  plays. Finite whole-file formats only: a live stream (no Content-Length)
+ *  would never finish, and MP3/AAC already start fast via progressive
+ *  streaming (and decode via rb_decode_packet, not the whole-file decoder). */
+async function prefetchNext() {
+  const nxt = nextAfterEnd();
+  if (nxt == null) return;
+  const url = queue[nxt];
+  if (!url || (prefetch && prefetch.url === url) || prefetchUrl) return;
+  prefetchUrl = url;
+  try {
+    const r = await fetch(url);
+    const finite =
+      r.ok &&
+      r.headers.get('content-length') != null &&
+      r.headers.get('icy-metaint') == null &&
+      r.headers.get('icy-name') == null;
+    if (!finite) { try { await r.body?.cancel(); } catch (_) {} return; }
+    const buf = new Uint8Array(await r.arrayBuffer());
+    const ext = sniffExt(buf.subarray(0, 16)) || formatExt(r.headers.get('content-type'), url);
+    if (ext === 'mp3' || ext === 'aac') return; // handled by the progressive path
+    // Keep it only if it's still the predicted next track (the queue/index may
+    // have moved while it downloaded).
+    if (queue[nextAfterEnd()] === url) prefetch = { url, bytes: buf };
+  } catch (_) {
+    // ignore — the normal fetch at advance time will handle it
+  } finally {
+    prefetchUrl = null;
+  }
 }
 
 /** Drain the rest of `reader` (after `head`) into one buffer. */
@@ -907,6 +965,7 @@ function seek(ms) {
 function setQueue(urls, autoplay) {
   queue = Array.isArray(urls) ? urls.slice() : [];
   index = -1;
+  prefetch = null; // queue replaced — any prefetched next track is stale
   emitQueue();
   if (queue.length && autoplay) startTrack(0, 0, true);
   else stop();
@@ -916,7 +975,7 @@ function enqueue(url) {
   emitQueue();
   if (playing && !rawPtr && !live && !streaming) startTrack(index >= 0 ? index : 0, 0, true);
 }
-function clearQueue() { queue = []; index = -1; lastInsertPos = -1; stop(); emitQueue(); }
+function clearQueue() { queue = []; index = -1; lastInsertPos = -1; prefetch = null; stop(); emitQueue(); }
 
 // Chain anchor for the 'insert' mode: like Rockbox, consecutive Inserts land
 // after the previously inserted batch, not each directly after the current
