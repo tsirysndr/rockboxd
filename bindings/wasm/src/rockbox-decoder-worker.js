@@ -72,8 +72,9 @@ let rawPtr = 0, rawLen = 0, rawRate = 0, finitePos = 0;
 // straight from RAM with no network wait (the "silence before the next track"
 // gap). Whole-file (drain) formats only — MP3/AAC already start fast via
 // progressive streaming.
-let prefetch = null;     // { url, bytes: Uint8Array }
-let prefetchUrl = null;  // url currently being fetched (single-flight guard)
+let prefetch = null;      // { url, bytes: Uint8Array }
+let prefetchUrl = null;   // url currently being fetched (single-flight guard)
+let prefetchAbort = null; // AbortController for the in-flight prefetch
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 const CORE_URL = new URLSearchParams(self.location.search).get('core')
@@ -603,18 +604,32 @@ async function playDecodedBytes(bytes, ext, url, i, token, seekMs, autoplay) {
   advanceAfterEnd();
 }
 
+/** Abort any in-flight prefetch (the predicted next track changed, or we're
+ *  stopping). */
+function cancelPrefetch() {
+  if (prefetchAbort) { try { prefetchAbort.abort(); } catch (_) {} prefetchAbort = null; }
+  prefetchUrl = null;
+}
+
 /** Fetch the predicted next track's bytes into memory while the current track
- *  plays. Finite whole-file formats only: a live stream (no Content-Length)
- *  would never finish, and MP3/AAC already start fast via progressive
- *  streaming (and decode via rb_decode_packet, not the whole-file decoder). */
+ *  plays, so its transition is gapless. Re-callable at any time (e.g. right
+ *  after a "play next" insert): if the predicted next track changed, any
+ *  in-flight prefetch for the old one is aborted and the new one starts
+ *  immediately. Finite whole-file formats only — a live stream (no
+ *  Content-Length) never finishes, and MP3/AAC start fast via progressive
+ *  streaming (decoded by rb_decode_packet, not the whole-file decoder). */
 async function prefetchNext() {
   const nxt = nextAfterEnd();
-  if (nxt == null) return;
-  const url = queue[nxt];
-  if (!url || (prefetch && prefetch.url === url) || prefetchUrl) return;
+  const url = nxt != null ? queue[nxt] : null;
+  if (!url) { cancelPrefetch(); prefetch = null; return; }
+  if (prefetch && prefetch.url !== url) prefetch = null; // cached the wrong track
+  if ((prefetch && prefetch.url === url) || prefetchUrl === url) return; // done / in flight
+  cancelPrefetch(); // a different track was being prefetched — drop it
   prefetchUrl = url;
+  const ac = new AbortController();
+  prefetchAbort = ac;
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: ac.signal });
     const finite =
       r.ok &&
       r.headers.get('content-length') != null &&
@@ -628,9 +643,10 @@ async function prefetchNext() {
     // have moved while it downloaded).
     if (queue[nextAfterEnd()] === url) prefetch = { url, bytes: buf };
   } catch (_) {
-    // ignore — the normal fetch at advance time will handle it
+    // aborted or network error — the normal fetch at advance time will handle it
   } finally {
-    prefetchUrl = null;
+    if (prefetchUrl === url) prefetchUrl = null;
+    if (prefetchAbort === ac) prefetchAbort = null;
   }
 }
 
@@ -932,6 +948,7 @@ function pause() { userPaused = true; setWorkletPaused(true); emitStatus(); }
 function stop() {
   loadToken++;
   playing = false; userPaused = false; live = false; streaming = false;
+  cancelPrefetch();
   freeRaw();
   xfade = null;
   dropHold();
@@ -965,7 +982,7 @@ function seek(ms) {
 function setQueue(urls, autoplay) {
   queue = Array.isArray(urls) ? urls.slice() : [];
   index = -1;
-  prefetch = null; // queue replaced — any prefetched next track is stale
+  cancelPrefetch(); prefetch = null; // queue replaced — any prefetch is stale
   emitQueue();
   if (queue.length && autoplay) startTrack(0, 0, true);
   else stop();
@@ -974,8 +991,9 @@ function enqueue(url) {
   queue.push(url);
   emitQueue();
   if (playing && !rawPtr && !live && !streaming) startTrack(index >= 0 ? index : 0, 0, true);
+  else if (playing) void prefetchNext(); // may now be the next-up track
 }
-function clearQueue() { queue = []; index = -1; lastInsertPos = -1; prefetch = null; stop(); emitQueue(); }
+function clearQueue() { queue = []; index = -1; lastInsertPos = -1; cancelPrefetch(); prefetch = null; stop(); emitQueue(); }
 
 // Chain anchor for the 'insert' mode: like Rockbox, consecutive Inserts land
 // after the previously inserted batch, not each directly after the current
@@ -1023,6 +1041,9 @@ function insertTracks(urls, position, atIndex) {
   lastInsertPos = pos + list.length;
   emitQueue();
   if (playing && !rawPtr && !live && !streaming) startTrack(index >= 0 ? index : 0, 0, true);
+  // The next-up track may have changed (e.g. "play next") — pre-buffer it now
+  // so its transition is gapless too, aborting any stale in-flight prefetch.
+  else if (playing) void prefetchNext();
 }
 
 /** Remove queue entry `i` (Rockbox semantics): removing a track before the
