@@ -544,6 +544,9 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
     curMeta = { codec: ext, duration_ms: 0 };
     postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
     emitStatus();
+    // Prefetch the next track even while this MP3/AAC streams progressively, so
+    // a whole-file next track (FLAC/…) decodes from memory with no gap.
+    void prefetchNext();
     return runSegmentLoop(reader, head, done, ext, token, url, i, null);
   }
 
