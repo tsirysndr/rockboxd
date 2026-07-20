@@ -128,9 +128,15 @@ mod http {
     /// hanging host from blocking the decode/engine thread forever; no total
     /// timeout is set, so long-lived live streams and slow large fetches are
     /// not aborted mid-transfer.
+    ///
+    /// A `User-Agent` is always sent: some stream hosts (e.g. zeno.fm) reject
+    /// requests with a missing/empty UA with `401 Unauthorized` instead of
+    /// serving the stream, so an empty default would make those stations
+    /// silently fail to play.
     fn build_client() -> io::Result<reqwest::blocking::Client> {
         reqwest::blocking::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
+            .user_agent(concat!("rockbox-playback/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(to_io)
     }

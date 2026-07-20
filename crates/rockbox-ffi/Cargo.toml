@@ -28,6 +28,6 @@ player = ["dep:rockbox-playback"]
 rockbox-codecs = { version = "0.2.1", path = "../rockbox-codecs" }
 rockbox-dsp = { version = "0.3.0", path = "../rockbox-dsp" }
 rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
-rockbox-playback = { version = "0.4.1", path = "../rockbox-playback", optional = true }
+rockbox-playback = { version = "0.4.2", path = "../rockbox-playback", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
