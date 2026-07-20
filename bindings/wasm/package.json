@@ -1,6 +1,6 @@
 {
   "name": "rockbox-wasm",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Rockbox audio decoders + DSP compiled to WebAssembly — a batteries-included browser player (FLAC/MP3/Vorbis/Opus/ALAC/AAC/WavPack/…, 10-band parametric EQ, live internet radio) with the wasm bundled in.",
   "license": "GPL-2.0-or-later",
   "author": "Tsiry Sandratraina",

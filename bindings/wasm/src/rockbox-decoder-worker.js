@@ -67,6 +67,13 @@ let trackBase = 0;   // posted-frame epoch where the current track audibly start
 // Finite-track decoded PCM, kept alive so we can seek within it.
 let rawPtr = 0, rawLen = 0, rawRate = 0, finitePos = 0;
 
+// Seek context for a progressive (ADTS-reframed) M4A/AAC stream, which has no
+// whole-file `rawPtr` to reposition. The container's sample table maps time →
+// byte offset (each AAC frame = 1024 samples at `codecRate`), so a seek issues
+// an HTTP Range request from that offset and resumes the re-framing there.
+// Null for non-seekable streams (live, progressive MP3 without a duration).
+let streamSeek = null; // { url, cfg, samples, codecRate, durationMs, tags }
+
 // Gapless prefetch: the predicted next track's raw file bytes, fetched into
 // memory during the current track's playback so an auto-advance decodes
 // straight from RAM with no network wait (the "silence before the next track"
@@ -462,6 +469,7 @@ async function startTrack(i, seekMs, autoplay, xfadeTail = null) {
   const url = queue[i];
 
   freeRaw();
+  streamSeek = null; // any prior stream's seek table is stale
   live = false;
   streaming = false;
   index = i;
@@ -491,7 +499,7 @@ async function startTrack(i, seekMs, autoplay, xfadeTail = null) {
     prefetch = null;
     // Faststart AAC was pre-demuxed to ADTS during the previous track — stream
     // it progressively (bounded memory). Everything else decodes whole-file.
-    if (pf.adts) return playAdtsBuffer(pf.adts, url, i, token, pf.durationMs, pf.tags);
+    if (pf.adts) return playAdtsBuffer(pf, url, i, token);
     const ext = sniffExt(pf.bytes.subarray(0, 16)) || formatExt(null, url);
     return playDecodedBytes(pf.bytes, ext, url, i, token, seekMs, autoplay);
   }
@@ -662,7 +670,7 @@ async function prefetchNext() {
       // HE-AAC / moov-last fall back to a whole-file byte cache.
       const d = demuxMp4Buffer(buf);
       prefetch = d.mode === 'aac'
-        ? { url, adts: d.adts, durationMs: d.durationMs, tags: d.tags }
+        ? { url, adts: d.adts, durationMs: d.durationMs, tags: d.tags, cfg: d.cfg, samples: d.samples }
         : { url, bytes: buf };
       return;
     }
@@ -945,6 +953,9 @@ async function decodeSegment(bytes, ext, token, readMeta, maybeStart, expectPcmF
 // fall back to whole-file decode (which is also seekable).
 
 const MP4_EMPTY = new Uint8Array(0);
+// AAC sampling-frequency table indexed by the ASC `srIdx` (ISO/IEC 14496-3).
+const AAC_SR = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+const AAC_FRAME_SAMPLES = 1024; // LC-AAC frame length (the only profile we re-frame)
 const be32 = (b, o) => b[o] * 0x1000000 + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
 const be64 = (b, o) => be32(b, o) * 0x100000000 + be32(b, o + 4); // < 2^53 for our files
 const box4 = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
@@ -993,14 +1004,22 @@ function mp4ParseEsds(b, start, end) {
   if (b[o++] !== 0x04) return null; vlen();      // DecoderConfigDescriptor
   if (b[o++] !== 0x40) return null;              // objectTypeIndication: AAC
   o += 1 + 3 + 4 + 4;                            // streamType + bufSize + max/avg bitrate
-  if (b[o++] !== 0x05) return null; vlen();       // DecoderSpecificInfo → ASC
+  if (b[o++] !== 0x05) return null;               // DecoderSpecificInfo → ASC
+  const ascLen = vlen();
   const a0 = b[o], a1 = b[o + 1];
   const objType = (a0 >> 3) & 0x1f;
   const srIdx = ((a0 & 0x07) << 1) | (a1 >> 7);
   const chan = (a1 >> 3) & 0x0f;
-  if (objType < 1 || objType > 4) return null;    // HE-AAC/other → whole-file
+  if (objType < 1 || objType > 4) return null;    // explicit HE-AAC/PS/other → whole-file
   if (srIdx > 12) return null;                    // explicit/reserved rate
   if (chan < 1 || chan > 7) return null;          // 0 = program config element
+  // A plain AAC-LC (Main/SSR/LTP) stereo/mono ASC is exactly 2 bytes. Anything
+  // longer carries an extension — most importantly *backward-compatible* SBR
+  // (HE-AAC: objType stays 2 but a trailing 0x2B7 sync doubles the output rate,
+  // so each frame decodes to 2048 samples, not 1024). The progressive ADTS path
+  // assumes 1024/frame and would drop ~half of every segment (stutter). Route
+  // these to the seekable whole-file decoder, which handles SBR correctly.
+  if (ascLen > 2) return null;
   return { profile: objType - 1, srIdx, chan };
 }
 
@@ -1204,6 +1223,7 @@ async function playMp4(reader, head, done, url, i, token, autoplay) {
   live = false; playing = true; userPaused = false;
   Module._rb_dsp_flush(dsp); curInRate = 0;
   curMeta = { codec: 'aac', duration_ms: demux.durationMs || 0, ...demux.tags };
+  streamSeek = mkStreamSeek(url, demux);
   postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
   emitStatus();
   void prefetchNext();
@@ -1242,19 +1262,23 @@ function demuxMp4Buffer(buf) {
   let total = 0; for (const p of parts) total += p.length;
   const adts = new Uint8Array(total); let off = 0;
   for (const p of parts) { adts.set(p, off); off += p.length; }
-  return { mode: 'aac', adts, durationMs: demux.durationMs, tags: demux.tags };
+  // cfg/samples let a later seek Range-refetch the source by byte offset.
+  return { mode: 'aac', adts, durationMs: demux.durationMs, tags: demux.tags,
+           cfg: demux.cfg, samples: demux.samples };
 }
 
 /** Stream an in-memory ADTS buffer through the progressive path — a gapless
- *  transition into a pre-demuxed faststart-AAC prefetch. */
-async function playAdtsBuffer(adts, url, i, token, durationMs, tags) {
+ *  transition into a pre-demuxed faststart-AAC prefetch. `pf` carries the
+ *  demux cfg/samples so the track stays seekable (via a source Range-refetch). */
+async function playAdtsBuffer(pf, url, i, token) {
   live = false; playing = true; userPaused = false;
   Module._rb_dsp_flush(dsp); curInRate = 0;
-  curMeta = { codec: 'aac', duration_ms: durationMs || 0, ...(tags || {}) };
+  curMeta = { codec: 'aac', duration_ms: pf.durationMs || 0, ...(pf.tags || {}) };
+  streamSeek = pf.samples ? mkStreamSeek(url, pf) : null;
   postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
   emitStatus();
   void prefetchNext();
-  return runSegmentLoop(memoryReader(adts), MP4_EMPTY, false, 'aac', token, url, i, null);
+  return runSegmentLoop(memoryReader(pf.adts), MP4_EMPTY, false, 'aac', token, url, i, null);
 }
 
 function skipAfterError(i) {
@@ -1299,6 +1323,7 @@ function stop() {
   playing = false; userPaused = false; live = false; streaming = false;
   cancelPrefetch();
   freeRaw();
+  streamSeek = null;
   xfade = null;
   dropHold();
   flushWorklet();
@@ -1318,14 +1343,88 @@ function skip(dir) {
   startTrack(next, 0, true);
 }
 function seek(ms) {
-  if (live || !rawPtr) return; // live isn't seekable
-  seekBaseMs = ms;
+  if (live) return; // live isn't seekable
+  ms = Math.max(0, ms | 0);
+  if (rawPtr) {
+    // Whole-file decoded track: reposition the cursor inside the PCM buffer.
+    seekBaseMs = ms;
+    xfade = null;
+    dropHold();
+    flushWorklet();
+    Module._rb_dsp_flush(dsp);
+    curInRate = 0;
+    finitePos = Math.min(rawLen, Math.floor(ms * rawRate / 1000) * 2);
+    return;
+  }
+  if (streamSeek) { void seekStream(ms); return; } // progressive M4A: Range-refetch
+  // else: not seekable (progressive MP3/AAC with no sample table)
+}
+
+/** Seed a fresh Mp4AacDemux positioned at sample `si` (whose bytes begin at
+ *  absolute file offset `filePos`), so runSegmentLoop re-frames forward from
+ *  there — the mechanism behind a progressive-stream seek. */
+function seekedMp4Demux(ctx, si, filePos) {
+  const d = new Mp4AacDemux(false);
+  d.mode = 'aac';
+  d.cfg = ctx.cfg;
+  d.samples = ctx.samples;
+  d.si = si;
+  d.filePos = filePos;
+  d.durationMs = ctx.durationMs;
+  d.tags = ctx.tags;
+  return d;
+}
+
+/** Build the seek context captured while a re-framed M4A/AAC stream plays. */
+function mkStreamSeek(url, demux) {
+  return {
+    url,
+    cfg: demux.cfg,
+    samples: demux.samples,
+    codecRate: AAC_SR[demux.cfg.srIdx] || 44100,
+    durationMs: demux.durationMs || 0,
+    tags: demux.tags || {},
+  };
+}
+
+/** Seek within a progressive (ADTS-reframed) M4A/AAC stream: map the target
+ *  time to a sample → byte offset via the container's sample table, then
+ *  Range-refetch the source from there and resume re-framing. */
+async function seekStream(ms) {
+  const ctx = streamSeek;
+  const n = ctx.samples.length;
+  const dur = ctx.durationMs || Math.round(n * AAC_FRAME_SAMPLES * 1000 / ctx.codecRate);
+  const target = Math.min(ms, dur);
+  let si = Math.floor(target / 1000 * ctx.codecRate / AAC_FRAME_SAMPLES);
+  si = Math.max(0, Math.min(si, n - 1));
+  const byteOff = ctx.samples[si].off;
+
+  const token = ++loadToken; // abort the running segment loop
+  seekBaseMs = Math.round(si * AAC_FRAME_SAMPLES * 1000 / ctx.codecRate); // frame-aligned
   xfade = null;
   dropHold();
   flushWorklet();
+  setWorkletPaused(true);
   Module._rb_dsp_flush(dsp);
   curInRate = 0;
-  finitePos = Math.min(rawLen, Math.floor(ms * rawRate / 1000) * 2);
+
+  let resp;
+  try {
+    resp = await fetch(ctx.url, { headers: { Range: `bytes=${byteOff}-` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  } catch (err) {
+    postMessage({ type: 'error', message: `seek failed: ${ctx.url} (${err})`, index });
+    return;
+  }
+  if (token !== loadToken) { resp.body?.cancel().catch(() => {}); return; }
+
+  // A 206 body starts at byteOff; a 200 (server ignored Range) starts at 0 —
+  // seed filePos accordingly and let the demux skip forward to the sample.
+  const filePos = resp.status === 206 ? byteOff : 0;
+  const demux = seekedMp4Demux(ctx, si, filePos);
+  playing = true; userPaused = false;
+  emitStatus();
+  return runSegmentLoop(resp.body.getReader(), MP4_EMPTY, false, 'aac', token, ctx.url, index, demux);
 }
 
 function setQueue(urls, autoplay) {
@@ -1435,8 +1534,13 @@ function applyDsp(name, args) {
 
 // ── ICY metadata ────────────────────────────────────────────────────────────
 function updateLiveMeta(fields) {
-  curMeta = { ...(curMeta || {}), ...fields, duration_ms: 0 };
-  postMessage({ type: 'track', index, url: queue[index], live: true, metadata: curMeta });
+  // Merge new fields but KEEP any duration already known for the track. A
+  // re-framed M4A/AAC stream carries a real duration parsed from its moov
+  // (playMp4 sets curMeta.duration_ms); only genuine live/ICY streams have
+  // none. Report the real `live` flag, not a hard-coded one — the finite
+  // streaming path is not live.
+  curMeta = { duration_ms: 0, ...(curMeta || {}), ...fields };
+  postMessage({ type: 'track', index, url: queue[index], live, metadata: curMeta });
 }
 function onIcyTitle(title) {
   const t = (title || '').trim();
