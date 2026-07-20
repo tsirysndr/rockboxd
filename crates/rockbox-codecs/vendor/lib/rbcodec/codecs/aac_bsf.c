@@ -35,6 +35,14 @@ CODEC_HEADER
 
 static void update_playing_time(void)
 {
+    /* Deriving elapsed time from the byte offset needs a known bitrate. When
+     * this codec is fed a container-less ADTS stream (e.g. an M4A re-framed to
+     * ADTS on the fly, or raw AAC radio), the metadata carries no bitrate, so
+     * id3->bitrate is 0 — dividing by it would trap (integer divide-by-zero).
+     * In that case leave the elapsed indicator untouched; the host tracks
+     * position from the decoded PCM instead. */
+    if (ci->id3->bitrate <= 0)
+        return;
     ci->set_elapsed((unsigned long)((ci->id3->offset - ci->id3->first_frame_offset) * 8LL / ci->id3->bitrate));
 }
 
