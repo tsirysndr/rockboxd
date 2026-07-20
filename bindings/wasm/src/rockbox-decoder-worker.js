@@ -487,10 +487,13 @@ async function startTrack(i, seekMs, autoplay, xfadeTail = null) {
   // Gapless fast-path: if we prefetched this track's bytes during the previous
   // one, decode straight from memory — no network round-trip, no re-drain.
   if (prefetch && prefetch.url === url) {
-    const bytes = prefetch.bytes;
+    const pf = prefetch;
     prefetch = null;
-    const ext = sniffExt(bytes.subarray(0, 16)) || formatExt(null, url);
-    return playDecodedBytes(bytes, ext, url, i, token, seekMs, autoplay);
+    // Faststart AAC was pre-demuxed to ADTS during the previous track — stream
+    // it progressively (bounded memory). Everything else decodes whole-file.
+    if (pf.adts) return playAdtsBuffer(pf.adts, url, i, token, pf.durationMs, pf.tags);
+    const ext = sniffExt(pf.bytes.subarray(0, 16)) || formatExt(null, url);
+    return playDecodedBytes(pf.bytes, ext, url, i, token, seekMs, autoplay);
   }
   prefetch = null; // any earlier prefetch predicted a different next track
 
@@ -548,6 +551,14 @@ async function playFinite(resp, url, i, token, seekMs, autoplay) {
     // a whole-file next track (FLAC/…) decodes from memory with no gap.
     void prefetchNext();
     return runSegmentLoop(reader, head, done, ext, token, url, i, null);
+  }
+
+  // M4A/MP4 (AAC): stream progressively by re-framing container samples as
+  // ADTS — but only on a fresh play (seekMs 0); a seek needs the whole-file
+  // path below, which is seekable. Non-faststart / ALAC / HE-AAC files fall
+  // back to whole-file from inside playMp4.
+  if ((ext === 'm4a' || ext === 'mp4' || ext === 'm4b') && !seekMs) {
+    return playMp4(reader, head, done, url, i, token, autoplay);
   }
 
   // Buffer the rest, then whole-file decode (seekable).
@@ -644,7 +655,18 @@ async function prefetchNext() {
     if (ext === 'mp3' || ext === 'aac') return; // handled by the progressive path
     // Keep it only if it's still the predicted next track (the queue/index may
     // have moved while it downloaded).
-    if (queue[nextAfterEnd()] === url) prefetch = { url, bytes: buf };
+    if (queue[nextAfterEnd()] !== url) return;
+    if (ext === 'm4a' || ext === 'mp4' || ext === 'm4b') {
+      // Pre-demux faststart AAC to ADTS now so the transition streams straight
+      // from memory (bounded), same as a fresh progressive play. ALAC /
+      // HE-AAC / moov-last fall back to a whole-file byte cache.
+      const d = demuxMp4Buffer(buf);
+      prefetch = d.mode === 'aac'
+        ? { url, adts: d.adts, durationMs: d.durationMs, tags: d.tags }
+        : { url, bytes: buf };
+      return;
+    }
+    prefetch = { url, bytes: buf };
   } catch (_) {
     // aborted or network error — the normal fetch at advance time will handle it
   } finally {
@@ -909,6 +931,330 @@ async function decodeSegment(bytes, ext, token, readMeta, maybeStart, expectPcmF
   await streamRaw(pcmPtr, len, rate, () => pos, (v) => (pos = v), token, maybeStart);
   Module._rb_buffer_free(pcmPtr, len);
   return true;
+}
+
+// ── MP4 / M4A progressive demux ───────────────────────────────────────────
+// M4A is a container: the codec config (`esds`) and the sample-offset table
+// (`stsz`/`stsc`/`stco`) live in `moov`, the audio in `mdat`. A mid-file byte
+// range is undecodable on its own, so the whole-file path downloads all of it
+// before the first sample plays. Instead — for *faststart* files (moov before
+// mdat) carrying plain AAC — we parse `moov`, then re-frame each `mdat` sample
+// as a self-contained ADTS packet and push it through the same progressive
+// path MP3/ADTS-AAC use (rb_decode_packet). Playback starts within ~a second
+// and memory stays bounded. Non-faststart (moov last), ALAC, or HE-AAC files
+// fall back to whole-file decode (which is also seekable).
+
+const MP4_EMPTY = new Uint8Array(0);
+const be32 = (b, o) => b[o] * 0x1000000 + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
+const be64 = (b, o) => be32(b, o) * 0x100000000 + be32(b, o + 4); // < 2^53 for our files
+const box4 = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+
+/** Iterate boxes in b[start,end) → [{type, start, dataStart, dataEnd}]. */
+function mp4Boxes(b, start, end) {
+  const out = [];
+  let o = start;
+  while (o + 8 <= end) {
+    let size = be32(b, o); const type = box4(b, o + 4); let hdr = 8;
+    if (size === 1) { if (o + 16 > end) break; size = be64(b, o + 8); hdr = 16; }
+    else if (size === 0) size = end - o;
+    if (size < hdr || o + size > end) break;
+    out.push({ type, start: o, dataStart: o + hdr, dataEnd: o + size });
+    o += size;
+  }
+  return out;
+}
+const mp4Child = (b, box, type, base) =>
+  mp4Boxes(b, base != null ? base : box.dataStart, box.dataEnd).find((x) => x.type === type);
+
+/** 7-byte ADTS header (no CRC) wrapping an AAC frame of `frameLen` bytes. */
+function mp4AdtsHeader(cfg, frameLen) {
+  const len = frameLen + 7;
+  return Uint8Array.of(
+    0xff,
+    0xf1, // MPEG-4, layer 0, protection absent
+    (cfg.profile << 6) | (cfg.srIdx << 2) | (cfg.chan >> 2),
+    ((cfg.chan & 3) << 6) | (len >> 11),
+    (len >> 3) & 0xff,
+    ((len & 7) << 5) | 0x1f,
+    0xfc,
+  );
+}
+
+/** esds AudioSpecificConfig → {profile, srIdx, chan} for ADTS, or null unless
+ *  it's plain AAC (Main/LC/SSR/LTP) with a table sample rate and defined channels. */
+function mp4ParseEsds(b, start, end) {
+  let o = start + 4; // version + flags
+  const vlen = () => { let l = 0, c; do { c = b[o++]; l = (l << 7) | (c & 0x7f); } while ((c & 0x80) && o < end); return l; };
+  if (b[o++] !== 0x03) return null; vlen();     // ES_Descriptor
+  o += 2; const flags = b[o++];                 // ES_ID + flags
+  if (flags & 0x80) o += 2;
+  if (flags & 0x40) o += 1 + b[o];
+  if (flags & 0x20) o += 2;
+  if (b[o++] !== 0x04) return null; vlen();      // DecoderConfigDescriptor
+  if (b[o++] !== 0x40) return null;              // objectTypeIndication: AAC
+  o += 1 + 3 + 4 + 4;                            // streamType + bufSize + max/avg bitrate
+  if (b[o++] !== 0x05) return null; vlen();       // DecoderSpecificInfo → ASC
+  const a0 = b[o], a1 = b[o + 1];
+  const objType = (a0 >> 3) & 0x1f;
+  const srIdx = ((a0 & 0x07) << 1) | (a1 >> 7);
+  const chan = (a1 >> 3) & 0x0f;
+  if (objType < 1 || objType > 4) return null;    // HE-AAC/other → whole-file
+  if (srIdx > 12) return null;                    // explicit/reserved rate
+  if (chan < 1 || chan > 7) return null;          // 0 = program config element
+  return { profile: objType - 1, srIdx, chan };
+}
+
+/** Flat [{off, size}] sample list from stsz/stsc/stco(co64). */
+function mp4BuildSamples(b, stbl) {
+  const stsz = mp4Child(b, stbl, 'stsz');
+  const stsc = mp4Child(b, stbl, 'stsc');
+  const stco = mp4Child(b, stbl, 'stco') || mp4Child(b, stbl, 'co64');
+  if (!stsz || !stsc || !stco) return null;
+  let o = stsz.dataStart + 4;
+  const uni = be32(b, o); o += 4;
+  const count = be32(b, o); o += 4;
+  const sizes = new Array(count);
+  if (uni) sizes.fill(uni); else for (let k = 0; k < count; k++) { sizes[k] = be32(b, o); o += 4; }
+  const c64 = stco.type === 'co64';
+  let c = stco.dataStart + 4; const nchunks = be32(b, c); c += 4;
+  const choff = new Array(nchunks);
+  for (let k = 0; k < nchunks; k++) { choff[k] = c64 ? be64(b, c) : be32(b, c); c += c64 ? 8 : 4; }
+  let s = stsc.dataStart + 4; const nrun = be32(b, s); s += 4;
+  const runs = [];
+  for (let k = 0; k < nrun; k++) { runs.push({ first: be32(b, s), spc: be32(b, s + 4) }); s += 12; }
+  const samples = [];
+  let si = 0;
+  for (let ci = 0; ci < nchunks && si < count; ci++) {
+    let spc = runs.length ? runs[0].spc : 0;
+    for (const r of runs) { if (r.first <= ci + 1) spc = r.spc; else break; }
+    let off = choff[ci];
+    for (let k = 0; k < spc && si < count; k++) { samples.push({ off, size: sizes[si] }); off += sizes[si]; si++; }
+  }
+  return samples.length ? samples : null;
+}
+
+/** mdhd → duration in ms (0 if absent). */
+function mp4DurationMs(b, mdia) {
+  const mdhd = mp4Child(b, mdia, 'mdhd'); if (!mdhd) return 0;
+  const v = b[mdhd.dataStart]; let o = mdhd.dataStart + 4;
+  let ts, du;
+  if (v === 1) { o += 16; ts = be32(b, o); du = be64(b, o + 4); }
+  else { o += 8; ts = be32(b, o); du = be32(b, o + 4); }
+  return ts ? Math.round(du / ts * 1000) : 0;
+}
+
+/** Best-effort udta>meta>ilst tags → {title, artist, album}. */
+function mp4Tags(b, moov) {
+  const udta = mp4Child(b, moov, 'udta'); if (!udta) return {};
+  const meta = mp4Child(b, udta, 'meta'); if (!meta) return {};
+  // ISO `meta` is a FullBox (children at +4); QuickTime's isn't. Detect by peek.
+  let base = meta.dataStart + 4;
+  if (!mp4Boxes(b, base, meta.dataEnd).some((x) => x.type === 'ilst' || x.type === 'hdlr')) base = meta.dataStart;
+  const ilst = mp4Child(b, meta, 'ilst', base); if (!ilst) return {};
+  const KEYS = { '\xa9nam': 'title', '\xa9ART': 'artist', '\xa9alb': 'album' };
+  const tags = {};
+  for (const it of mp4Boxes(b, ilst.dataStart, ilst.dataEnd)) {
+    const key = KEYS[it.type]; if (!key) continue;
+    const data = mp4Child(b, it, 'data'); if (!data || data.dataEnd <= data.dataStart + 8) continue;
+    let s = ''; for (let o = data.dataStart + 8; o < data.dataEnd; o++) s += String.fromCharCode(b[o]);
+    try { tags[key] = decodeURIComponent(escape(s)); } catch (_) { tags[key] = s; }
+  }
+  return tags;
+}
+
+/**
+ * Incremental MP4→ADTS demuxer used as the `demux` for runSegmentLoop.
+ * `push(chunk)` returns ADTS-wrapped AAC bytes as samples become available.
+ * `mode` resolves during the probe phase: 'aac' (faststart AAC → stream) or
+ * 'fallback' (moov-last / ALAC / HE-AAC → caller whole-file decodes).
+ */
+class Mp4AacDemux {
+  constructor(keepRaw = true) {
+    this.mode = 'probe';           // 'probe' | 'aac' | 'fallback'
+    this.buf = MP4_EMPTY;          // unconsumed bytes
+    this.filePos = 0;              // absolute file offset of buf[0]
+    this.skip = 0;                 // bytes still to discard (box skip / mdat gap)
+    this.keepRaw = keepRaw;        // accumulate raw bytes for a whole-file fallback
+    this.raw = MP4_EMPTY;          // all bytes seen (for fallback); freed once streaming
+    this.cfg = null;               // {profile, srIdx, chan}
+    this.samples = null; this.si = 0;
+    this.durationMs = 0; this.tags = {};
+  }
+
+  push(chunk) {
+    if (chunk && chunk.length) {
+      this.buf = concatBytes(this.buf, chunk);
+      if (this.keepRaw && this.mode !== 'aac') this.raw = concatBytes(this.raw, chunk);
+    }
+    const out = [];
+    this._pump(out);
+    if (out.length === 0) return MP4_EMPTY;
+    let total = 0; for (const p of out) total += p.length;
+    const r = new Uint8Array(total); let o = 0;
+    for (const p of out) { r.set(p, o); o += p.length; }
+    return r;
+  }
+
+  _pump(out) {
+    for (;;) {
+      if (this.skip > 0) {
+        const n = Math.min(this.skip, this.buf.length);
+        this.buf = this.buf.subarray(n); this.filePos += n; this.skip -= n;
+        if (this.skip > 0) return; // need more bytes to finish skipping
+      }
+      if (this.mode === 'fallback') return;
+      if (this.mode === 'aac') { this._streamSamples(out); return; }
+      // probe: walk top-level boxes until moov (→ stream) or mdat (→ fallback).
+      const b = this.buf;
+      if (b.length < 8) return;
+      let size = be32(b, 0); const type = box4(b, 4);
+      if (size === 1) { if (b.length < 16) return; size = be64(b, 8); }
+      else if (size === 0) size = Infinity;
+      if (type === 'moov') {
+        if (size === Infinity) { this.mode = 'fallback'; return; }
+        if (b.length < size) return;                 // wait for the whole moov
+        if (!this._parseMoov(b.subarray(0, size))) { this.mode = 'fallback'; return; }
+        this.filePos += size; this.buf = this.buf.subarray(size);
+        this.mode = 'aac'; this.raw = MP4_EMPTY;      // progressive from here — free raw
+        continue;                                     // stream any already-buffered mdat
+      }
+      if (type === 'mdat' || size === Infinity) { this.mode = 'fallback'; return; }
+      this.skip = size;                               // ftyp/free/etc. — skip whole box
+    }
+  }
+
+  _parseMoov(box) {
+    const moov = mp4Boxes(box, 0, box.length).find((x) => x.type === 'moov');
+    if (!moov) return false;
+    for (const trak of mp4Boxes(box, moov.dataStart, moov.dataEnd).filter((x) => x.type === 'trak')) {
+      const mdia = mp4Child(box, trak, 'mdia'); if (!mdia) continue;
+      const hdlr = mp4Child(box, mdia, 'hdlr');
+      if (hdlr && box4(box, hdlr.dataStart + 8) !== 'soun') continue; // skip non-audio tracks
+      const minf = mp4Child(box, mdia, 'minf'); if (!minf) continue;
+      const stbl = mp4Child(box, minf, 'stbl'); if (!stbl) continue;
+      const stsd = mp4Child(box, stbl, 'stsd'); if (!stsd) continue;
+      const mp4a = mp4Boxes(box, stsd.dataStart + 8, stsd.dataEnd).find((x) => x.type === 'mp4a');
+      if (!mp4a) return false;                        // ALAC/etc. → whole-file
+      const esds = mp4Boxes(box, mp4a.dataStart + 28, mp4a.dataEnd).find((x) => x.type === 'esds');
+      if (!esds) return false;
+      const cfg = mp4ParseEsds(box, esds.dataStart, esds.dataEnd);
+      if (!cfg) return false;
+      const samples = mp4BuildSamples(box, stbl);
+      if (!samples) return false;
+      this.cfg = cfg; this.samples = samples;
+      this.durationMs = mp4DurationMs(box, mdia);
+      this.tags = mp4Tags(box, moov);
+      return true;
+    }
+    return false;
+  }
+
+  _streamSamples(out) {
+    const s = this.samples;
+    while (this.si < s.length) {
+      const smp = s[this.si];
+      const start = smp.off - this.filePos;
+      if (start < 0) { this.si++; continue; }         // already passed (out-of-order guard)
+      if (start + smp.size > this.buf.length) break;  // sample not fully buffered yet
+      out.push(mp4AdtsHeader(this.cfg, smp.size));
+      out.push(this.buf.subarray(start, start + smp.size).slice());
+      this.si++;
+    }
+    // Drop consumed bytes (and any inter-sample gap) up to the next sample.
+    const nextOff = this.si < s.length ? s[this.si].off : this.filePos + this.buf.length;
+    const drop = nextOff - this.filePos;
+    if (drop > 0) {
+      const d = Math.min(drop, this.buf.length);
+      this.buf = this.buf.subarray(d); this.filePos += d;
+      if (drop > d) this.skip = drop - d;             // gap extends beyond what's buffered
+    }
+  }
+}
+
+/**
+ * Play an M4A/MP4. Probe the container head: faststart AAC streams
+ * progressively (re-framed to ADTS through runSegmentLoop); anything else
+ * (moov-last, ALAC, HE-AAC) drains fully and whole-file decodes.
+ */
+async function playMp4(reader, head, done, url, i, token, autoplay) {
+  const demux = new Mp4AacDemux();
+  let adts = demux.push(head);
+  while (demux.mode === 'probe' && !done) {
+    let r;
+    try { r = await reader.read(); }
+    catch (err) {
+      postMessage({ type: 'error', message: `fetch failed: ${url} (${err})`, index: i });
+      if (token === loadToken) skipAfterError(i);
+      return;
+    }
+    if (token !== loadToken) { reader.cancel().catch(() => {}); return; }
+    if (r.value && r.value.length) adts = concatBytes(adts, demux.push(r.value));
+    done = r.done;
+  }
+  if (token !== loadToken) { reader.cancel().catch(() => {}); return; }
+
+  if (demux.mode !== 'aac') {
+    // Non-faststart / ALAC / HE-AAC — buffer the rest, whole-file decode (seekable).
+    const bytes = await drainToBytes(reader, demux.raw, done, token);
+    if (!bytes || token !== loadToken) return;
+    return playDecodedBytes(bytes, 'm4a', url, i, token, 0, autoplay);
+  }
+
+  // Faststart AAC — stream the container as an ADTS packet flow.
+  live = false; playing = true; userPaused = false;
+  Module._rb_dsp_flush(dsp); curInRate = 0;
+  curMeta = { codec: 'aac', duration_ms: demux.durationMs || 0, ...demux.tags };
+  postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
+  emitStatus();
+  void prefetchNext();
+  return runSegmentLoop(reader, adts, done, 'aac', token, url, i, demux);
+}
+
+/** A ReadableStream-reader-shaped adapter over an in-memory buffer so the
+ *  progressive segment loop can consume prefetched bytes exactly like a
+ *  network body. Chunked to keep `pending` (and its re-slicing) bounded. */
+function memoryReader(bytes, chunk = 65536) {
+  let o = 0;
+  return {
+    read: async () => {
+      if (o >= bytes.length) return { value: undefined, done: true };
+      const end = Math.min(o + chunk, bytes.length);
+      const v = bytes.subarray(o, end);
+      o = end;
+      return { value: v, done: false };
+    },
+    cancel: async () => {},
+  };
+}
+
+/** Convert a fully-downloaded M4A/MP4 to an ADTS stream, feeding the demux in
+ *  chunks to bound peak memory. Returns {mode:'aac', adts, durationMs, tags}
+ *  for faststart AAC, or {mode:'fallback'} for ALAC / HE-AAC / moov-last. */
+function demuxMp4Buffer(buf) {
+  const demux = new Mp4AacDemux(false);
+  const parts = [];
+  for (let o = 0; o < buf.length; o += 65536) {
+    const a = demux.push(buf.subarray(o, Math.min(o + 65536, buf.length)));
+    if (a.length) parts.push(a);
+    if (demux.mode === 'fallback') break;
+  }
+  if (demux.mode !== 'aac') return { mode: demux.mode };
+  let total = 0; for (const p of parts) total += p.length;
+  const adts = new Uint8Array(total); let off = 0;
+  for (const p of parts) { adts.set(p, off); off += p.length; }
+  return { mode: 'aac', adts, durationMs: demux.durationMs, tags: demux.tags };
+}
+
+/** Stream an in-memory ADTS buffer through the progressive path — a gapless
+ *  transition into a pre-demuxed faststart-AAC prefetch. */
+async function playAdtsBuffer(adts, url, i, token, durationMs, tags) {
+  live = false; playing = true; userPaused = false;
+  Module._rb_dsp_flush(dsp); curInRate = 0;
+  curMeta = { codec: 'aac', duration_ms: durationMs || 0, ...(tags || {}) };
+  postMessage({ type: 'track', index: i, url, live: false, metadata: curMeta });
+  emitStatus();
+  void prefetchNext();
+  return runSegmentLoop(memoryReader(adts), MP4_EMPTY, false, 'aac', token, url, i, null);
 }
 
 function skipAfterError(i) {
