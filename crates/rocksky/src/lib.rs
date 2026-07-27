@@ -175,8 +175,22 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
         };
 
         let msg: Value = serde_json::from_str(&msg)?;
-        if let Some(id) = msg["deviceId"].as_str() {
-            *device_id.lock().await = id.to_string();
+        // Our device id comes ONLY from the registration reply, which the server
+        // marks with `status: "registered"`. Do NOT read `deviceId` from any
+        // message: the server also broadcasts `device_registered` events carrying
+        // ANOTHER device's id whenever a new device (e.g. the web/mobile
+        // miniplayer) joins. Capturing that would clobber our own id, so our
+        // now-playing pushes would be tagged with the other device's id and every
+        // miniplayer would mislabel the source.
+        if msg["status"].as_str() == Some("registered") {
+            if let Some(id) = msg["deviceId"].as_str() {
+                *device_id.lock().await = id.to_string();
+            }
+        }
+
+        // Ignore `device_registered` announcements about other devices.
+        if msg["type"].as_str() == Some("device_registered") {
+            continue;
         }
 
         if let Some("command") = msg["type"].as_str() {
