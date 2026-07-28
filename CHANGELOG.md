@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.07.28]
+
+### Added
+- `wasm`: lightweight single-threaded **browser core** — the WASM target now compiles only the extracted `rockbox-codecs` (decode), `rockbox-dsp` (EQ/DSP), and `rockbox-metadata` (tags) crates through the `rockbox-ffi` flat C ABI, shipped as the **`rockbox-wasm`** npm package (`bindings/wasm/`); there is no firmware, no servers, and no pthreads — decoding is fully synchronous so the page needs no COOP/COEP or `SharedArrayBuffer` — and it ships with a React example featuring a live queue UI, insertion modes, `.m3u8` playlists, Tabler icons, and jotai-persisted settings
+- `wasm`: **live / infinite radio** streaming with frame-aligned segment decode and an MP3-reservoir primer for gapless segments, plus **ICY metadata** parsing; **gapless prefetch** of the next whole-file track (re-prefetched on queue insert), **progressive M4A/AAC** playback via ADTS re-framing, a JS-side Rockbox `pcmbuf` **crossfade** port with a settings panel, and the full **DSP surface** (parametric EQ + crossfeed / PBE) exposed to JS
+- `playback`: **queue `remove(index)` and `clear_queue`** APIs, surfaced through the FFI and every binding
+- `rocksky`: the daemon's remote-control WebSocket client now advertises a configurable **device name** from `settings.toml` (`device_name`, falling back to `player_name`, then `"Rockbox"`) so the Rocksky miniplayers label this player with a user-chosen name; presence announcements (`device_registered` / `device_unregistered` / `primary_changed`) about other devices are ignored
+- `bindings`: prebuilt **Android native libraries** are now built and bundled for the Kotlin binding in CI, and the codec `Decoder` API + HTTP(S) stream playback are documented across every binding README (Python, TypeScript, Swift, Go, Kotlin, Gleam, Elixir, Clojure, Ruby, Erlang)
+
+### Fixed
+- `rocksky`: **resume restored playback** when the audio engine is stopped on the first play from a miniplayer — a fresh daemon start leaves the engine STOPPED (not paused), so a plain `resume()` was a no-op; the client now queries engine status and calls `PlaylistService.resume_track()` (restore the playlist from the control file + seek to the saved position) when stopped, mirroring the GPUI play/pause handler
+- `rocksky`: don't clobber this device's own id from `device_registered` broadcasts about *other* devices — capturing another device's id would tag our now-playing pushes with the wrong id and make every miniplayer mislabel the source
+- `rockbox-codecs`: route raw ADTS / HE-AAC `"aac"` streams (e.g. `audio/aacp` radio) to `aac_bsf` instead of the MP4-container aac codec, and guard an `aac_bsf` divide-by-zero on container-less ADTS
+- `rockbox-playback`: send a `User-Agent` header on HTTP streams
+- `wasm`: a run of playback-stability fixes — audio no longer dies at ~1 s (frames were counted after the buffer transfer detached them), pause/stop lag (control messages were posted to the wrong port), a boot deadlock that disabled the Play button forever, and worker-main-thread blocking that crashed live streams
+
 ## [2026.07.12]
 
 ### Added
