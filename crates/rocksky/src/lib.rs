@@ -34,6 +34,39 @@ const AUDIO_EXTENSIONS: [&str; 18] = [
 
 // const ROCKSKY_WS: &str = "ws://localhost:8000/ws";
 
+/// Minimal view over `~/.config/rockbox.org/settings.toml` — only the fields we
+/// need for the remote-control device label. Unknown keys are ignored by serde,
+/// so the full settings file deserializes cleanly into this subset.
+#[derive(serde::Deserialize, Default)]
+struct RockskyDeviceSettings {
+    device_name: Option<String>,
+    player_name: Option<String>,
+}
+
+/// The display name this device advertises to the Rocksky miniplayers on
+/// `register`. Read from settings.toml (`device_name`, falling back to the
+/// existing `player_name`), defaulting to "Rockbox".
+fn rocksky_device_name() -> String {
+    let fallback = || "Rockbox".to_string();
+    let Some(home) = dirs::home_dir() else {
+        return fallback();
+    };
+    let path = home
+        .join(".config")
+        .join("rockbox.org")
+        .join("settings.toml");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return fallback();
+    };
+    let settings: RockskyDeviceSettings = toml::from_str(&content).unwrap_or_default();
+    settings
+        .device_name
+        .or(settings.player_name)
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(fallback)
+}
+
 pub mod api {
     #[path = ""]
     pub mod rockbox {
@@ -87,11 +120,14 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
     let (mut write, mut read) = ws_stream.split();
     let device_id = Arc::new(Mutex::new(String::new()));
 
+    let device_name = rocksky_device_name();
+    tracing::info!("Registering as device \"{}\"", device_name);
+
     write
         .send(
             json!({
                 "type": "register",
-                "clientName": "Rockbox",
+                "clientName": device_name,
                 "token": token
             })
             .to_string()
@@ -188,9 +224,16 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
             }
         }
 
-        // Ignore `device_registered` announcements about other devices.
-        if msg["type"].as_str() == Some("device_registered") {
-            continue;
+        // Ignore presence / primary-selection announcements about other
+        // devices — they carry ANOTHER device's id and are informational for
+        // the miniplayers, not actionable for a headless player. (A lone
+        // player is auto-adopted as primary server-side, so we never need to
+        // react to `primary_changed`.)
+        match msg["type"].as_str() {
+            Some("device_registered") | Some("device_unregistered") | Some("primary_changed") => {
+                continue
+            }
+            _ => {}
         }
 
         if let Some("command") = msg["type"].as_str() {
@@ -223,6 +266,7 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
                             }))
                             .await?;
                     }
+
                     _ => {
                         tracing::debug!("Unknown command: {}", cmd);
                     }

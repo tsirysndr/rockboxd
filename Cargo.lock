@@ -10046,6 +10046,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.26.2",
+ "toml 0.8.19",
  "tonic",
  "tonic-build",
  "tonic-reflection",

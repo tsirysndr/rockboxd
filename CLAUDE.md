@@ -152,6 +152,11 @@ Settings file: `~/.config/rockbox.org/settings.toml`
 ```toml
 music_dir = "/path/to/Music"
 
+# Name this device advertises to the Rocksky remote-control miniplayers on the
+# realtime WebSocket (crates/rocksky). Falls back to `player_name`, then
+# "Rockbox".
+device_name = "Living Room"
+
 # Audio output — pick one:
 audio_output = "builtin"      # SDL audio (default)
 
