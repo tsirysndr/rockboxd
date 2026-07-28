@@ -1,11 +1,14 @@
 use anyhow::anyhow;
 use anyhow::Error;
 use api::rockbox::v1alpha1::playback_service_client::PlaybackServiceClient;
+use api::rockbox::v1alpha1::playlist_service_client::PlaylistServiceClient;
 use api::rockbox::v1alpha1::NextRequest;
 use api::rockbox::v1alpha1::PauseRequest;
 use api::rockbox::v1alpha1::PlayRequest;
 use api::rockbox::v1alpha1::PreviousRequest;
 use api::rockbox::v1alpha1::ResumeRequest;
+use api::rockbox::v1alpha1::ResumeTrackRequest;
+use api::rockbox::v1alpha1::StatusRequest;
 use api::rockbox::v1alpha1::StreamCurrentTrackRequest;
 use api::rockbox::v1alpha1::StreamStatusRequest;
 use futures_util::SinkExt;
@@ -201,6 +204,12 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
     }
     let mut client = client.unwrap();
 
+    // Separate client for the playlist service — used to resume from saved state
+    // after a daemon (re)start (see the "play" command handler below).
+    let mut playlist_client = PlaylistServiceClient::connect(url.clone())
+        .await
+        .map_err(|e| anyhow!("Failed to connect to Rockbox playlist gRPC service: {}", e))?;
+
     while let Some(msg) = read.next().await {
         let msg = match msg {
             Ok(m) => m.to_string(),
@@ -240,7 +249,31 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
             if let Some(cmd) = msg["action"].as_str() {
                 match cmd {
                     "play" => {
-                        client.resume(tonic::Request::new(ResumeRequest {})).await?;
+                        // Decide between resume-from-pause and resume-from-saved
+                        // state based on the engine's current status (a bitmask:
+                        // PLAY=0x01, PAUSE=0x02 → 0 = stopped, 1 = playing,
+                        // 3 = paused). On a fresh daemon start the engine is
+                        // STOPPED, not paused, so a plain resume() is a no-op —
+                        // we must resume_track() to restore the playlist from the
+                        // control file and seek to the saved position (mirrors the
+                        // GPUI play/pause handler).
+                        let status = client
+                            .status(tonic::Request::new(StatusRequest {}))
+                            .await?
+                            .into_inner()
+                            .status;
+                        if status == 0 {
+                            playlist_client
+                                .resume_track(tonic::Request::new(ResumeTrackRequest {
+                                    start_index: 0,
+                                    crc: 0,
+                                    elapsed: 0,
+                                    offset: 0,
+                                }))
+                                .await?;
+                        } else {
+                            client.resume(tonic::Request::new(ResumeRequest {})).await?;
+                        }
                     }
                     "pause" => {
                         client
