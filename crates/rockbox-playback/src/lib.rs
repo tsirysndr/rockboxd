@@ -1441,6 +1441,17 @@ fn spawn_stream_writer(
     // ~1/3 second to fade the full 0..1 range, matching pcmbuf_fade_tick.
     let step = 3.0 / rate as f32;
     let frame_dur = Duration::from_secs_f64(chunk_frames as f64 / rate as f64);
+    // Run this far ahead of real time. Unlike the cpal path — where the
+    // audio device clocks the stream and pulls when it needs data — a
+    // byte-stream consumer (ffplay, Snapcast) has its own clock, so
+    // exactly-real-time pacing leaves zero slack: any scheduling jitter on
+    // either side is an audible underrun. The lead sits in the pipe/socket
+    // buffer (250 ms ≈ 44 KiB at 44.1 kHz, well under the ~64 KiB pipe /
+    // ~208 KiB socket defaults) and doubles as the consumer's preroll.
+    let lead = Duration::from_millis(250);
+    // After a monster stall (suspend/resume, SIGSTOP) don't burst the whole
+    // deficit — the consumer already gapped; re-anchor instead.
+    let max_lag = Duration::from_secs(2);
 
     let thread = std::thread::Builder::new()
         .name("rbplayback-out".into())
@@ -1448,7 +1459,10 @@ fn spawn_stream_writer(
             // 2 channels * 2 bytes/sample.
             let mut buf = vec![0u8; chunk_frames * 4];
             let mut cur_amp = 0.0f32;
-            let mut next = Instant::now() + frame_dur;
+            // Stream-time deadline of the chunk about to be written. Writes
+            // happen `lead` ahead of it, so the first `lead / frame_dur`
+            // chunks go out as an immediate burst (the consumer's preroll).
+            let mut next = Instant::now();
 
             while !stop_thread.load(Ordering::Relaxed) {
                 let target = f32::from_bits(shared.target_amp.load(Ordering::Relaxed));
@@ -1486,16 +1500,20 @@ fn spawn_stream_writer(
                     break;
                 }
 
-                // Pace to real time. If we fell behind (scheduling hiccup),
-                // resync the deadline instead of trying to "catch up" in a
-                // burst.
-                let now = Instant::now();
-                if next > now {
-                    std::thread::sleep(next - now);
-                }
+                // Pace to real time, staying `lead` ahead of the stream
+                // deadline. Falling behind is repaid by writing the next
+                // chunks without sleeping (the pipe/socket buffer absorbs
+                // the burst) — resyncing the deadline instead would
+                // silently under-deliver samples and starve a consumer
+                // that clocks the stream at exactly `rate`.
                 next += frame_dur;
-                if next < now {
-                    next = now + frame_dur;
+                let now = Instant::now();
+                if now.saturating_duration_since(next) > max_lag {
+                    next = now;
+                } else if let Some(wake) = next.checked_sub(lead) {
+                    if wake > now {
+                        std::thread::sleep(wake - now);
+                    }
                 }
             }
         })
