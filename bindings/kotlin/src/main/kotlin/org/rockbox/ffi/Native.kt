@@ -97,6 +97,12 @@ internal object Native {
             PTR, I32, F32, F32, I32, F32, BOOL, I32, I32, I32, I32, I32, I32, PTR, I32,
         ),
     )
+    val playerNewWithOutput = h(
+        "rb_player_new_with_output",
+        FunctionDescriptor.of(
+            PTR, PTR, I32, F32, F32, I32, F32, BOOL, I32, I32, I32, I32, I32, I32, PTR, I32,
+        ),
+    )
     val playerFree = h("rb_player_free", FunctionDescriptor.ofVoid(PTR))
     val playerSetQueueJson = h("rb_player_set_queue_json", FunctionDescriptor.ofVoid(PTR, PTR))
     val playerEnqueue = h("rb_player_enqueue", FunctionDescriptor.ofVoid(PTR, PTR))

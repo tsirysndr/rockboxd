@@ -16,6 +16,18 @@
 #include "erl_nif.h"
 #include "rockbox_ffi.h"
 
+/* Exported by librockbox_ffi but not yet in the shipped rockbox_ffi.h: same as
+ * rb_player_new_with_config_ex with a leading `output` backend spec
+ * (NULL/"" => cpal, "stdout"/"-", "fifo:/path", "unix:/path",
+ * "unix-connect:/path", "tcp:host:port", "tcp-connect:host:port"). Returns NULL
+ * on an invalid spec or open/connect failure. */
+RbPlayer *rb_player_new_with_output(
+    const char *output, uint32_t sample_rate, float buffer_seconds, float volume,
+    int32_t rg_mode, float rg_preamp_db, bool rg_prevent_clipping,
+    int32_t xfade_mode, uint32_t fo_delay_ms, uint32_t fo_dur_ms,
+    uint32_t fi_delay_ms, uint32_t fi_dur_ms, int32_t mix_mode,
+    const char *resume_file, uint32_t resume_save_interval_ms);
+
 static ErlNifResourceType *DSP_RES;
 static ErlNifResourceType *PLAYER_RES;
 static ErlNifResourceType *DECODER_RES;
@@ -907,6 +919,54 @@ static ERL_NIF_TERM nif_player_new_with_config_ex(ErlNifEnv *env, int argc,
   return make_player(env, p);
 }
 
+/* Like nif_player_new_with_config_ex, but with a leading `output` backend spec
+ * (argv[0]): a binary spec string, or any atom (nil) / empty binary for the
+ * default cpal device. */
+static ERL_NIF_TERM nif_player_new_with_output(ErlNifEnv *env, int argc,
+                                               const ERL_NIF_TERM argv[]) {
+  (void)argc;
+  unsigned int rate, fo_del, fo_dur, fi_del, fi_dur, resume_int;
+  int rg_mode, xfade, mix;
+  double buf_sec, vol, rg_preamp;
+  bool rg_clip;
+  if (!enif_get_uint(env, argv[1], &rate) ||
+      !get_double_any(env, argv[2], &buf_sec) ||
+      !get_double_any(env, argv[3], &vol) ||
+      !enif_get_int(env, argv[4], &rg_mode) ||
+      !get_double_any(env, argv[5], &rg_preamp) ||
+      !get_bool(env, argv[6], &rg_clip) ||
+      !enif_get_int(env, argv[7], &xfade) ||
+      !enif_get_uint(env, argv[8], &fo_del) ||
+      !enif_get_uint(env, argv[9], &fo_dur) ||
+      !enif_get_uint(env, argv[10], &fi_del) ||
+      !enif_get_uint(env, argv[11], &fi_dur) ||
+      !enif_get_int(env, argv[12], &mix) ||
+      !enif_get_uint(env, argv[14], &resume_int))
+    return enif_make_badarg(env);
+  /* argv[0] is the output spec: a binary, or any atom (nil) for the default. */
+  char *output = NULL;
+  if (!enif_is_atom(env, argv[0])) {
+    output = binary_to_cstr(env, argv[0]);
+    if (!output) return enif_make_badarg(env);
+  }
+  /* argv[13] is the resume file: a binary path, or any atom (nil) for none. */
+  char *resume_file = NULL;
+  if (!enif_is_atom(env, argv[13])) {
+    resume_file = binary_to_cstr(env, argv[13]);
+    if (!resume_file) {
+      if (output) enif_free(output);
+      return enif_make_badarg(env);
+    }
+  }
+  RbPlayer *p = rb_player_new_with_output(
+      output, rate, (float)buf_sec, (float)vol, rg_mode, (float)rg_preamp,
+      rg_clip, xfade, fo_del, fo_dur, fi_del, fi_dur, mix, resume_file,
+      resume_int);
+  if (output) enif_free(output);
+  if (resume_file) enif_free(resume_file);
+  return make_player(env, p);
+}
+
 static ERL_NIF_TERM nif_player_insert_json(ErlNifEnv *env, int argc,
                                            const ERL_NIF_TERM argv[]) {
   (void)argc;
@@ -1122,6 +1182,8 @@ static ErlNifFunc funcs[] = {
     {"player_set_pitch", 2, nif_player_set_pitch, 0},
     {"player_dsp_settings_json", 1, nif_player_dsp_settings_json, 0},
     {"player_new_with_config_ex", 14, nif_player_new_with_config_ex,
+     ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"player_new_with_output", 15, nif_player_new_with_output,
      ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"player_insert_json", 4, nif_player_insert_json, 0},
     {"player_queue_json", 1, nif_player_queue_json, 0},

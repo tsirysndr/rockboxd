@@ -111,6 +111,7 @@ module RockboxFFI
     extern "void* rb_player_new()"
     extern "void* rb_player_new_with_config(uint32_t, float, float, int32_t, float, bool, int32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t)"
     extern "void* rb_player_new_with_config_ex(uint32_t, float, float, int32_t, float, bool, int32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t, void*, uint32_t)"
+    extern "void* rb_player_new_with_output(void*, uint32_t, float, float, int32_t, float, bool, int32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t, void*, uint32_t)"
     extern "void rb_player_free(void*)"
     extern "void rb_player_set_queue_json(void*, void*)"
     extern "void rb_player_enqueue(void*, void*)"

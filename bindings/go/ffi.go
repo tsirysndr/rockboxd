@@ -71,6 +71,7 @@ var (
 	rbPlayerNew             func() uintptr
 	rbPlayerNewWithConfig   func(uint32, float32, float32, int32, float32, bool, int32, uint32, uint32, uint32, uint32, int32) uintptr
 	rbPlayerNewWithConfigEx func(uint32, float32, float32, int32, float32, bool, int32, uint32, uint32, uint32, uint32, int32, string, uint32) uintptr
+	rbPlayerNewWithOutput   func(string, uint32, float32, float32, int32, float32, bool, int32, uint32, uint32, uint32, uint32, int32, string, uint32) uintptr
 	rbPlayerFree            func(uintptr)
 	rbPlayerSetQueueJSON    func(uintptr, string)
 	rbPlayerEnqueue         func(uintptr, string)
@@ -179,6 +180,7 @@ func init() {
 	purego.RegisterLibFunc(&rbPlayerNew, handle, "rb_player_new")
 	purego.RegisterLibFunc(&rbPlayerNewWithConfig, handle, "rb_player_new_with_config")
 	purego.RegisterLibFunc(&rbPlayerNewWithConfigEx, handle, "rb_player_new_with_config_ex")
+	purego.RegisterLibFunc(&rbPlayerNewWithOutput, handle, "rb_player_new_with_output")
 	purego.RegisterLibFunc(&rbPlayerFree, handle, "rb_player_free")
 	purego.RegisterLibFunc(&rbPlayerSetQueueJSON, handle, "rb_player_set_queue_json")
 	purego.RegisterLibFunc(&rbPlayerEnqueue, handle, "rb_player_enqueue")

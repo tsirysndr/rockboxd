@@ -70,6 +70,15 @@ export interface PlayerStatus {
 }
 
 export interface PlayerConfig {
+  /**
+   * Audio output backend spec. Undefined / "" => `cpal` (default device).
+   * Other specs: `stdout` (or `-`), `fifo:/path`, `unix:/path` (listen),
+   * `unix-connect:/path`, `tcp:host:port` (listen), `tcp-connect:host:port`.
+   * A listening socket blocks the constructor until a client connects. In
+   * `stdout` mode fd 1 carries the raw S16LE stereo PCM stream, so the host
+   * must keep stdout clean (e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`).
+   */
+  output?: string;
   sampleRate?: number; // 0 / undefined => device default
   bufferSeconds?: number;
   volume?: number;

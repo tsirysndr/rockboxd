@@ -32,6 +32,22 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
         var fadeInDurationMs: Long = 2000,
         var mixMode: MixMode = MixMode.CROSSFADE,
         /**
+         * Audio output backend spec; null or empty selects the default `cpal`
+         * device. Accepted forms:
+         *  - `cpal` — default local audio device
+         *  - `stdout` or `-` — raw S16LE stereo PCM on fd 1 (the host MUST keep
+         *    stdout clean, e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`)
+         *  - `fifo:/path` — write PCM to a named FIFO
+         *  - `unix:/path` — listen on a Unix socket (blocks until a client connects)
+         *  - `unix-connect:/path` — connect to a Unix socket
+         *  - `tcp:host:port` — listen on TCP (blocks until a client connects)
+         *  - `tcp-connect:host:port` — connect to a TCP endpoint
+         *
+         * An invalid spec or an open/connect failure yields a NULL handle and a
+         * [RockboxException].
+         */
+        var output: String? = null,
+        /**
          * Auto-persist the queue + exact position to this `.m3u8` file; null or
          * empty disables resume. Requires [Player.invoke] (not [makeDefault]).
          */
@@ -44,9 +60,11 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
         /** Create a player with configuration overrides. */
         operator fun invoke(config: Config = Config()): Player {
             val p = Arena.ofConfined().use { arena ->
+                val output = config.output?.takeIf { it.isNotEmpty() }
+                    ?.let { arena.allocateFrom(it) } ?: MemorySegment.NULL
                 val resume = config.resumeFile?.let { arena.allocateFrom(it) } ?: MemorySegment.NULL
-                Native.playerNewWithConfigEx.invokeWithArguments(
-                    config.sampleRate.toInt(), config.bufferSeconds, config.volume,
+                Native.playerNewWithOutput.invokeWithArguments(
+                    output, config.sampleRate.toInt(), config.bufferSeconds, config.volume,
                     config.replaygainMode.value, config.replaygainPreampDb,
                     config.replaygainPreventClipping, config.crossfadeMode.value,
                     config.fadeOutDelayMs.toInt(), config.fadeOutDurationMs.toInt(),
@@ -55,7 +73,7 @@ class Player private constructor(private var ptr: MemorySegment?) : AutoCloseabl
                 ) as MemorySegment
             }
             if (p.address() == 0L) {
-                throw RockboxException("rb_player_new_with_config_ex returned NULL (no output device?)")
+                throw RockboxException("rb_player_new_with_output returned NULL (invalid output spec or no output device?)")
             }
             return Player(p)
         }

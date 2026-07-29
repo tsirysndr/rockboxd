@@ -31,6 +31,7 @@ class Player:
         mix_mode: int = MixMode.CROSSFADE,
         resume_file: str | None = None,
         resume_save_interval_ms: int = 0,
+        output: str | None = None,
         _default: bool = False,
     ):
         """Create a player. With no args, uses the device default sample rate
@@ -39,9 +40,29 @@ class Player:
         When ``resume_file`` is set (an ``.m3u8`` path), the queue and exact
         position are auto-persisted to it; ``resume_save_interval_ms=0`` uses
         the 5 s default.
+
+        ``output`` selects the audio output backend (``None``/``""`` => the
+        system device via cpal, the default). Accepted specs: ``"cpal"``,
+        ``"stdout"`` (or ``"-"``), ``"fifo:/path"``, ``"unix:/path"`` /
+        ``"unix-connect:/path"``, ``"tcp:host:port"`` / ``"tcp-connect:host:port"``.
+        Non-cpal backends emit raw S16LE stereo PCM; in ``stdout`` mode fd 1 IS
+        that stream, so the host program must keep stdout clean (pipe it to a
+        raw-PCM player, e.g. ``ffplay -f s16le -ar 44100 -ac 2 -``). A listening
+        socket blocks until a client connects.
         """
         if _default:
             self._p = lib.rb_player_new()
+        elif output:
+            self._p = lib.rb_player_new_with_output(
+                output.encode("utf-8"),
+                int(sample_rate), float(buffer_seconds), float(volume),
+                int(replaygain_mode), float(replaygain_preamp_db),
+                bool(replaygain_prevent_clipping), int(crossfade_mode),
+                int(fade_out_delay_ms), int(fade_out_duration_ms),
+                int(fade_in_delay_ms), int(fade_in_duration_ms), int(mix_mode),
+                resume_file.encode("utf-8") if resume_file else ffi.NULL,
+                int(resume_save_interval_ms),
+            )
         elif resume_file is not None:
             self._p = lib.rb_player_new_with_config_ex(
                 int(sample_rate), float(buffer_seconds), float(volume),

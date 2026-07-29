@@ -49,6 +49,14 @@ pub type InsertPosition {
 /// `resume_file` (an `.m3u8` path) enables auto-persistence of the queue and
 /// exact position: `None` (the default) disables it. `resume_save_interval_ms`
 /// of 0 uses Rockbox's 5 s default.
+///
+/// `output` selects the audio output backend: `None` (the default) uses the
+/// default cpal device; `Some(spec)` a spec string — `"cpal"`, `"stdout"` (or
+/// `"-"`), `"fifo:/path"`, `"unix:/path"` (listen), `"unix-connect:/path"`,
+/// `"tcp:host:port"` (listen) or `"tcp-connect:host:port"`. A listening socket
+/// blocks until a client connects. In `"stdout"` mode fd 1 carries the raw
+/// S16LE stereo PCM stream, so the host must keep stdout clean (e.g. pipe to
+/// `ffplay -f s16le -ar 44100 -ac 2 -`).
 pub type Config {
   Config(
     sample_rate: Int,
@@ -65,6 +73,7 @@ pub type Config {
     mix_mode: Int,
     resume_file: Option(String),
     resume_save_interval_ms: Int,
+    output: Option(String),
   )
 }
 
@@ -79,7 +88,7 @@ pub type M3uEntry {
 }
 
 /// Rockbox-default configuration (device sample rate, no crossfade,
-/// ReplayGain off, full volume, resume disabled).
+/// ReplayGain off, full volume, resume disabled, default cpal output).
 pub fn default_config() -> Config {
   Config(
     sample_rate: 0,
@@ -96,6 +105,7 @@ pub fn default_config() -> Config {
     mix_mode: 0,
     resume_file: None,
     resume_save_interval_ms: 0,
+    output: None,
   )
 }
 
@@ -327,7 +337,9 @@ pub type DspSettings {
 @external(erlang, "rockbox_ffi_nif", "player_new")
 pub fn new() -> Player
 
-/// Create a player with explicit configuration (including resume).
+/// Create a player with explicit configuration (including resume and the
+/// audio output backend). See `Config` for the `output` spec strings and the
+/// stdout-clean caveat.
 pub fn with_config(c: Config) -> Player {
   // Gleam's `None` maps to the atom `nil`, which the NIF reads as "no resume
   // file"; a `Some(path)` becomes a binary the NIF turns into a C string.
@@ -335,22 +347,45 @@ pub fn with_config(c: Config) -> Player {
     Some(path) -> dynamic.string(path)
     None -> dynamic.nil()
   }
-  ffi_player_new_with_config_ex(
-    c.sample_rate,
-    c.buffer_seconds,
-    c.volume,
-    c.replaygain_mode,
-    c.replaygain_preamp_db,
-    c.replaygain_prevent_clipping,
-    c.crossfade_mode,
-    c.fade_out_delay_ms,
-    c.fade_out_duration_ms,
-    c.fade_in_delay_ms,
-    c.fade_in_duration_ms,
-    c.mix_mode,
-    resume_file,
-    c.resume_save_interval_ms,
-  )
+  // `None` output → the atom `nil` (default cpal device); `Some(spec)` → a
+  // binary the NIF turns into the backend spec C string.
+  case c.output {
+    Some(spec) ->
+      ffi_player_new_with_output(
+        dynamic.string(spec),
+        c.sample_rate,
+        c.buffer_seconds,
+        c.volume,
+        c.replaygain_mode,
+        c.replaygain_preamp_db,
+        c.replaygain_prevent_clipping,
+        c.crossfade_mode,
+        c.fade_out_delay_ms,
+        c.fade_out_duration_ms,
+        c.fade_in_delay_ms,
+        c.fade_in_duration_ms,
+        c.mix_mode,
+        resume_file,
+        c.resume_save_interval_ms,
+      )
+    None ->
+      ffi_player_new_with_config_ex(
+        c.sample_rate,
+        c.buffer_seconds,
+        c.volume,
+        c.replaygain_mode,
+        c.replaygain_preamp_db,
+        c.replaygain_prevent_clipping,
+        c.crossfade_mode,
+        c.fade_out_delay_ms,
+        c.fade_out_duration_ms,
+        c.fade_in_delay_ms,
+        c.fade_in_duration_ms,
+        c.mix_mode,
+        resume_file,
+        c.resume_save_interval_ms,
+      )
+  }
 }
 
 /// Replace the queue. Each entry may be a local file path, an `http(s)://`
@@ -1112,6 +1147,27 @@ fn dsp_settings_decoder() -> Decoder(DspSettings) {
 
 @external(erlang, "rockbox_ffi_nif", "player_new_with_config_ex")
 fn ffi_player_new_with_config_ex(
+  sample_rate: Int,
+  buffer_seconds: Float,
+  volume: Float,
+  rg_mode: Int,
+  rg_preamp_db: Float,
+  rg_prevent_clipping: Bool,
+  xfade_mode: Int,
+  fo_delay_ms: Int,
+  fo_dur_ms: Int,
+  fi_delay_ms: Int,
+  fi_dur_ms: Int,
+  mix_mode: Int,
+  resume_file: Dynamic,
+  resume_save_interval_ms: Int,
+) -> Player
+
+// Like `player_new_with_config_ex` but with a leading `output` backend spec.
+// `output` is the atom `nil` (default cpal device) or a binary spec string.
+@external(erlang, "rockbox_ffi_nif", "player_new_with_output")
+fn ffi_player_new_with_output(
+  output: Dynamic,
   sample_rate: Int,
   buffer_seconds: Float,
   volume: Float,

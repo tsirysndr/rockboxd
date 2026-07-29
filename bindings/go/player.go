@@ -22,6 +22,23 @@ type Config struct {
 	FadeInDurationMs          uint32
 	MixMode                   MixMode
 
+	// Output selects the audio output backend. Empty (the default) uses the
+	// local audio device via cpal. Recognized spec strings:
+	//
+	//	cpal                    local audio device (default; also "" )
+	//	stdout | -              raw S16LE stereo PCM on fd 1 (stdout)
+	//	fifo:/path              write PCM to a named FIFO
+	//	unix:/path              listen on a Unix socket, stream PCM to the client
+	//	unix-connect:/path      connect to a Unix socket and stream PCM
+	//	tcp:host:port           listen on TCP, stream PCM to the client
+	//	tcp-connect:host:port   connect to a TCP endpoint and stream PCM
+	//
+	// The listening variants (unix:, tcp:) block until a client connects. In
+	// stdout mode fd 1 carries the raw PCM stream, so the host process MUST
+	// keep stdout clean (no logging/printing to it) — e.g. pipe it to
+	// `ffplay -f s16le -ar 44100 -ac 2 -`.
+	Output string
+
 	// ResumeFile, when non-empty, is an .m3u8 path the player auto-persists
 	// the queue and exact playback position to, so a later Player can
 	// [Player.Resume]. Empty disables resume persistence.
@@ -66,8 +83,8 @@ type Player struct {
 // NewPlayer creates a player on the default device with the given
 // configuration (start from [DefaultConfig]).
 func NewPlayer(c Config) (*Player, error) {
-	ptr := rbPlayerNewWithConfigEx(
-		c.SampleRate, c.BufferSeconds, c.Volume, int32(c.ReplayGainMode),
+	ptr := rbPlayerNewWithOutput(
+		c.Output, c.SampleRate, c.BufferSeconds, c.Volume, int32(c.ReplayGainMode),
 		c.ReplayGainPreampDb, c.ReplayGainPreventClipping, int32(c.CrossfadeMode),
 		c.FadeOutDelayMs, c.FadeOutDurationMs, c.FadeInDelayMs, c.FadeInDurationMs,
 		int32(c.MixMode), c.ResumeFile, c.ResumeSaveIntervalMs,
@@ -131,6 +148,16 @@ func WithCrossfade(mode CrossfadeMode, foDelayMs, foDurationMs, fiDelayMs, fiDur
 		c.FadeInDurationMs = fiDurationMs
 		c.MixMode = mix
 	}
+}
+
+// WithOutput selects the audio output backend (see [Config.Output]). Empty
+// (the default) uses the local audio device via cpal. Other specs: "stdout"
+// (or "-"), "fifo:/path", "unix:/path" (listen), "unix-connect:/path",
+// "tcp:host:port" (listen), "tcp-connect:host:port". Listening variants block
+// until a client connects; in stdout mode the host must keep stdout clean
+// (e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`).
+func WithOutput(spec string) Option {
+	return func(c *Config) { c.Output = spec }
 }
 
 // WithResumeFile sets the .m3u8 path the player auto-persists the queue and
