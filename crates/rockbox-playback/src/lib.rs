@@ -57,11 +57,11 @@ pub fn load_resume(path: impl AsRef<std::path::Path>) -> Option<ResumeState> {
 }
 
 use std::collections::VecDeque;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{
     AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
 };
-use std::io::Write;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

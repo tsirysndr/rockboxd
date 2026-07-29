@@ -109,7 +109,10 @@ impl OutputConfig {
 /// tracks. The FIFO must already exist (`mkfifo`).
 #[cfg(unix)]
 fn open_fifo(path: &std::path::Path) -> io::Result<Box<dyn Write + Send>> {
-    let f = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
     Ok(Box::new(f))
 }
 
