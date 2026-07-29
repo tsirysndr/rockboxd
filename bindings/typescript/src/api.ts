@@ -220,11 +220,12 @@ export function makeApi(raw: Raw) {
     constructor(config?: PlayerConfig) {
       if (config === undefined) {
         this.#h = s.rb_player_new();
-      } else if (
-        config.resumeFile !== undefined ||
-        config.resumeSaveIntervalMs !== undefined
-      ) {
-        this.#h = s.rb_player_new_with_config_ex(
+      } else {
+        // `rb_player_new_with_output` is a superset of `_with_config` and
+        // `_with_config_ex`: a leading output spec ("" => cpal) plus the same
+        // resume_file / resume_save_interval tail (both default => no resume).
+        this.#h = s.rb_player_new_with_output(
+          raw.cstr(config.output ?? ""),
           config.sampleRate ?? 0,
           config.bufferSeconds ?? 4.0,
           config.volume ?? 1.0,
@@ -239,21 +240,6 @@ export function makeApi(raw: Raw) {
           config.mixMode ?? MixMode.CROSSFADE,
           raw.cstr(config.resumeFile ?? ""),
           config.resumeSaveIntervalMs ?? 0,
-        );
-      } else {
-        this.#h = s.rb_player_new_with_config(
-          config.sampleRate ?? 0,
-          config.bufferSeconds ?? 4.0,
-          config.volume ?? 1.0,
-          config.replaygainMode ?? ReplayGainMode.OFF,
-          config.replaygainPreampDb ?? 0.0,
-          config.replaygainPreventClipping ?? true,
-          config.crossfadeMode ?? CrossfadeMode.OFF,
-          config.fadeOutDelayMs ?? 0,
-          config.fadeOutDurationMs ?? 2000,
-          config.fadeInDelayMs ?? 0,
-          config.fadeInDurationMs ?? 2000,
-          config.mixMode ?? MixMode.CROSSFADE,
         );
       }
       if (raw.isNull(this.#h)) {

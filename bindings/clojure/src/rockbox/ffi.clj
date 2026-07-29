@@ -141,6 +141,10 @@
                                    (fd-of PTR [I32 F32 F32 I32 F32 BOOL I32 I32 I32 I32 I32 I32]))
    :player-new-with-config-ex  (dc "rb_player_new_with_config_ex"
                                    (fd-of PTR [I32 F32 F32 I32 F32 BOOL I32 I32 I32 I32 I32 I32 PTR I32]))
+   ;; Same as -ex but with a leading `output` C-string selecting the audio
+   ;; backend (NULL/"" => cpal). See rockbox.ffi.player/new-player :output.
+   :player-new-with-output     (dc "rb_player_new_with_output"
+                                   (fd-of PTR [PTR I32 F32 F32 I32 F32 BOOL I32 I32 I32 I32 I32 I32 PTR I32]))
    :player-free                (dc "rb_player_free" (fd-void [PTR]))
    :player-set-queue-json      (dc "rb_player_set_queue_json" (fd-void [PTR PTR]))
    :player-enqueue             (dc "rb_player_enqueue" (fd-void [PTR PTR]))

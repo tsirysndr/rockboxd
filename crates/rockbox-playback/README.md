@@ -224,6 +224,56 @@ Position resolution mirrors `apps/playlist.c:playlist_update_resume_info`
 (`resume_index` + `resume_elapsed`); the saved elapsed is the true
 *playback* position, corrected for the decode-ahead buffer.
 
+## Output backends
+
+By default the player opens the system audio device via
+[`cpal`](https://crates.io/crates/cpal). Set `PlayerConfig.output` (an
+[`OutputConfig`]) to send audio elsewhere instead — every non-`cpal`
+backend emits the **same** raw interleaved **S16LE stereo** byte stream,
+paced to real time so a consumer that doesn't clock the stream itself
+still plays at the right speed.
+
+| Backend                | Where audio goes                                          |
+| ---------------------- | --------------------------------------------------------- |
+| `OutputConfig::Cpal`   | System audio device (default; needs the `cpal` feature).  |
+| `Stdout`               | Raw S16LE on stdout — pipe to any player.                 |
+| `Fifo(path)`           | Raw S16LE into a named FIFO (e.g. a Snapcast pipe).       |
+| `Unix { path, mode }`  | Raw S16LE over a Unix-domain socket (listen or connect).  |
+| `Tcp { addr, mode }`   | Raw S16LE over TCP (listen or connect).                   |
+
+`OutputConfig` also parses from a compact string (used by the `play`
+example and the FFI layer): `cpal`, `stdout` (or `-`),
+`fifo:/tmp/snapfifo`, `unix:/path` / `unix-connect:/path`,
+`tcp:0.0.0.0:9000` / `tcp-connect:host:9000`. Bare `tcp:`/`unix:` **listen**
+(a player connects in); the `-connect` forms **dial out** to a receiver
+that is already up. A listening backend blocks in `with_config` until a
+client connects.
+
+```rust
+use rockbox_playback::{OutputConfig, PlayerConfig, SocketMode};
+
+// Stream raw PCM over TCP; a player connects to us.
+let player = PlayerConfig::builder()
+    .output(OutputConfig::Tcp {
+        addr: "0.0.0.0:9000".into(),
+        mode: SocketMode::Listen,
+    })
+    .open()?;
+# Ok::<(), rockbox_playback::Error>(())
+```
+
+**stdout mode** turns fd 1 into the PCM stream, so pipe it straight to a
+player — but the host program must keep stdout otherwise clean (send all
+logs to **stderr**):
+
+```sh
+my-app --output stdout song.flac | ffplay -f s16le -ar 44100 -ac 2 -
+```
+
+Disable the `cpal` default feature for a leaner headless build with only
+the byte-stream backends (no audio-device dependency); the default
+`OutputConfig` then becomes `Stdout`.
+
 ## DSP chain
 
 Beyond ReplayGain, the player exposes Rockbox's entire DSP pipeline. Every

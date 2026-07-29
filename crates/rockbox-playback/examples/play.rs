@@ -18,18 +18,29 @@
 //! # mix local + remote, with 2 s crossfade + track ReplayGain
 //! cargo run --release --example play -- --crossfade 2 --replaygain track \
 //!     a.flac https://example.com/b.mp3
+//!
+//! # send raw S16LE PCM to stdout and pipe it to ffplay (note: all of this
+//! # program's own logging goes to stderr, so stdout stays a clean stream)
+//! cargo run --release --example play -- --output stdout a.flac \
+//!     | ffplay -f s16le -ar 44100 -ac 2 -
+//!
+//! # stream over TCP; connect a player to it
+//! cargo run --release --example play -- --output tcp:0.0.0.0:9000 a.flac
+//! ffplay -f s16le -ar 44100 -ac 2 tcp://127.0.0.1:9000
 //! ```
 
 use std::time::Duration;
 
 use rockbox_playback::{
-    is_url, CrossfadeMode, CrossfadeSettings, EqPreset, PlaybackState, Player, ReplayGainMode,
+    is_url, CrossfadeMode, CrossfadeSettings, EqPreset, OutputConfig, PlaybackState, PlayerConfig,
+    ReplayGainMode,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut crossfade_secs = 0u64;
     let mut replaygain = ReplayGainMode::Off;
     let mut volume = 1.0f32;
+    let mut output = OutputConfig::Cpal;
     // Tracks are kept as strings so `http(s)://` URLs pass through unchanged
     // alongside local file paths — the engine dispatches on the string.
     let mut tracks: Vec<String> = Vec::new();
@@ -50,6 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--volume" | "-v" => {
                 volume = args.next().and_then(|s| s.parse().ok()).unwrap_or(1.0);
             }
+            "--output" | "-o" => {
+                let spec = args.next().unwrap_or_default();
+                output = spec.parse().unwrap_or_else(|e| {
+                    eprintln!("{e}");
+                    std::process::exit(2);
+                });
+            }
             _ => tracks.push(arg),
         }
     }
@@ -57,19 +75,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if tracks.is_empty() {
         eprintln!(
             "usage: play [--volume 0..1] [--crossfade SECS] [--replaygain track|album] \
-             <files-or-URLs…>"
+             [--output cpal|stdout|fifo:PATH|unix:PATH|tcp:ADDR] <files-or-URLs…>"
         );
         std::process::exit(2);
     }
     let has_stream = tracks.iter().any(|t| is_url(t));
 
-    let player = Player::new()?;
-    println!("output: {} Hz", player.sample_rate());
+    // In stdout mode fd 1 carries the raw PCM stream, so ALL human output —
+    // now-playing, progress, diagnostics — goes to stderr. We do that
+    // unconditionally so the example is correct for every backend.
+    let player = PlayerConfig::builder().output(output).open()?;
+    eprintln!("output: {} Hz", player.sample_rate());
 
     // NOTE: volume 0.0 pauses ring consumption (a click-free mute), so playback
     // looks frozen. Use a non-zero volume to actually hear/advance.
     player.set_volume(volume);
-    println!("volume: {volume}");
+    eprintln!("volume: {volume}");
 
     if crossfade_secs > 0 {
         player.set_crossfade(CrossfadeSettings {
@@ -78,24 +99,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fade_out_duration: Duration::from_secs(crossfade_secs),
             ..Default::default()
         });
-        println!("crossfade: {crossfade_secs}s");
+        eprintln!("crossfade: {crossfade_secs}s");
     }
     if replaygain != ReplayGainMode::Off {
         player.set_replaygain(replaygain, 0.0, true);
-        println!("replaygain: {replaygain:?}");
+        eprintln!("replaygain: {replaygain:?}");
     }
 
     // DSP: apply the Bass Boost equalizer preset and a +3 dB bass/treble lift.
     player.set_eq_preset(EqPreset::BassBoost);
     player.set_bass(7);
     player.set_treble(4);
-    println!("eq: BassBoost preset, bass +7 dB, treble +4 dB");
+    eprintln!("eq: BassBoost preset, bass +7 dB, treble +4 dB");
 
     for t in &tracks {
-        println!("{}: {t}", if is_url(t) { "url" } else { "file" });
+        eprintln!("{}: {t}", if is_url(t) { "url" } else { "file" });
     }
     if has_stream {
-        println!("(live streams play until Ctrl-C)");
+        eprintln!("(live streams play until Ctrl-C)");
     }
 
     player.set_queue(tracks.clone());
@@ -121,9 +142,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("\nfailed to start playback (could not open the source)");
                 std::process::exit(1);
             }
-            print!("\rconnecting…   ");
+            eprint!("\rconnecting…   ");
             use std::io::Write;
-            std::io::stdout().flush().ok();
+            std::io::stderr().flush().ok();
             continue;
         }
         // Once started, a return to Stopped means the queue finished.
@@ -189,12 +210,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             clock,
         );
         if line != last_line {
-            print!("\r{line}");
+            eprint!("\r{line}");
             use std::io::Write;
-            std::io::stdout().flush().ok();
+            std::io::stderr().flush().ok();
             last_line = line;
         }
     }
-    println!("\ndone");
+    eprintln!("\ndone");
     Ok(())
 }

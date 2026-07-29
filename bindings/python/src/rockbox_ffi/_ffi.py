@@ -81,6 +81,14 @@ ffi.cdef(
                                            uint32_t fi_dur_ms, int32_t mix_mode,
                                            const char *resume_file,
                                            uint32_t resume_save_interval_ms);
+    RbPlayer *rb_player_new_with_output(const char *output, uint32_t sample_rate,
+                                        float buffer_seconds, float volume,
+                                        int32_t rg_mode, float rg_preamp_db,
+                                        bool rg_prevent_clipping, int32_t xfade_mode,
+                                        uint32_t fo_delay_ms, uint32_t fo_dur_ms,
+                                        uint32_t fi_delay_ms, uint32_t fi_dur_ms,
+                                        int32_t mix_mode, const char *resume_file,
+                                        uint32_t resume_save_interval_ms);
     void  rb_player_free(RbPlayer *p);
     void  rb_player_set_queue_json(RbPlayer *p, const char *json);
     void  rb_player_enqueue(RbPlayer *p, const char *path);

@@ -39,15 +39,30 @@
    :fade-in-duration-ms 2000
    :mix-mode :crossfade
    :resume-file nil          ; path to an .m3u8 to auto-persist queue+position; nil disables
-   :resume-save-interval-ms 0}) ; 0 => 5 s default
+   :resume-save-interval-ms 0 ; 0 => 5 s default
+   ;; Audio output backend spec. nil/"" => cpal (the local default device).
+   ;; Other specs: "stdout" (or "-"), "fifo:/path", "unix:/path" (listen),
+   ;; "unix-connect:/path", "tcp:host:port" (listen), "tcp-connect:host:port".
+   ;; A listening socket (unix:/tcp:) BLOCKS until a client connects. In stdout
+   ;; mode fd 1 IS the raw S16LE/44100/stereo PCM stream, so the host process
+   ;; must keep stdout clean (e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`).
+   :output nil})
 
 (defn new-player
   "Create a player. `config` overrides `default-config` (see the C ABI's
-  rb_player_new_with_config / _ex). Throws if no output device is available.
+  rb_player_new_with_config / _ex / _with_output). Throws if the requested
+  output could not be opened (no device, invalid spec, connect failure).
 
   If `:resume-file` is set, the queue and exact position are auto-persisted to
   that .m3u8 every `:resume-save-interval-ms` ms (0 => 5 s), enabling
-  `resume`/`save-resume`/`clear-resume`."
+  `resume`/`save-resume`/`clear-resume`.
+
+  `:output` selects the audio backend (nil/\"\" => cpal, the local device):
+    \"stdout\" (or \"-\"), \"fifo:/path\", \"unix:/path\" (listen),
+    \"unix-connect:/path\", \"tcp:host:port\" (listen), \"tcp-connect:host:port\".
+  A listening spec (unix:/tcp:) BLOCKS until a client connects. In stdout mode
+  fd 1 carries the raw S16LE/44100/stereo PCM stream — keep stdout clean
+  (e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`)."
   (^MemorySegment [] (new-player {}))
   (^MemorySegment [config]
    (let [c (merge default-config config)]
@@ -55,8 +70,13 @@
        (let [resume-seg (if-let [rf (:resume-file c)]
                           (.allocateFrom a ^String rf)
                           MemorySegment/NULL)
+             ;; nil/"" => NULL => cpal, mirroring resume-file's conversion.
+             output-seg (if-let [out (not-empty (:output c))]
+                          (.allocateFrom a ^String out)
+                          MemorySegment/NULL)
              p ^MemorySegment
-             (ffi/call :player-new-with-config-ex
+             (ffi/call :player-new-with-output
+                       output-seg
                        (int (:sample-rate c)) (float (:buffer-seconds c)) (float (:volume c))
                        (int (enums/code enums/replaygain-mode (:replaygain-mode c)))
                        (float (:replaygain-preamp-db c)) (boolean (:replaygain-prevent-clipping c))
@@ -66,7 +86,8 @@
                        (int (enums/code enums/mix-mode (:mix-mode c)))
                        resume-seg (int (:resume-save-interval-ms c)))]
          (when (zero? (.address p))
-           (throw (ex-info "rb_player_new_with_config_ex returned NULL (no output device?)" {})))
+           (throw (ex-info "rb_player_new_with_output returned NULL (no output device / invalid spec / connect failure?)"
+                           {:output (:output c)})))
          p)))))
 
 (defn free

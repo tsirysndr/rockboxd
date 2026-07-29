@@ -33,6 +33,22 @@ public final class Player {
         public var resumeFile: String? = nil
         /// Save interval for the resume file; 0 uses the ABI default (5 s).
         public var resumeSaveIntervalMs: UInt32 = 0
+        /// Audio output backend spec. nil/empty selects the default `cpal`
+        /// device. Recognised specs:
+        ///   - `cpal`                    — default local audio device
+        ///   - `stdout` (or `-`)         — raw S16LE stereo PCM on fd 1
+        ///   - `fifo:/path`              — write PCM to a named FIFO
+        ///   - `unix:/path`             — listen on a Unix socket (blocks
+        ///                                 until a client connects)
+        ///   - `unix-connect:/path`      — connect to a Unix socket
+        ///   - `tcp:host:port`           — listen on TCP (blocks until a
+        ///                                 client connects)
+        ///   - `tcp-connect:host:port`   — connect to a TCP endpoint
+        ///
+        /// In `stdout` mode fd 1 carries the raw PCM stream, so the host must
+        /// keep stdout clean (e.g. pipe to
+        /// `ffplay -f s16le -ar 44100 -ac 2 -`).
+        public var output: String? = nil
 
         public init() {}
     }
@@ -43,10 +59,13 @@ public final class Player {
     /// Create a player with configuration overrides.
     ///
     /// When `config.resumeFile` is set the queue and exact position are
-    /// auto-persisted to it (see `rb_player_new_with_config_ex`).
+    /// auto-persisted to it. `config.output` selects the audio backend
+    /// (nil/empty => the default `cpal` device); see `Config.output` for the
+    /// recognised spec strings (see `rb_player_new_with_output`).
     public init(config: Config = Config()) throws {
-        let make: (UnsafePointer<CChar>?) -> OpaquePointer? = { resume in
-            self.lib.playerNewWithConfigEx(
+        let make: (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> OpaquePointer? = { output, resume in
+            self.lib.playerNewWithOutput(
+                output,
                 config.sampleRate, config.bufferSeconds, config.volume,
                 config.replaygainMode.rawValue, config.replaygainPreampDb,
                 config.replaygainPreventClipping, config.crossfadeMode.rawValue,
@@ -55,14 +74,22 @@ public final class Player {
                 resume, config.resumeSaveIntervalMs
             )
         }
-        let created: OpaquePointer?
-        if let resumeFile = config.resumeFile {
-            created = resumeFile.withCString { make($0) }
-        } else {
-            created = make(nil)
+        // Bridge both optional C-string params: nil (or unset) => NULL. An
+        // empty output string is likewise treated as "use the default".
+        let withOutput: (@escaping (UnsafePointer<CChar>?) -> OpaquePointer?) -> OpaquePointer? = { body in
+            if let output = config.output, !output.isEmpty {
+                return output.withCString { body($0) }
+            }
+            return body(nil)
+        }
+        let created: OpaquePointer? = withOutput { outputPtr in
+            if let resumeFile = config.resumeFile {
+                return resumeFile.withCString { make(outputPtr, $0) }
+            }
+            return make(outputPtr, nil)
         }
         guard let p = created else {
-            throw RockboxError.nullReturn("rb_player_new_with_config_ex (no output device?)")
+            throw RockboxError.nullReturn("rb_player_new_with_output (no output device?)")
         }
         ptr = p
     }

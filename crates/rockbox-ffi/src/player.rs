@@ -9,8 +9,9 @@ use crate::meta::MetadataJson;
 use crate::util::{cstr, into_cstring};
 use rockbox_playback::{
     m3u, BassEnhancement, ChannelMode, Compressor, CrossfadeMode, CrossfadeSettings, Crossfeed,
-    CrossfeedMode, DspSettings, EqBand, EqPreset, InsertPosition, MixMode, PlaybackState, Player,
-    PlayerConfig, RepeatMode, ReplayGainMode, ResumeState, Status, Surround, ToneControls,
+    CrossfeedMode, DspSettings, EqBand, EqPreset, InsertPosition, MixMode, OutputConfig,
+    PlaybackState, Player, PlayerConfig, RepeatMode, ReplayGainMode, ResumeState, Status, Surround,
+    ToneControls,
 };
 use serde::Serialize;
 use std::os::raw::c_char;
@@ -108,6 +109,7 @@ pub extern "C" fn rb_player_new_with_config(
     mix_mode_v: i32,
 ) -> *mut Player {
     let cfg = PlayerConfig {
+        output: OutputConfig::default(),
         sample_rate: (sample_rate != 0).then_some(sample_rate),
         buffer_seconds,
         crossfade: crossfade(
@@ -166,6 +168,87 @@ pub extern "C" fn rb_player_new_with_config_ex(
         Duration::from_millis(resume_save_interval_ms as u64)
     };
     let cfg = PlayerConfig {
+        output: OutputConfig::default(),
+        sample_rate: (sample_rate != 0).then_some(sample_rate),
+        buffer_seconds,
+        crossfade: crossfade(
+            xfade_mode_v,
+            fo_delay_ms,
+            fo_dur_ms,
+            fi_delay_ms,
+            fi_dur_ms,
+            mix_mode_v,
+        ),
+        replaygain_mode: rg_mode(rg_mode_v),
+        replaygain_preamp_db: rg_preamp_db,
+        replaygain_prevent_clipping: rg_prevent_clipping,
+        dsp: DspSettings::default(),
+        shuffle: false,
+        repeat: RepeatMode::Off,
+        volume,
+        resume_file,
+        resume_save_interval: interval,
+    };
+    match Player::with_config(cfg) {
+        Ok(p) => Box::into_raw(Box::new(p)),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Create a player whose **output backend** is chosen by an `output` spec
+/// string, otherwise identical to [`rb_player_new_with_config_ex`]. The spec
+/// mirrors [`OutputConfig`]'s syntax:
+///
+/// ```text
+/// cpal                          system audio device (same as the other ctors)
+/// stdout   (or -)               raw S16LE stereo on stdout
+/// fifo:/tmp/snapfifo            raw S16LE into a named FIFO
+/// unix:/tmp/rb.sock             raw S16LE, Unix socket (listen)
+/// unix-connect:/tmp/rb.sock     raw S16LE, Unix socket (connect out)
+/// tcp:0.0.0.0:9000              raw S16LE, TCP (listen)
+/// tcp-connect:host:9000         raw S16LE, TCP (connect out)
+/// ```
+///
+/// A null/empty `output` defaults to `cpal`. Non-`cpal` backends emit raw
+/// S16LE stereo at `sample_rate` (0 → 44100 Hz), paced to real time. A
+/// *listening* socket blocks until a client connects. Returns null on an
+/// invalid spec or any open/connect failure.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn rb_player_new_with_output(
+    output: *const c_char,
+    sample_rate: u32,
+    buffer_seconds: f32,
+    volume: f32,
+    rg_mode_v: i32,
+    rg_preamp_db: f32,
+    rg_prevent_clipping: bool,
+    xfade_mode_v: i32,
+    fo_delay_ms: u32,
+    fo_dur_ms: u32,
+    fi_delay_ms: u32,
+    fi_dur_ms: u32,
+    mix_mode_v: i32,
+    resume_file: *const c_char,
+    resume_save_interval_ms: u32,
+) -> *mut Player {
+    let output = match cstr(output).filter(|s| !s.is_empty()) {
+        Some(spec) => match spec.parse::<OutputConfig>() {
+            Ok(cfg) => cfg,
+            Err(_) => return std::ptr::null_mut(),
+        },
+        None => OutputConfig::default(),
+    };
+    let resume_file = cstr(resume_file)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
+    let interval = if resume_save_interval_ms == 0 {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_millis(resume_save_interval_ms as u64)
+    };
+    let cfg = PlayerConfig {
+        output,
         sample_rate: (sample_rate != 0).then_some(sample_rate),
         buffer_seconds,
         crossfade: crossfade(

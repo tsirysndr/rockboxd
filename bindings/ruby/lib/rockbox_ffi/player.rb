@@ -30,6 +30,13 @@ module RockboxFFI
       fade_in_delay_ms: 0,
       fade_in_duration_ms: 2000,
       mix_mode: MixMode::CROSSFADE,
+      # Audio output backend. nil/"" => cpal (the default device). Other specs:
+      #   "stdout" (or "-"), "fifo:/path", "unix:/path" (listen),
+      #   "unix-connect:/path", "tcp:host:port" (listen), "tcp-connect:host:port".
+      # A listening socket blocks until a client connects. In stdout mode fd 1 IS
+      # the raw S16LE stereo PCM stream, so the host must keep stdout clean
+      # (e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`).
+      output: nil,
       resume_file: nil, # an .m3u8 to auto-persist queue + position to
       resume_save_interval_ms: 0 # 0 => 5 s default
     }.freeze
@@ -55,11 +62,15 @@ module RockboxFFI
 
     # Create a player with configuration overrides (see DEFAULT_CONFIG keys).
     # sample_rate: 0 means the device default. Passing +resume_file:+ enables
-    # auto-persisting the queue + exact position to that .m3u8 file.
+    # auto-persisting the queue + exact position to that .m3u8 file. +output:+
+    # selects the audio backend (nil/"" => cpal; see DEFAULT_CONFIG for the
+    # full spec-string list).
     def initialize(**opts)
       c = DEFAULT_CONFIG.merge(opts)
       resume_file = c[:resume_file].nil? ? nil : c[:resume_file].to_s
-      ptr = Lib.rb_player_new_with_config_ex(
+      output = c[:output].nil? || c[:output].to_s.empty? ? nil : c[:output].to_s
+      ptr = Lib.rb_player_new_with_output(
+        output,
         Integer(c[:sample_rate]), Float(c[:buffer_seconds]), Float(c[:volume]),
         Integer(c[:replaygain_mode]), Float(c[:replaygain_preamp_db]),
         RockboxFFI.b(c[:replaygain_prevent_clipping]), Integer(c[:crossfade_mode]),

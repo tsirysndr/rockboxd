@@ -101,6 +101,9 @@ typealias FnPlayerRate = @convention(c) (OpaquePointer?) -> UInt32
 typealias FnPlayerStatus = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 
 typealias FnPlayerNewCfgEx = @convention(c) (UInt32, Float, Float, Int32, Float, Bool, Int32, UInt32, UInt32, UInt32, UInt32, Int32, UnsafePointer<CChar>?, UInt32) -> OpaquePointer?
+// Identical to FnPlayerNewCfgEx but with a leading `output` backend spec string
+// (NULL/"" => cpal). See rb_player_new_with_output.
+typealias FnPlayerNewOutput = @convention(c) (UnsafePointer<CChar>?, UInt32, Float, Float, Int32, Float, Bool, Int32, UInt32, UInt32, UInt32, UInt32, Int32, UnsafePointer<CChar>?, UInt32) -> OpaquePointer?
 typealias FnPlayerInsertJson = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?, Int32, Int) -> Void
 typealias FnPlayerQueueJson = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
 typealias FnPlayerResume = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<CChar>?
@@ -201,6 +204,7 @@ final class Lib {
     let playerSampleRate: FnPlayerRate
     let playerStatusJson: FnPlayerStatus
     let playerNewWithConfigEx: FnPlayerNewCfgEx
+    let playerNewWithOutput: FnPlayerNewOutput
     let playerInsertJson: FnPlayerInsertJson
     let playerQueueJson: FnPlayerQueueJson
     let playerResume: FnPlayerResume
@@ -313,6 +317,7 @@ final class Lib {
         playerSampleRate = try sym("rb_player_sample_rate", FnPlayerRate.self)
         playerStatusJson = try sym("rb_player_status_json", FnPlayerStatus.self)
         playerNewWithConfigEx = try sym("rb_player_new_with_config_ex", FnPlayerNewCfgEx.self)
+        playerNewWithOutput = try sym("rb_player_new_with_output", FnPlayerNewOutput.self)
         playerInsertJson = try sym("rb_player_insert_json", FnPlayerInsertJson.self)
         playerQueueJson = try sym("rb_player_queue_json", FnPlayerQueueJson.self)
         playerResume = try sym("rb_player_resume", FnPlayerResume.self)

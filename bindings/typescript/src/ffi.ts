@@ -81,6 +81,14 @@ export const SPEC: Record<string, SymSpec> = {
     ],
     ret: "ptr",
   },
+  // Superset of _with_config_ex with a leading `const char *output` backend spec.
+  rb_player_new_with_output: {
+    args: [
+      "strbuf", "u32", "f32", "f32", "i32", "f32", "bool", "i32", "u32", "u32",
+      "u32", "u32", "i32", "strbuf", "u32",
+    ],
+    ret: "ptr",
+  },
   rb_player_free: { args: ["ptr"], ret: "void" },
   rb_player_set_queue_json: { args: ["ptr", "strbuf"], ret: "void" },
   rb_player_enqueue: { args: ["ptr", "strbuf"], ret: "void" },

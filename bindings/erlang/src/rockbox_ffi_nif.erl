@@ -83,7 +83,8 @@ rockbox_ffi_nif:player_play(P).
          player_set_channel_mode/2, player_set_stereo_width/2,
          player_set_compressor/7, player_set_dither/2, player_set_pitch/2,
          player_dsp_settings_json/1,
-         player_new_with_config_ex/14, player_insert_json/4, player_queue_json/1,
+         player_new_with_config_ex/14, player_new_with_output/15,
+         player_insert_json/4, player_queue_json/1,
          player_resume/1, player_save_resume/1, player_clear_resume/1,
          load_resume_json/1, player_import_m3u/4, player_load_m3u/2,
          player_export_m3u/2, m3u_read_json/1, m3u_write_json/2, is_url/1]).
@@ -739,6 +740,24 @@ player handle or `nil`. Runs on a dirty CPU scheduler.
 player_new_with_config_ex(_Rate, _Buf, _Vol, _RgMode, _RgPre, _RgClip, _Xf,
                           _FoDel, _FoDur, _FiDel, _FiDur, _Mix, _ResumeFile,
                           _ResumeInt) -> ?NOT_LOADED.
+
+-doc """
+Like `player_new_with_config_ex/14` but with a leading `Output` backend spec.
+
+`Output` selects the audio output backend: the atom `nil` (or an empty binary)
+uses the default cpal device; otherwise a binary spec — `<<"cpal">>`,
+`<<"stdout">>` (or `<<"-">>`), `<<"fifo:/path">>`, `<<"unix:/path">>` (listen),
+`<<"unix-connect:/path">>`, `<<"tcp:host:port">>` (listen) or
+`<<"tcp-connect:host:port">>`. A listening socket blocks until a client
+connects. In `stdout` mode fd 1 carries the raw S16LE stereo PCM stream, so the
+host must keep stdout clean (e.g. pipe to `ffplay -f s16le -ar 44100 -ac 2 -`).
+
+Returns a player handle, or `nil` on an invalid spec or open/connect failure.
+Runs on a dirty CPU scheduler.
+""".
+player_new_with_output(_Output, _Rate, _Buf, _Vol, _RgMode, _RgPre, _RgClip,
+                       _Xf, _FoDel, _FoDur, _FiDel, _FiDur, _Mix, _ResumeFile,
+                       _ResumeInt) -> ?NOT_LOADED.
 
 -doc """
 Insert tracks (a JSON array of path/URL strings) into the queue at `Position`

@@ -45,7 +45,12 @@ defmodule Rockbox.Player do
     # the queue + exact position to it. `nil`/`""` disables resume. An interval
     # of 0 uses the native default (5 s).
     resume_file: nil,
-    resume_save_interval_ms: 0
+    resume_save_interval_ms: 0,
+    # Audio output backend. `nil`/`""` uses the default cpal device; otherwise a
+    # spec string: `"cpal"`, `"stdout"` (or `"-"`), `"fifo:/path"`,
+    # `"unix:/path"` (listen), `"unix-connect:/path"`, `"tcp:host:port"`
+    # (listen), `"tcp-connect:host:port"`.
+    output: nil
   }
 
   @doc "Create a player on the default device with default settings."
@@ -59,6 +64,15 @@ defmodule Rockbox.Player do
   Pass `resume_file: "/path/to/state.m3u8"` (optionally with
   `resume_save_interval_ms:`) to enable automatic queue+position persistence;
   restore it later with `resume/1`.
+
+  Pass `output:` to select the audio output backend. `nil`/`""` (the default)
+  uses the default cpal device; otherwise a spec string: `"cpal"`, `"stdout"`
+  (or `"-"`), `"fifo:/path"`, `"unix:/path"` (listen), `"unix-connect:/path"`,
+  `"tcp:host:port"` (listen), `"tcp-connect:host:port"`. A listening socket
+  blocks until a client connects. In `"stdout"` mode fd 1 carries the raw
+  S16LE stereo PCM stream, so the host must keep stdout clean (e.g. pipe to
+  `ffplay -f s16le -ar 44100 -ac 2 -`). Returns `nil` on an invalid spec or
+  open/connect failure.
   """
   @spec new(keyword() | map()) :: t() | nil
   def new(opts) do
@@ -71,39 +85,68 @@ defmodule Rockbox.Player do
         path -> IO.iodata_to_binary([path])
       end
 
-    if resume_file == nil and c.resume_save_interval_ms == 0 do
-      :rockbox_ffi_nif.player_new_with_config(
-        c.sample_rate,
-        c.buffer_seconds / 1,
-        c.volume / 1,
-        c.replaygain_mode,
-        c.replaygain_preamp_db / 1,
-        c.replaygain_prevent_clipping,
-        c.crossfade_mode,
-        c.fade_out_delay_ms,
-        c.fade_out_duration_ms,
-        c.fade_in_delay_ms,
-        c.fade_in_duration_ms,
-        c.mix_mode
-      )
-    else
-      :rockbox_ffi_nif.player_new_with_config_ex(
-        c.sample_rate,
-        c.buffer_seconds / 1,
-        c.volume / 1,
-        c.replaygain_mode,
-        c.replaygain_preamp_db / 1,
-        c.replaygain_prevent_clipping,
-        c.crossfade_mode,
-        c.fade_out_delay_ms,
-        c.fade_out_duration_ms,
-        c.fade_in_delay_ms,
-        c.fade_in_duration_ms,
-        c.mix_mode,
-        # nil disables resume in the NIF; a binary path enables it.
-        resume_file || nil,
-        c.resume_save_interval_ms
-      )
+    output =
+      case c.output do
+        nil -> nil
+        "" -> nil
+        spec -> IO.iodata_to_binary([spec])
+      end
+
+    cond do
+      output != nil ->
+        :rockbox_ffi_nif.player_new_with_output(
+          output,
+          c.sample_rate,
+          c.buffer_seconds / 1,
+          c.volume / 1,
+          c.replaygain_mode,
+          c.replaygain_preamp_db / 1,
+          c.replaygain_prevent_clipping,
+          c.crossfade_mode,
+          c.fade_out_delay_ms,
+          c.fade_out_duration_ms,
+          c.fade_in_delay_ms,
+          c.fade_in_duration_ms,
+          c.mix_mode,
+          # nil disables resume in the NIF; a binary path enables it.
+          resume_file || nil,
+          c.resume_save_interval_ms
+        )
+
+      resume_file == nil and c.resume_save_interval_ms == 0 ->
+        :rockbox_ffi_nif.player_new_with_config(
+          c.sample_rate,
+          c.buffer_seconds / 1,
+          c.volume / 1,
+          c.replaygain_mode,
+          c.replaygain_preamp_db / 1,
+          c.replaygain_prevent_clipping,
+          c.crossfade_mode,
+          c.fade_out_delay_ms,
+          c.fade_out_duration_ms,
+          c.fade_in_delay_ms,
+          c.fade_in_duration_ms,
+          c.mix_mode
+        )
+
+      true ->
+        :rockbox_ffi_nif.player_new_with_config_ex(
+          c.sample_rate,
+          c.buffer_seconds / 1,
+          c.volume / 1,
+          c.replaygain_mode,
+          c.replaygain_preamp_db / 1,
+          c.replaygain_prevent_clipping,
+          c.crossfade_mode,
+          c.fade_out_delay_ms,
+          c.fade_out_duration_ms,
+          c.fade_in_delay_ms,
+          c.fade_in_duration_ms,
+          c.mix_mode,
+          # nil disables resume in the NIF; a binary path enables it.
+          resume_file || nil,
+          c.resume_save_interval_ms
+        )
     end
   end
 
