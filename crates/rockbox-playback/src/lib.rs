@@ -35,11 +35,13 @@
 
 mod crossfade;
 pub mod m3u;
+pub mod output;
 mod resume;
 pub mod source;
 
 pub use crossfade::{CrossfadeMode, CrossfadeSettings, MixMode};
 pub use m3u::M3uEntry;
+pub use output::{OutputConfig, ParseOutputError, SocketMode};
 pub use resume::ResumeState;
 pub use rockbox_codecs::Decoder;
 pub use rockbox_metadata::Metadata;
@@ -59,10 +61,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{
     AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
 };
+use std::io::Write;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "cpal")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 /// How the queue repeats when a track (or the whole queue) finishes.
@@ -553,9 +557,14 @@ pub struct Status {
 
 /// Configuration for [`Player::with_config`].
 pub struct PlayerConfig {
+    /// Where audio is sent: the system device via `cpal` (default), or a
+    /// raw **S16LE** stereo stream to stdout / a FIFO / a Unix or TCP
+    /// socket. See [`OutputConfig`].
+    pub output: OutputConfig,
     /// Output sample rate. `None` uses the output device's default; every
     /// track is resampled to this rate by the DSP so mixed-rate queues
-    /// work.
+    /// work. For the non-`cpal` byte-stream backends there is no device to
+    /// query, so `None` falls back to 44100 Hz.
     pub sample_rate: Option<u32>,
     /// Seconds of audio to decode ahead into the ring buffer.
     pub buffer_seconds: f32,
@@ -586,6 +595,7 @@ pub struct PlayerConfig {
 impl Default for PlayerConfig {
     fn default() -> Self {
         PlayerConfig {
+            output: OutputConfig::default(),
             sample_rate: None,
             buffer_seconds: 4.0,
             crossfade: CrossfadeSettings::default(),
@@ -631,6 +641,12 @@ pub struct PlayerConfigBuilder {
 }
 
 impl PlayerConfigBuilder {
+    /// Where audio is sent (system device, stdout, FIFO, Unix or TCP
+    /// socket). See [`OutputConfig`]; defaults to [`OutputConfig::Cpal`].
+    pub fn output(mut self, output: OutputConfig) -> Self {
+        self.cfg.output = output;
+        self
+    }
     /// Output sample rate in Hz. Unset (the default) uses the output device's
     /// native rate; every track is resampled to this rate.
     pub fn sample_rate(mut self, hz: u32) -> Self {
@@ -819,10 +835,15 @@ impl Shared {
 /// Errors constructing a [`Player`].
 #[derive(Debug)]
 pub enum Error {
-    /// No output audio device available.
+    /// No output audio device available (`cpal` backend).
     NoOutputDevice,
-    /// cpal could not build or start the output stream.
+    /// cpal could not build/start the stream, or a byte-stream backend
+    /// (stdout / FIFO / Unix / TCP) failed to open or connect.
     Stream(String),
+    /// The requested [`OutputConfig`] backend was compiled out (e.g. the
+    /// `cpal` backend without the `cpal` feature, or a FIFO/Unix socket on
+    /// a non-Unix platform).
+    UnsupportedBackend(String),
 }
 
 impl std::fmt::Display for Error {
@@ -830,19 +851,50 @@ impl std::fmt::Display for Error {
         match self {
             Error::NoOutputDevice => write!(f, "no output audio device"),
             Error::Stream(e) => write!(f, "audio stream error: {e}"),
+            Error::UnsupportedBackend(e) => write!(f, "unsupported output backend: {e}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
+/// The live output backend, kept on the [`Player`] handle so output stays
+/// alive for the player's lifetime. `cpal` streams are non-`Send`, which is
+/// why the handle (not the engine thread) owns them. The variants are held
+/// purely for their `Drop` side effects (stop the stream / join the writer).
+#[allow(dead_code)]
+enum OutputHandle {
+    /// System audio device: a `cpal` stream whose callback drains the ring.
+    #[cfg(feature = "cpal")]
+    Cpal(cpal::Stream),
+    /// A byte-stream sink (stdout / FIFO / Unix / TCP): a writer thread
+    /// drains the ring, converts to S16LE and paces to real time. Dropping
+    /// this signals the thread to stop and joins it.
+    Stream(StreamSink),
+}
+
+/// Owns the writer thread for a byte-stream backend and stops it on drop.
+struct StreamSink {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for StreamSink {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
 /// The player handle. Cloneable-free but `Send` controls are issued
-/// through it; the cpal stream lives here and keeps output alive for the
+/// through it; the output backend lives here and keeps output alive for the
 /// player's lifetime.
 pub struct Player {
     tx: Sender<Command>,
     shared: Arc<Shared>,
-    _stream: cpal::Stream,
+    _output: OutputHandle,
     engine: Option<std::thread::JoinHandle<()>>,
     /// Resume file path (mirrors `PlayerConfig::resume_file`) so
     /// [`Player::resume`] can read it on the handle side.
@@ -856,70 +908,44 @@ impl Player {
     }
 
     /// Create a player with explicit configuration.
+    ///
+    /// The output backend is chosen by [`PlayerConfig::output`]. Note that a
+    /// *listening* socket backend ([`SocketMode::Listen`]) blocks here until
+    /// a client connects, and a *connecting* one requires the receiver to be
+    /// up already.
     pub fn with_config(config: PlayerConfig) -> Result<Self, Error> {
-        let host = cpal::default_host();
-        let device = host.default_output_device().ok_or(Error::NoOutputDevice)?;
-        let default_cfg = device
-            .default_output_config()
+        #[cfg(feature = "cpal")]
+        if config.output == OutputConfig::Cpal {
+            let host = cpal::default_host();
+            let device = host.default_output_device().ok_or(Error::NoOutputDevice)?;
+            let default_cfg = device
+                .default_output_config()
+                .map_err(|e| Error::Stream(e.to_string()))?;
+            let rate = config
+                .sample_rate
+                .unwrap_or_else(|| default_cfg.sample_rate().0);
+            let shared = make_shared(&config, rate);
+            let stream = build_stream(&device, rate, Arc::clone(&shared))?;
+            stream.play().map_err(|e| Error::Stream(e.to_string()))?;
+            return Ok(assemble(config, rate, shared, OutputHandle::Cpal(stream)));
+        }
+        #[cfg(not(feature = "cpal"))]
+        if config.output == OutputConfig::Cpal {
+            return Err(Error::UnsupportedBackend(
+                "cpal backend requires the `cpal` feature".into(),
+            ));
+        }
+
+        // Byte-stream backends (stdout / FIFO / Unix / TCP): no device to
+        // query, so an unset sample rate falls back to CD quality.
+        let rate = config.sample_rate.unwrap_or(44100);
+        let writer = config
+            .output
+            .open_writer()
             .map_err(|e| Error::Stream(e.to_string()))?;
-
-        let rate = config
-            .sample_rate
-            .unwrap_or_else(|| default_cfg.sample_rate().0);
-
-        let shared = Arc::new(Shared {
-            state: AtomicU8::new(ST_STOPPED),
-            decode_pos_ms: AtomicU64::new(0),
-            duration_ms: AtomicU64::new(0),
-            index: AtomicUsize::new(usize::MAX),
-            queue_len: AtomicUsize::new(0),
-            target_amp: AtomicU32::new(0f32.to_bits()),
-            volume: AtomicU32::new(config.volume.clamp(0.0, 1.0).to_bits()),
-            balance: AtomicI32::new(0),
-            balance_gain_l: AtomicU32::new(1f32.to_bits()),
-            balance_gain_r: AtomicU32::new(1f32.to_bits()),
-            output_rate: AtomicU32::new(rate),
-            shuffle: AtomicBool::new(config.shuffle),
-            repeat: AtomicU8::new(config.repeat.to_u8()),
-            ring: Mutex::new(VecDeque::new()),
-            meta: Mutex::new(None),
-            dsp: Mutex::new(config.dsp.clone()),
-            queue: Mutex::new(Vec::new()),
-        });
-
-        let stream = build_stream(&device, rate, Arc::clone(&shared))?;
-        stream.play().map_err(|e| Error::Stream(e.to_string()))?;
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        let engine_shared = Arc::clone(&shared);
-        let resume_file = config.resume_file.clone();
-        let engine_cfg = EngineConfig {
-            output_rate: rate,
-            buffer_frames: (config.buffer_seconds.max(0.5) * rate as f32) as usize,
-            crossfade: config.crossfade,
-            replaygain: ReplayGainConfig {
-                mode: config.replaygain_mode,
-                preamp_db: config.replaygain_preamp_db,
-                prevent_clipping: config.replaygain_prevent_clipping,
-            },
-            dsp: config.dsp,
-            shuffle: config.shuffle,
-            repeat: config.repeat,
-            resume_file: resume_file.clone(),
-            resume_save_interval: config.resume_save_interval,
-        };
-        let engine = std::thread::Builder::new()
-            .name("rbplayback".into())
-            .spawn(move || Engine::new(engine_shared, rx, engine_cfg).run())
-            .expect("spawn engine thread");
-
-        Ok(Player {
-            tx,
-            shared,
-            _stream: stream,
-            engine: Some(engine),
-            resume_file,
-        })
+        let shared = make_shared(&config, rate);
+        let sink = spawn_stream_writer(writer, rate, Arc::clone(&shared));
+        Ok(assemble(config, rate, shared, OutputHandle::Stream(sink)))
     }
 
     /// The output sample rate everything is resampled to.
@@ -1333,10 +1359,159 @@ impl Drop for Player {
     }
 }
 
+/// Allocate the [`Shared`] state block from a config and the resolved output
+/// rate. Backend-agnostic — used by every [`OutputConfig`] path.
+fn make_shared(config: &PlayerConfig, rate: u32) -> Arc<Shared> {
+    Arc::new(Shared {
+        state: AtomicU8::new(ST_STOPPED),
+        decode_pos_ms: AtomicU64::new(0),
+        duration_ms: AtomicU64::new(0),
+        index: AtomicUsize::new(usize::MAX),
+        queue_len: AtomicUsize::new(0),
+        target_amp: AtomicU32::new(0f32.to_bits()),
+        volume: AtomicU32::new(config.volume.clamp(0.0, 1.0).to_bits()),
+        balance: AtomicI32::new(0),
+        balance_gain_l: AtomicU32::new(1f32.to_bits()),
+        balance_gain_r: AtomicU32::new(1f32.to_bits()),
+        output_rate: AtomicU32::new(rate),
+        shuffle: AtomicBool::new(config.shuffle),
+        repeat: AtomicU8::new(config.repeat.to_u8()),
+        ring: Mutex::new(VecDeque::new()),
+        meta: Mutex::new(None),
+        dsp: Mutex::new(config.dsp.clone()),
+        queue: Mutex::new(Vec::new()),
+    })
+}
+
+/// Spawn the engine thread and wrap everything up into a [`Player`]. Shared
+/// by every backend; `output` is the already-started output handle.
+fn assemble(config: PlayerConfig, rate: u32, shared: Arc<Shared>, output: OutputHandle) -> Player {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let engine_shared = Arc::clone(&shared);
+    let resume_file = config.resume_file.clone();
+    let engine_cfg = EngineConfig {
+        output_rate: rate,
+        buffer_frames: (config.buffer_seconds.max(0.5) * rate as f32) as usize,
+        crossfade: config.crossfade,
+        replaygain: ReplayGainConfig {
+            mode: config.replaygain_mode,
+            preamp_db: config.replaygain_preamp_db,
+            prevent_clipping: config.replaygain_prevent_clipping,
+        },
+        dsp: config.dsp,
+        shuffle: config.shuffle,
+        repeat: config.repeat,
+        resume_file: resume_file.clone(),
+        resume_save_interval: config.resume_save_interval,
+    };
+    let engine = std::thread::Builder::new()
+        .name("rbplayback".into())
+        .spawn(move || Engine::new(engine_shared, rx, engine_cfg).run())
+        .expect("spawn engine thread");
+
+    Player {
+        tx,
+        shared,
+        _output: output,
+        engine: Some(engine),
+        resume_file,
+    }
+}
+
+/// Drain the ring into a raw **S16LE** stereo byte stream (stdout / FIFO /
+/// Unix / TCP), paced to real time with a monotonic clock so a consumer
+/// that does *not* clock the stream itself (a FIFO, a socket, `ffplay -`)
+/// still plays at the correct speed.
+///
+/// Mirrors the `cpal` callback's fade/balance semantics: while paused
+/// (`target_amp == 0`) it emits **silence without draining the ring**, so
+/// the buffered audio is frozen and resume is click-free — and the byte
+/// stream keeps flowing so a permanent reader (Snapcast, `ffplay`) never
+/// sees a gap or EOF.
+fn spawn_stream_writer(
+    mut writer: Box<dyn Write + Send>,
+    rate: u32,
+    shared: Arc<Shared>,
+) -> StreamSink {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = Arc::clone(&stop);
+    // ~20 ms chunks: small enough for responsive transport, large enough to
+    // keep syscall overhead negligible.
+    let chunk_frames = (rate / 50).max(1) as usize;
+    // ~1/3 second to fade the full 0..1 range, matching pcmbuf_fade_tick.
+    let step = 3.0 / rate as f32;
+    let frame_dur = Duration::from_secs_f64(chunk_frames as f64 / rate as f64);
+
+    let thread = std::thread::Builder::new()
+        .name("rbplayback-out".into())
+        .spawn(move || {
+            // 2 channels * 2 bytes/sample.
+            let mut buf = vec![0u8; chunk_frames * 4];
+            let mut cur_amp = 0.0f32;
+            let mut next = Instant::now() + frame_dur;
+
+            while !stop_thread.load(Ordering::Relaxed) {
+                let target = f32::from_bits(shared.target_amp.load(Ordering::Relaxed));
+                let gain_l = f32::from_bits(shared.balance_gain_l.load(Ordering::Relaxed));
+                let gain_r = f32::from_bits(shared.balance_gain_r.load(Ordering::Relaxed));
+
+                if target == 0.0 && cur_amp == 0.0 {
+                    // Paused/stopped: emit silence, freeze the ring.
+                    buf.iter_mut().for_each(|b| *b = 0);
+                } else {
+                    let mut ring = shared.ring.lock().unwrap();
+                    for frame in buf.chunks_mut(4) {
+                        if cur_amp < target {
+                            cur_amp = (cur_amp + step).min(target);
+                        } else if cur_amp > target {
+                            cur_amp = (cur_amp - step).max(target);
+                        }
+                        // Fade-out just completed: stop draining, freeze.
+                        if cur_amp == 0.0 && target == 0.0 {
+                            frame.fill(0);
+                            continue;
+                        }
+                        let l = ring.pop_front().unwrap_or(0);
+                        let r = ring.pop_front().unwrap_or(0);
+                        let lv = ((l as f32) * cur_amp * gain_l).clamp(-32768.0, 32767.0) as i16;
+                        let rv = ((r as f32) * cur_amp * gain_r).clamp(-32768.0, 32767.0) as i16;
+                        frame[0..2].copy_from_slice(&lv.to_le_bytes());
+                        frame[2..4].copy_from_slice(&rv.to_le_bytes());
+                    }
+                }
+
+                // A write/flush error means the consumer went away (pipe
+                // closed, socket reset): stop cleanly rather than spin.
+                if writer.write_all(&buf).is_err() || writer.flush().is_err() {
+                    break;
+                }
+
+                // Pace to real time. If we fell behind (scheduling hiccup),
+                // resync the deadline instead of trying to "catch up" in a
+                // burst.
+                let now = Instant::now();
+                if next > now {
+                    std::thread::sleep(next - now);
+                }
+                next += frame_dur;
+                if next < now {
+                    next = now + frame_dur;
+                }
+            }
+        })
+        .expect("spawn output writer thread");
+
+    StreamSink {
+        stop,
+        thread: Some(thread),
+    }
+}
+
 /// Build the cpal output stream: drains the ring buffer, converts i16 →
 /// f32, and applies a per-sample amplitude ramp toward `target_amp`
 /// (~⅓ s full-range, matching Rockbox's pause/stop fade) for click-free
 /// transitions.
+#[cfg(feature = "cpal")]
 fn build_stream(
     device: &cpal::Device,
     rate: u32,
