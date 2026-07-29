@@ -1,6 +1,6 @@
 {
   "name": "rockbox-ffi",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "TypeScript bindings (Bun + Deno + Node.js FFI) for the Rockbox DSP / metadata / playback engine",
   "license": "GPL-2.0-or-later",
   "type": "module",
