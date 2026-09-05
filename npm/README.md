@@ -17,13 +17,20 @@ rockboxd            # start the daemon
 rockbox --help      # control it from the CLI
 ```
 
+Or without installing (runs the `rockboxd` daemon):
+
+```sh
+npx @rockboxd/cli
+```
+
 ## How it works
 
 The `postinstall` script resolves the latest release of
 `tsirysndr/rockboxd`, downloads the tarball matching your platform, verifies
 its sha256 checksum against the published `.sha256` asset, and extracts the
 `rockbox` and `rockboxd` binaries into the package's `native/` directory. The
-`rockbox` / `rockboxd` commands are thin Node shims that exec those binaries.
+`rockbox` / `rockboxd` commands are thin Node shims that exec those binaries;
+`npx @rockboxd/cli` runs the daemon.
 
 ## Supported platforms
 
