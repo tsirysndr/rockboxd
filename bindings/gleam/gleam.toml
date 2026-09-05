@@ -38,3 +38,4 @@ rockbox_ffi_nif = { path = "../erlang" }
 
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
+gsh = ">= 1.0.1 and < 2.0.0"

@@ -5,5 +5,5 @@
   "makeup_elixir": {:hex, :makeup_elixir, "1.0.1", "e928a4f984e795e41e3abd27bfc09f51db16ab8ba1aebdba2b3a575437efafc2", [:mix], [{:makeup, "~> 1.0", [hex: :makeup, repo: "hexpm", optional: false]}, {:nimble_parsec, "~> 1.2.3 or ~> 1.3", [hex: :nimble_parsec, repo: "hexpm", optional: false]}], "hexpm", "7284900d412a3e5cfd97fdaed4f5ed389b8f2b4cb49efc0eb3bd10e2febf9507"},
   "makeup_erlang": {:hex, :makeup_erlang, "1.1.0", "835f7e60792e08824cda445639555d7bf1bbbddb1b60b306e33cb6f6db24dc74", [:mix], [{:makeup, "~> 1.0", [hex: :makeup, repo: "hexpm", optional: false]}], "hexpm", "1cd6780fb1dd1a03979abaed0fe82712b0625118fd5257d3ebbf73f960c73c3c"},
   "nimble_parsec": {:hex, :nimble_parsec, "1.4.2", "8efba0122db06df95bfaa78f791344a89352ba04baedd3849593bfce4d0dc1c6", [:mix], [], "hexpm", "4b21398942dda052b403bbe1da991ccd03a053668d147d53fb8c4e0efe09c973"},
-  "rockbox_ffi_nif": {:hex, :rockbox_ffi_nif, "1.2.0", "4019b429c85a60dde816a35e03071d594e4e131a983abee6d9c15b3d9faaf341", [:rebar3], [], "hexpm", "2a820d39ea50068f3ce3fe1116c3bd8e2f7090f968cf2c47c754da46d327304f"},
+  "rockbox_ffi_nif": {:hex, :rockbox_ffi_nif, "1.3.0", "0e5918dbb7717583fd7564c195b46489df8bf917ec6fc359f346581d4b4f9c3f", [:rebar3], [], "hexpm", "441501285fc7ecd916dcfe0170cf26a6e7b18a8c29233b963b4f46d6c44777a3"},
 }
