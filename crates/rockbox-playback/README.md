@@ -139,16 +139,16 @@ player.insert_tracks(vec!["new.flac"], InsertPosition::Replace);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-| `InsertPosition`     | Rockbox constant                | Where the track lands                                              |
-| -------------------- | ------------------------------- | ----------------------------------------------------------------- |
-| `Prepend`            | `PLAYLIST_PREPEND`              | Very beginning of the queue                                       |
-| `Insert`             | `PLAYLIST_INSERT`               | After the last inserted track, else after the current one         |
-| `InsertNext`         | `PLAYLIST_INSERT_FIRST`         | Immediately after the current track ("play next")                 |
-| `InsertLast`         | `PLAYLIST_INSERT_LAST`          | End of the queue ("play last")                                    |
-| `InsertShuffled`     | `PLAYLIST_INSERT_SHUFFLED`      | Random point between the current track and the end                |
-| `InsertLastShuffled` | `PLAYLIST_INSERT_LAST_SHUFFLED` | Random point in the region appended by the call (batch-shuffled)  |
-| `Replace`            | `PLAYLIST_REPLACE`              | Erases the queue and cues the new tracks from the top             |
-| `Index(i)`           | explicit position               | At index `i` (clamped to the queue length)                        |
+| `InsertPosition`     | Rockbox constant                | Where the track lands                                            |
+| -------------------- | ------------------------------- | ---------------------------------------------------------------- |
+| `Prepend`            | `PLAYLIST_PREPEND`              | Very beginning of the queue                                      |
+| `Insert`             | `PLAYLIST_INSERT`               | After the last inserted track, else after the current one        |
+| `InsertNext`         | `PLAYLIST_INSERT_FIRST`         | Immediately after the current track ("play next")                |
+| `InsertLast`         | `PLAYLIST_INSERT_LAST`          | End of the queue ("play last")                                   |
+| `InsertShuffled`     | `PLAYLIST_INSERT_SHUFFLED`      | Random point between the current track and the end               |
+| `InsertLastShuffled` | `PLAYLIST_INSERT_LAST_SHUFFLED` | Random point in the region appended by the call (batch-shuffled) |
+| `Replace`            | `PLAYLIST_REPLACE`              | Erases the queue and cues the new tracks from the top            |
+| `Index(i)`           | explicit position               | At index `i` (clamped to the queue length)                       |
 
 `Insert` is stateful the way Rockbox's is: successive `Insert` calls grow
 one contiguous block right after the current track, in call order. A
@@ -237,13 +237,13 @@ backend emits the **same** raw interleaved **S16LE stereo** byte stream,
 paced to real time so a consumer that doesn't clock the stream itself
 still plays at the right speed.
 
-| Backend                | Where audio goes                                          |
-| ---------------------- | --------------------------------------------------------- |
-| `OutputConfig::Cpal`   | System audio device (default; needs the `cpal` feature).  |
-| `Stdout`               | Raw S16LE on stdout — pipe to any player.                 |
-| `Fifo(path)`           | Raw S16LE into a named FIFO (e.g. a Snapcast pipe).       |
-| `Unix { path, mode }`  | Raw S16LE over a Unix-domain socket (listen or connect).  |
-| `Tcp { addr, mode }`   | Raw S16LE over TCP (listen or connect).                   |
+| Backend               | Where audio goes                                         |
+| --------------------- | -------------------------------------------------------- |
+| `OutputConfig::Cpal`  | System audio device (default; needs the `cpal` feature). |
+| `Stdout`              | Raw S16LE on stdout — pipe to any player.                |
+| `Fifo(path)`          | Raw S16LE into a named FIFO (e.g. a Snapcast pipe).      |
+| `Unix { path, mode }` | Raw S16LE over a Unix-domain socket (listen or connect). |
+| `Tcp { addr, mode }`  | Raw S16LE over TCP (listen or connect).                  |
 
 `OutputConfig` also parses from a compact string (used by the `play`
 example and the FFI layer): `cpal`, `stdout` (or `-`),
@@ -517,6 +517,37 @@ AAC-LATM in TS, and Opus/FLAC inside fragmented MP4.
 cargo run --release --example stream -- hls
 cargo run --release --example stream -- dash
 cargo run --release --example stream -- https://example.com/live/master.m3u8
+```
+
+#### Public test streams
+
+Well-known public streams to try (the first row of each table is the
+`stream` example's built-in default). They are third-party assets and may
+occasionally move or go down; DRM-protected catalogs will fail with the
+documented "not supported" error, so stick to clear streams like these.
+
+**HLS (`.m3u8`)**
+
+| Stream                             | URL                                                                                                    | Notes                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| Mux — Big Buck Bunny               | `https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8`                                                    | VOD, muxed MPEG-TS — audio demuxed out    |
+| Apple bipbop (advanced)            | `https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_hls/master.m3u8`  | fMP4 (CMAF), separate audio renditions    |
+| Apple bipbop (basic 16:9)          | `https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8`    | Classic TS test stream                    |
+| Unified Streaming — Tears of Steel | `https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8` | VOD, dedicated audio playlist             |
+| Akamai live test                   | `https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8`                                  | Live (sliding window, plays until Ctrl-C) |
+
+**MPEG-DASH (`.mpd`)**
+
+| Stream                             | URL                                                                                                   | Notes                                         |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Akamai — Big Buck Bunny 30fps      | `https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd`                                           | Static, SegmentTemplate `$Number$`            |
+| Envivio                            | `https://dash.akamaized.net/envivio/EnvivioDash3/manifest.mpd`                                        | Static, classic AAC audio adaptation set      |
+| Unified Streaming — Tears of Steel | `https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.mpd` | Same asset as the HLS entry, via DASH         |
+| DASH-IF live (SegmentTimeline)     | `https://livesim2.dashif.org/livesim2/segtimeline_1/testpic_2s/Manifest.mpd`                          | Live simulator, SegmentTimeline + MPD refresh |
+| DASH-IF live (`$Number$`)          | `https://livesim2.dashif.org/livesim2/testpic_2s/Manifest.mpd`                                        | Live, open-ended `$Number$` template          |
+
+```sh
+cargo run --release --example stream -- https://dash.akamaized.net/envivio/EnvivioDash3/manifest.mpd
 ```
 
 ## Crossfade fidelity

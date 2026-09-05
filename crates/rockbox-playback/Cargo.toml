@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-playback"
-version = "0.5.0"
+version = "0.6.0"
 description = "Audio playback engine over rockbox-codecs + rockbox-dsp — native ReplayGain and Rockbox crossfade, with configurable output (cpal device, stdout, FIFO, Unix/TCP socket)"
 authors = { workspace = true }
 edition = { workspace = true }
