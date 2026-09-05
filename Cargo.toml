@@ -6,7 +6,7 @@ members = [
   "webui",
 ]
 resolver = "2"
-exclude = ["rmpc", "crates/controls", "gpui"]
+exclude = ["rmpc", "crates/controls", "gpui", "desktop"]
 
 [profile.release]
 panic = "abort"

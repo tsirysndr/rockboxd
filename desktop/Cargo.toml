@@ -1,0 +1,32 @@
+[package]
+name = "rockbox-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Skinnable Slint desktop client for rockboxd (gRPC remote control + library browser)"
+license = "LGPL-2.1"
+
+[[bin]]
+name = "rockbox-desktop"
+path = "src/main.rs"
+
+[dependencies]
+slint = "1.17"
+i-slint-backend-winit = "1.17"
+winit = "0.30"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
+prost = "0.13"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+reqwest = { version = "0.12", default-features = false, features = [] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+dirs = "5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+slint-build = "1.8"
+tonic-build = { version = "0.12", default-features = false, features = ["prost", "transport"] }
+
+[profile.release]
+lto = "thin"
