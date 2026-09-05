@@ -1,0 +1,3 @@
+native/
+node_modules/
+*.tgz

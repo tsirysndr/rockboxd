@@ -1,0 +1,44 @@
+{
+  "name": "@rockboxd/cli",
+  "version": "0.1.0",
+  "description": "Rockbox Daemon — installs the rockbox CLI and rockboxd daemon binaries from GitHub releases",
+  "license": "GPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tsirysndr/rockboxd.git"
+  },
+  "homepage": "https://github.com/tsirysndr/rockboxd",
+  "bugs": {
+    "url": "https://github.com/tsirysndr/rockboxd/issues"
+  },
+  "keywords": [
+    "rockbox",
+    "rockboxd",
+    "audio",
+    "music",
+    "player",
+    "daemon",
+    "cli"
+  ],
+  "bin": {
+    "rockbox": "bin/rockbox.js",
+    "rockboxd": "bin/rockboxd.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "install.js",
+    "bin/rockbox.js",
+    "bin/rockboxd.js",
+    "README.md"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "freebsd"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
