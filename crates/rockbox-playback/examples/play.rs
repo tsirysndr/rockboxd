@@ -1,9 +1,10 @@
 //! Queue player CLI with crossfade + ReplayGain.
 //!
-//! Plays local files **and remote `http(s)://` URLs** — both finite files
-//! (buffered on demand via range requests) and unbounded live streams
-//! (internet radio). Plays every codec the build supports, including
-//! **HE-AAC / AAC+** (`.m4a` with SBR) via `CODEC_AAC_SBR_DEC`.
+//! Plays local files **and remote `http(s)://` URLs** — finite files
+//! (buffered on demand via range requests), unbounded live streams
+//! (internet radio), and **HLS / MPEG-DASH manifests** (`.m3u8` / `.mpd`;
+//! see also the `stream` example). Plays every codec the build supports,
+//! including **HE-AAC / AAC+** (`.m4a` with SBR) via `CODEC_AAC_SBR_DEC`.
 //!
 //! ```sh
 //! # local files, gapless

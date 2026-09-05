@@ -97,6 +97,8 @@ mod http {
 
     /// Result of a one-byte probe GET.
     struct Probe {
+        /// Raw `Content-Type` header, for manifest (HLS/DASH) detection.
+        content_type: Option<String>,
         /// Total length if the server reported one (`None` = unbounded stream).
         length: Option<u64>,
         /// Whether the server honoured `Range` (206).
@@ -155,10 +157,11 @@ mod http {
         let status = resp.status();
         let headers = resp.headers();
 
-        let mime_ext = headers
+        let content_type = headers
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .and_then(mime_to_ext);
+            .map(str::to_string);
+        let mime_ext = content_type.as_deref().and_then(mime_to_ext);
 
         let hdr = |name: &str| {
             headers
@@ -186,6 +189,7 @@ mod http {
         };
 
         Ok(Probe {
+            content_type,
             length,
             ranges,
             mime_ext,
@@ -544,31 +548,55 @@ mod http {
         (!title.is_empty()).then_some(title)
     }
 
-    /// A remote URL resolved to either a seekable finite file or an unbounded
-    /// live stream. See [`open_remote`].
+    /// A remote URL resolved to a seekable finite file, an unbounded live
+    /// stream, or an adaptive (HLS/DASH) presentation. See [`open_remote`].
     pub enum Remote {
         /// A finite, seekable file (fetch into its cache, then decode it).
         File(HttpSource),
         /// An unbounded live stream (decode forward-only).
         Stream(HttpStream),
+        /// An HLS or MPEG-DASH manifest resolved to its segment stream
+        /// (decode forward-only).
+        Adaptive(crate::adaptive::AdaptiveStream),
     }
 
-    /// Probe `url` once and classify it: a server that reports a length is a
-    /// seekable [`Remote::File`]; one that does not (chunked / ICY radio) is a
-    /// [`Remote::Stream`] whose probe response body *is* the stream, so no
-    /// second request is made.
+    /// Probe `url` once and classify it. An HLS/DASH/playlist manifest (by
+    /// `Content-Type` or extension) becomes [`Remote::Adaptive`] (plain
+    /// playlists redirect to their first entry and are re-probed). Otherwise
+    /// a server that reports a length is a seekable [`Remote::File`]; one
+    /// that does not (chunked / ICY radio) is a [`Remote::Stream`] whose
+    /// probe response body *is* the stream, so no second request is made.
     pub fn open_remote(url: &str) -> io::Result<Remote> {
         let client = build_client()?;
-        let p = probe(&client, url)?;
-        match p.length {
-            Some(size) => {
-                let suffix = p.mime_ext.clone().unwrap_or_else(|| url_suffix(url));
-                Ok(Remote::File(HttpSource::build(
-                    client, url, size, p.ranges, &suffix,
-                )?))
+        let mut url = url.to_string();
+        for _ in 0..4 {
+            let p = probe(&client, &url)?;
+            if crate::adaptive::looks_like_manifest(&url, p.content_type.as_deref()) {
+                drop(p); // the probe body is not the media
+                match crate::adaptive::open_manifest(&client, &url)? {
+                    crate::adaptive::ManifestOutcome::Adaptive(s) => {
+                        return Ok(Remote::Adaptive(s));
+                    }
+                    crate::adaptive::ManifestOutcome::Redirect(next) => {
+                        url = next; // plain playlist / single-file DASH
+                        continue;
+                    }
+                }
             }
-            None => Ok(Remote::Stream(HttpStream::from_probe(p, url))),
+            return match p.length {
+                Some(size) => {
+                    let suffix = p.mime_ext.clone().unwrap_or_else(|| url_suffix(&url));
+                    Ok(Remote::File(HttpSource::build(
+                        client, &url, size, p.ranges, &suffix,
+                    )?))
+                }
+                None => Ok(Remote::Stream(HttpStream::from_probe(p, &url))),
+            };
         }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "playlist redirects nested too deep",
+        ))
     }
 
     fn to_io<E: std::fmt::Display>(e: E) -> io::Error {

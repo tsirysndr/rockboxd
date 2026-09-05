@@ -33,12 +33,16 @@
 //! outgoing track's tail, decoding the incoming track's head, and mixing
 //! the two — never by opening two decoders at once.
 
+#[cfg(feature = "http")]
+pub mod adaptive;
 mod crossfade;
 pub mod m3u;
 pub mod output;
 mod resume;
 pub mod source;
 
+#[cfg(feature = "http")]
+pub use adaptive::AdaptiveStream;
 pub use crossfade::{CrossfadeMode, CrossfadeSettings, MixMode};
 pub use m3u::M3uEntry;
 pub use output::{OutputConfig, ParseOutputError, SocketMode};
@@ -1607,6 +1611,11 @@ struct Engine {
     /// Native rate of the current decoder's output (0 = unknown); the DSP
     /// resampler is only reconfigured when this changes.
     input_rate: u32,
+    /// Microseconds of audio decoded so far in the current track, counted
+    /// from the chunks themselves. Fallback position source when the codec
+    /// doesn't report elapsed time (e.g. `aac_bsf` on a bitrate-less
+    /// HLS/DASH stream leaves it to the host).
+    decoded_us: u64,
     /// Live copy of the DSP-chain settings, mirrored into [`Shared::dsp`]
     /// after every change. Also lets `set_bass`/`set_treble` change one tone
     /// axis while preserving the other (the DSP stage recomputes its prescale
@@ -1675,6 +1684,7 @@ impl Engine {
             paused: false,
             finishing: false,
             input_rate: 0,
+            decoded_us: 0,
             dsp_state,
             pending_manual_target: None,
             last_insert_pos: None,
@@ -1815,9 +1825,20 @@ impl Engine {
             self.dsp.set_input_frequency(chunk.sample_rate);
             self.input_rate = chunk.sample_rate;
         }
-        self.shared
-            .decode_pos_ms
-            .store(dec.elapsed().as_millis() as u64, Ordering::Relaxed);
+        if chunk.sample_rate > 0 {
+            let frames = (chunk.pcm.len() / 2) as u64;
+            self.decoded_us += frames * 1_000_000 / chunk.sample_rate as u64;
+        }
+        // Prefer the codec's own elapsed time; some codecs can't report one
+        // (aac_bsf without a known bitrate) and leave it at 0 — fall back to
+        // the frame count decoded so far.
+        let codec_ms = dec.elapsed().as_millis() as u64;
+        let pos_ms = if codec_ms > 0 {
+            codec_ms
+        } else {
+            self.decoded_us / 1000
+        };
+        self.shared.decode_pos_ms.store(pos_ms, Ordering::Relaxed);
         let mut out = Vec::new();
         self.dsp.process(&chunk.pcm, &mut out);
         Some(out)
@@ -2234,6 +2255,7 @@ impl Engine {
     fn seek(&mut self, pos: Duration) {
         if let Some(dec) = self.decoder.as_mut() {
             dec.seek(pos);
+            self.decoded_us = pos.as_micros() as u64;
             self.dsp.flush();
             self.shared.ring.lock().unwrap().clear();
             self.shared
@@ -2305,6 +2327,24 @@ impl Engine {
                         Err(_) => Some(false),
                     }
                 }
+                Ok(source::Remote::Adaptive(stream)) => {
+                    // HLS / MPEG-DASH: segments arrive as one forward-only
+                    // demuxed bitstream. VOD presentations know their
+                    // duration up front; live ones play until the origin
+                    // stops. No seeking either way (forward-only stream).
+                    self.current_source = None;
+                    let ext = stream.format_ext().to_string();
+                    let mut base = Metadata::default();
+                    base.codec = format!("{} {}", stream.kind_label(), ext.to_uppercase());
+                    base.sample_rate = stream.sample_rate();
+                    if let Some(d) = stream.duration() {
+                        base.duration = d;
+                    }
+                    match Decoder::open_stream(Box::new(stream), &ext, base) {
+                        Ok(dec) => Some(self.install_decoder(dec, false)),
+                        Err(_) => Some(false),
+                    }
+                }
                 Ok(source::Remote::Stream(stream)) => {
                     // Unbounded: no random access, so skip get_metadata and
                     // decode the response body forward-only.
@@ -2355,6 +2395,7 @@ impl Engine {
                 start_ms = pos.as_millis() as u64;
             }
         }
+        self.decoded_us = start_ms * 1000;
         self.shared.decode_pos_ms.store(start_ms, Ordering::Relaxed);
         self.shared.index.store(self.index, Ordering::Relaxed);
         apply_replaygain_track(&mut self.dsp, &meta);
@@ -2367,6 +2408,7 @@ impl Engine {
 
     fn reset_current(&mut self) {
         self.decoder = None;
+        self.decoded_us = 0;
         self.current_source = None; // drop any HTTP temp cache
         #[cfg(feature = "http")]
         {

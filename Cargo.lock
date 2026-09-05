@@ -9994,6 +9994,7 @@ name = "rockbox-playback"
 version = "0.5.0"
 dependencies = [
  "cpal",
+ "quick-xml 0.37.5",
  "reqwest",
  "rockbox-codecs",
  "rockbox-dsp",

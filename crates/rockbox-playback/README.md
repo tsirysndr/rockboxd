@@ -63,7 +63,11 @@ let player = PlayerConfig::builder()
 - **HTTP(S) remote media** (feature `http`, on by default): queue
   `http(s)://` URLs alongside local files. Seekable files are fetched with
   HTTP **range requests** into a local cache; **unbounded live streams**
-  (internet radio) are decoded on the fly, never downloaded in full. The
+  (internet radio) are decoded on the fly, never downloaded in full;
+  **HLS** (`.m3u8`) and **MPEG-DASH** (`.mpd`) manifests — live or VOD —
+  are played through a built-in segment fetcher with MPEG-TS and
+  fragmented-MP4 audio demuxing (see
+  [Adaptive streaming](#adaptive-streaming-hls--mpeg-dash)). The
   format is detected from the `Content-Type` header (see
   [Remote media](#remote-media-http)).
 - **Gapless by default** — the buffered tail of each track plays out before
@@ -419,6 +423,10 @@ src.read_exact(&mut buf)?;
 
 A single probe classifies each URL:
 
+- **Adaptive manifest** (`.m3u8` / `.mpd`, or an HLS/DASH `Content-Type`):
+  resolved into a segment stream — see
+  [Adaptive streaming](#adaptive-streaming-hls--mpeg-dash). A **plain**
+  remote M3U/PLS playlist redirects to its first entry.
 - **Seekable finite file** (the server reports a length): playback starts
   as soon as the **header** is buffered — only ~512 KiB is fetched up front
   (via a range request) to read the format/rate/duration, then the codec
@@ -464,6 +472,51 @@ decoded rate → `sample_rate`. The `play` example renders these live:
 ```sh
 # live radio — prints the now-playing song, station, bitrate & sample rate
 cargo run --release --example play -- https://ec7.yesstreaming.net:1360/stream
+```
+
+### Adaptive streaming (HLS / MPEG-DASH)
+
+A queue entry can also be an **HLS** playlist (`.m3u8`) or an **MPEG-DASH**
+manifest (`.mpd`) — live or VOD. The engine:
+
+1. downloads the manifest and picks the best **audio** rendition — for HLS,
+   the highest-bandwidth audio-only variant (or a dedicated `EXT-X-MEDIA`
+   audio playlist); for DASH, the highest-bandwidth representation of the
+   audio adaptation set. Video-only variants fall back to the
+   lowest-bandwidth one, since the video is demuxed away;
+2. fetches media segments sequentially, reloading the playlist/manifest for
+   live streams (media-sequence tracking for HLS; `SegmentTimeline` refresh
+   or an open-ended `$Number$` template for DASH);
+3. demuxes each segment container down to a bitstream the Rockbox codecs
+   decode directly: **MPEG-TS** (PAT/PMT/PES → ADTS AAC or MP3) and
+   **fragmented MP4** (`esds`/`moof`/`trun` → ADTS-wrapped AAC, or raw MP3),
+   while raw `.aac`/`.mp3` "packed audio" segments pass through with their
+   ID3 timed-metadata tags stripped.
+
+```rust,no_run
+use rockbox_playback::Player;
+
+let player = Player::new()?;
+player.set_queue(vec![
+    "https://example.com/live/master.m3u8".to_string(), // HLS (master or media)
+    "https://example.com/vod/manifest.mpd".to_string(), // MPEG-DASH
+]);
+player.play();
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+VOD presentations report their total duration (`status().duration`) and end
+normally; live ones show duration 0 and play until skipped or stopped. The
+stream is consumed forward-only, so there is **no seeking** (like radio).
+The codec label carries the protocol (`"HLS AAC"`, `"DASH AAC"`). Not
+supported: encrypted HLS (`EXT-X-KEY`), DASH ContentProtection (DRM),
+AAC-LATM in TS, and Opus/FLAC inside fragmented MP4.
+
+```sh
+# public HLS test stream / public MPEG-DASH test stream / your own URL
+cargo run --release --example stream -- hls
+cargo run --release --example stream -- dash
+cargo run --release --example stream -- https://example.com/live/master.m3u8
 ```
 
 ## Crossfade fidelity

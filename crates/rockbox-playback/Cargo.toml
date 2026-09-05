@@ -13,8 +13,10 @@ categories = ["multimedia::audio"]
 [features]
 default = ["http", "cpal"]
 # HTTP(S) remote media support: stream/decode `http(s)://` URLs via ranged
-# requests, backed by `reqwest`. Disable for a leaner, local-file-only build.
-http = ["dep:reqwest", "dep:tempfile"]
+# requests, backed by `reqwest`. Also enables adaptive streaming (HLS `.m3u8`
+# and MPEG-DASH `.mpd` manifests, with MPEG-TS and fragmented-MP4 segment
+# demuxing). Disable for a leaner, local-file-only build.
+http = ["dep:reqwest", "dep:tempfile", "dep:quick-xml"]
 # System-audio output via `cpal` (the default `OutputConfig::Cpal` backend).
 # Disable to drop the `cpal` dependency and use only the byte-stream backends
 # (stdout / FIFO / Unix / TCP), e.g. on a headless host with no audio device.
@@ -30,5 +32,6 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls-native-roots",
 ], optional = true }
 tempfile = { version = "3", optional = true }
+quick-xml = { version = "0.37", optional = true }
 
 [dev-dependencies]
