@@ -102,8 +102,8 @@ decoder.finished(dec)                                // #(True, 0)  (0 = clean)
 let p = player.with_config(player.Config(..player.default_config(), volume: 0.8))
 player.set_replaygain(p, 1, 0.0, True)              // 1 = track (player)
 // Queue entries may be local files, http(s):// URLs to remote media,
-// or live-radio / streaming URLs — mix and match freely.
-player.set_queue(p, ["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
+// or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
+player.set_queue(p, ["a.flac", "https://example.com/b.mp3", "http://radio.example/stream", "https://cdn.example.com/live/main.m3u8"])
 player.play(p)
 player.status(p)   // Status(state: "playing", index: Some(0), ...)
 ```

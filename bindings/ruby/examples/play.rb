@@ -1,8 +1,14 @@
 # frozen_string_literal: true
 
-# Play a local audio file or an http(s):// URL through the real output device.
+# Play an audio source through the real output device.
 #
-# Run: ruby -Ilib examples/play.rb [path-to-audio | http(s)-url]
+# The queue entry can be a local file, a remote http(s):// URL, an
+# internet-radio stream, or an HLS (.m3u8) / MPEG-DASH (.mpd) manifest —
+# the engine detects each kind automatically.
+#
+# Run: ruby -Ilib examples/play.rb [path-or-URL]
+#      ruby -Ilib examples/play.rb hls    # public HLS test stream
+#      ruby -Ilib examples/play.rb dash   # public MPEG-DASH test stream
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "rockbox_ffi"
@@ -10,8 +16,15 @@ require "rockbox_ffi"
 REPO = File.expand_path("../../..", __dir__)
 FIXTURE = File.join(REPO, "crates", "rocksky", "fixtures", "08 - Internet Money - Speak(Explicit).m4a")
 
-# The queue accepts local files and http(s):// URLs (remote media / live radio).
-file = ARGV[0] || FIXTURE
+# Public adaptive-streaming test streams (see crates/rockbox-playback/README.md
+# for more).
+HLS_DEFAULT = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+DASH_DEFAULT = "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd"
+
+# The queue accepts local files, http(s):// URLs (remote media / live radio),
+# and HLS / MPEG-DASH manifest URLs.
+arg = ARGV[0] || FIXTURE
+file = { "hls" => HLS_DEFAULT, "dash" => DASH_DEFAULT }.fetch(arg, arg)
 if !RockboxFFI.is_url?(file) && !File.exist?(file)
   abort "no such file: #{file}"
 end
@@ -39,11 +52,15 @@ trap("INT") do
 end
 
 # Poll status until playback finishes (state returns to "stopped").
+# A live stream reports duration 0 and plays until Ctrl-C.
 loop do
   st = player.status
   pos = st[:position_ms] / 1000.0
   dur = st[:duration_ms] / 1000.0
-  printf("\r[%s] %.1fs / %.1fs   ", st[:state], pos, dur)
+  clock = dur.zero? ? format("%.1fs / LIVE", pos) : format("%.1fs / %.1fs", pos, dur)
+  # The codec label carries the protocol for adaptive streams (e.g. "HLS AAC").
+  codec = st.dig(:metadata, :codec) || ""
+  printf("\r[%s] %s %s   ", st[:state], codec, clock)
   $stdout.flush
 
   if st[:state] == "stopped" && st[:position_ms].positive?

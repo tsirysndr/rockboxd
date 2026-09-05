@@ -118,8 +118,8 @@ Rockbox.Decoder.finished(dec)                            # {true, 0}  (0 = clean
 p = Rockbox.Player.new(volume: 0.8, crossfade_mode: 5)   # 5 = always
 Rockbox.Player.set_replaygain(p, 1, 0.0, true)           # 1 = track (player)
 # Queue entries may be local files, http(s):// URLs to remote media,
-# or live-radio / streaming URLs — mix and match freely.
-Rockbox.Player.set_queue(p, ["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
+# or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
+Rockbox.Player.set_queue(p, ["a.flac", "https://example.com/b.mp3", "http://radio.example/stream", "https://cdn.example.com/live/main.m3u8"])
 Rockbox.Player.play(p)
 Rockbox.Player.status(p)   # %{state: "playing", index: 0, ...}
 ```

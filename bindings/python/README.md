@@ -87,8 +87,8 @@ with Player(volume=0.8) as player:
     player.set_replaygain(ReplayGainMode.TRACK, preamp_db=0.0, prevent_clipping=True)
     player.set_crossfade(CrossfadeMode.ALWAYS)
     # Queue entries may be local files, http(s):// URLs to remote media,
-    # or live-radio / streaming URLs — mix and match freely.
-    player.set_queue(["a.flac", "https://example.com/b.mp3", "http://radio.example/stream"])
+    # or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
+    player.set_queue(["a.flac", "https://example.com/b.mp3", "http://radio.example/stream", "https://cdn.example.com/live/main.m3u8"])
     player.play()
     print(player.status())     # {'state': 'playing', 'index': 0, ...}
 ```

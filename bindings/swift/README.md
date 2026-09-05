@@ -111,11 +111,12 @@ let (done, code) = dec.finished()                    // (true, 0)  (0 = clean en
 var cfg = Player.Config(); cfg.volume = 0.8
 let player = try Player(config: cfg)
 // Queue entries may be local files, http(s):// URLs to remote media,
-// or live-radio / streaming URLs — mix and match freely.
+// or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
 try player.setQueue([
     "/music/a.flac",
     "https://example.com/b.mp3",
     "http://radio.example/stream",
+    "https://cdn.example.com/live/main.m3u8",
 ])
 player.play()
 

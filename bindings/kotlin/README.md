@@ -67,11 +67,12 @@ Decoder("/music/song.flac").use { dec ->
 // Player (queue + transport)
 Player(Player.Config().apply { volume = 0.8f }).use { player ->
     // Queue entries may be local files, http(s):// URLs to remote media,
-    // or live-radio / streaming URLs — mix and match freely.
+    // or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
     player.setQueue(listOf(
         "/music/a.flac",
         "https://example.com/b.mp3",
         "http://radio.example/stream",
+        "https://cdn.example.com/live/main.m3u8",
     ))
     player.play()
     println(player.status()["state"])

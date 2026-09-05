@@ -70,10 +70,11 @@ mise exec -- clojure -M:play /path/to/audio     # play through the output device
 ;; Player (queue + transport)
 (player/with-player [p {:volume 0.8}]
   ;; Queue entries may be local files, http(s):// URLs to remote media,
-  ;; or live-radio / streaming URLs — mix and match freely.
+  ;; or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
   (player/set-queue p ["/music/a.flac"
                        "https://example.com/b.mp3"
-                       "http://radio.example/stream"])
+                       "http://radio.example/stream"
+                       "https://cdn.example.com/live/main.m3u8"])
   (player/play p)
   (:state (player/status p)))
 ```

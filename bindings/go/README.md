@@ -96,8 +96,8 @@ func main() {
 	player.SetReplaygain(rockbox.ReplayGainTrack, 0.0, true)
 	player.SetCrossfade(rockbox.CrossfadeAlways, 0, 2000, 0, 2000, rockbox.MixCrossfade)
 	// Queue entries may be local files, http(s):// URLs to remote media,
-	// or live-radio / streaming URLs — mix and match freely.
-	player.SetQueue([]string{"a.flac", "https://example.com/b.mp3", "http://radio.example/stream"})
+	// or live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
+	player.SetQueue([]string{"a.flac", "https://example.com/b.mp3", "http://radio.example/stream", "https://cdn.example.com/live/main.m3u8"})
 	player.Play()
 	st, _ := player.Status() // => &Status{State: "playing", ...}
 	_ = st

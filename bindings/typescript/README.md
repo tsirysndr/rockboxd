@@ -102,11 +102,12 @@ dec.close();
 const player = new Player({ volume: 0.8, crossfadeMode: CrossfadeMode.ALWAYS });
 player.setReplaygain(ReplayGainMode.TRACK, 0.0, true);
 // Queue entries may be local files, http(s):// URLs to remote media, or
-// live-radio / streaming URLs — mix and match freely.
+// live-radio streams, or HLS / MPEG-DASH manifests (.m3u8/.mpd) — mix and match freely.
 player.setQueue([
   "a.flac",
   "https://example.com/b.mp3",
   "http://radio.example/stream",
+  "https://cdn.example.com/live/main.m3u8",
 ]);
 player.play();
 console.log(player.status()); // { state: "playing", index: 0, ... }

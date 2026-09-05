@@ -306,8 +306,9 @@ macro_rules! player_or {
 
 /// Replace the queue from a JSON array of strings, e.g.
 /// `["a.flac","https://host/song.mp3"]`. Each entry may be a local file
-/// path, an `http(s)://` URL to a finite remote file, or a live-radio /
-/// streaming URL. Invalid JSON is ignored.
+/// path, an `http(s)://` URL to a finite remote file, a live-radio /
+/// streaming URL, or an HLS (`.m3u8`) / MPEG-DASH (`.mpd`) manifest URL.
+/// Invalid JSON is ignored.
 #[no_mangle]
 pub extern "C" fn rb_player_set_queue_json(p: *mut Player, json: *const c_char) {
     let player = player!(p);
@@ -318,8 +319,8 @@ pub extern "C" fn rb_player_set_queue_json(p: *mut Player, json: *const c_char) 
 }
 
 /// Append one track to the end of the queue. `path` may be a local file
-/// path, an `http(s)://` URL to a finite remote file, or a live-radio /
-/// streaming URL.
+/// path, an `http(s)://` URL to a finite remote file, a live-radio /
+/// streaming URL, or an HLS (`.m3u8`) / MPEG-DASH (`.mpd`) manifest URL.
 #[no_mangle]
 pub extern "C" fn rb_player_enqueue(p: *mut Player, path: *const c_char) {
     let player = player!(p);

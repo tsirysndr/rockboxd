@@ -100,10 +100,12 @@ last reference to the handle stops playback.
 ```erlang
 P = rockbox_ffi_nif:player_new(),
 
-%% Queue local files and/or http(s)/stream URLs.
+%% Queue local files, http(s)/stream URLs and/or HLS (.m3u8) /
+%% MPEG-DASH (.mpd) manifests.
 Queue = json:encode([<<"/music/a.mp3">>, <<"/music/b.flac">>]),
 rockbox_ffi_nif:player_set_queue_json(P, Queue),
 rockbox_ffi_nif:player_enqueue(P, <<"http://host/stream.mp3">>),
+rockbox_ffi_nif:player_enqueue(P, <<"https://cdn.example.com/live/main.m3u8">>),
 
 rockbox_ffi_nif:player_set_volume(P, 0.8),
 rockbox_ffi_nif:player_play(P),

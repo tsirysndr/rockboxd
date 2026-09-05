@@ -22,7 +22,9 @@ The public surface is declared in [`include/rockbox_ffi.h`](../../include/rockbo
 
 - **Transport / queue** — `play` / `pause` / `toggle` / `stop`, `next` /
   `previous` / `skip_to`, `seek_ms`, `set_volume`, `set_queue_json`,
-  `enqueue`, `queue_json`.
+  `enqueue`, `queue_json`. Queue entries may be local files, remote
+  `http(s)://` files, live-radio streams, or **HLS** (`.m3u8`) /
+  **MPEG-DASH** (`.mpd`) manifests — detected automatically.
 - **Rockbox queue insertion** — `rb_player_insert_json(json, position, index)`
   with the full position set (0 prepend, 1 insert, 2 insert-next,
   3 insert-last, 4 shuffled, 5 last-shuffled, 6 replace, 7 explicit index).

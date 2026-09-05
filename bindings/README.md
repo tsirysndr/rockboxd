@@ -62,7 +62,10 @@ Each binding exposes the same three surfaces with matching method names:
 - **Dsp** — `new(sample_rate)`, EQ / tone / surround / compressor /
   ReplayGain setters, and `process(samples)` over interleaved stereo int16.
 - **Player** — queue + transport (`play` / `pause` / `next` / `seek` / …),
-  crossfade, ReplayGain, and `status()`.
+  crossfade, ReplayGain, and `status()`. Queue entries may be local files,
+  remote `http(s)://` files, live-radio streams, or **HLS** (`.m3u8`) /
+  **MPEG-DASH** (`.mpd`) manifests — the engine detects each kind
+  automatically.
 
 ## Design notes
 
