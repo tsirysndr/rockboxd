@@ -56,6 +56,7 @@ and Squeezelite.
   - [HTTP REST](#http-rest)
   - [gRPC](#grpc)
   - [S3-compatible API](#s3-compatible-api)
+- [🧬 Language Bindings](#-language-bindings)
 - [📖 Documentation](#-documentation)
 
 ---
@@ -871,6 +872,49 @@ mp4, alac, wav, wv, mpc, aiff, aif, ac3, opus, spx, sid, ape, wma`.
 
 Single-shot uploads only — multipart upload and `STREAMING-AWS4-HMAC-SHA256-PAYLOAD`
 are not yet implemented (cap per PUT: 2 GiB).
+
+---
+
+## 🧬 Language Bindings
+
+The Rockbox **metadata** (tag parsing), **DSP** (EQ / tone / crossfeed /
+compressor / ReplayGain), and **player** (queue + transport) engines are
+available as native libraries in 11 languages under
+[`bindings/`](./bindings). Every binding sits on the same flat C ABI —
+[`crates/rockbox-ffi`](./crates/rockbox-ffi), declared in
+[`include/rockbox_ffi.h`](./include/rockbox_ffi.h) — and exposes matching
+method names, so switching languages is a rename, not a rewrite.
+
+Build the shared library once from the repo root, then use any binding:
+
+```sh
+cargo build --release -p rockbox-ffi
+```
+
+| Language       | Directory                                      | Mechanism                    |
+| -------------- | ---------------------------------------------- | ---------------------------- |
+| Python         | [`bindings/python`](./bindings/python)         | `cffi` (dlopen)              |
+| Go             | [`bindings/go`](./bindings/go)                 | `purego` (dlopen, no cgo)    |
+| TypeScript     | [`bindings/typescript`](./bindings/typescript) | Bun / Deno / Node.js FFI     |
+| Erlang         | [`bindings/erlang`](./bindings/erlang)         | `erl_nif` (shared NIF)       |
+| Elixir         | [`bindings/elixir`](./bindings/elixir)         | `erl_nif` (shared NIF)       |
+| Gleam          | [`bindings/gleam`](./bindings/gleam)           | `erl_nif` (shared NIF)       |
+| Ruby           | [`bindings/ruby`](./bindings/ruby)             | `fiddle` (dlopen)            |
+| Swift          | [`bindings/swift`](./bindings/swift)           | `dlopen` (pure Swift)        |
+| Kotlin         | [`bindings/kotlin`](./bindings/kotlin)         | Java FFM (Panama, JDK 22+)   |
+| Clojure        | [`bindings/clojure`](./bindings/clojure)       | Java FFM (Panama, JDK 22+)   |
+| WASM (browser) | [`bindings/wasm`](./bindings/wasm)             | Emscripten (single-threaded) |
+
+Published packages bundle a prebuilt `librockbox_ffi` for each platform, so
+end users install without a Rust toolchain — Python wheels, Ruby gems, npm
+`@rockbox-ffi/<platform>` packages, one multi-target jar each on Maven Central
+(`io.github.tsirysndr:rockbox-ffi`) and Clojars
+(`io.github.tsirysndr/rockbox-clj-ffi`), and the browser build ships as the
+`rockbox-wasm` npm package.
+
+See [`bindings/README.md`](./bindings/README.md) for the full architecture,
+smoke-test parity, and release/publishing workflow, and
+[`WEBASSEMBLY.md`](./WEBASSEMBLY.md) for the WASM writeup.
 
 ---
 
