@@ -116,8 +116,8 @@ fn config_dir() -> Option<PathBuf> {
 
 pub fn load_all() -> Vec<Skin> {
     let mut skins: Vec<Skin> = [
-        include_str!("../skins/synthwave.toml"),
         include_str!("../skins/late-night.toml"),
+        include_str!("../skins/synthwave.toml"),
         include_str!("../skins/neutron.toml"),
         include_str!("../skins/lunar.toml"),
         include_str!("../skins/porcelain.toml"),

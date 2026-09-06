@@ -17,12 +17,21 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
 prost = "0.13"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+md5 = "0.7"
+mdns-sd = "0.11"
+if-addrs = "0.13"
 toml = "0.8"
-reqwest = { version = "0.12", default-features = false, features = [] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-app-kit = { version = "0.2", features = ["NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = "0.2"
 
 [build-dependencies]
 slint-build = "1.8"

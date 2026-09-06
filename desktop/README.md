@@ -32,6 +32,14 @@ FL Studio / VST synth UIs (neon accents).
   Changes are coalesced and applied live via `SettingsService.SaveSettings`.
 - **VFD display** — jetAudio-style readout with elapsed time, codec,
   bitrate, sample rate and animated LED VU meters.
+- **Server switcher** — click the address at the bottom of the sidebar for a
+  Raycast-style list: the embedded daemon, LAN rockboxd peers (mDNS,
+  `_rockbox._tcp`), saved Subsonic/Jellyfin servers, or type `host:port` to
+  connect to any remote rockboxd; switching re-points every gRPC stream live.
+- **Playlists** — create (name + description), edit, delete; add tracks via a
+  Raycast-style picker; per-track remove; playlists appear in the `/` palette.
+- **Remote servers** — Subsonic/Navidrome and Jellyfin browsing/streaming via
+  the daemon's `navidrome://` / `jellyfin://` browse schemes (Servers tab).
 - **Skins** — five bundled (`Synthwave` default, `Late Night`, `Neutron`,
   `Lunar`, `Porcelain`); press `s` or click the SKIN entry in the sidebar to cycle. The
   choice persists in `~/.config/rockbox.org/desktop-skin`.

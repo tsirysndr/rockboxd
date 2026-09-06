@@ -7,6 +7,7 @@
 
 mod daemon;
 mod rpc;
+mod servers;
 mod skin;
 
 use std::cell::RefCell;
@@ -28,13 +29,23 @@ struct UiState {
     tracks: Vec<rpc::TrackData>,
     liked: Vec<rpc::TrackData>,
     audio: rpc::AudioSettingsData,
+    servers: Vec<servers::SavedServer>,
+    /// Browse navigation stack of (title, path); top = current level.
+    browse_stack: Vec<(String, String)>,
+    playlists: Vec<rpc::PlaylistData>,
+    discovered: Vec<(String, String, u16)>,
+    switcher_query: String,
+    active_server: String,
+    pl_detail_id: Option<String>,
+    pl_detail_track_ids: Vec<String>,
+    picker_query: String,
 }
 
 thread_local! {
     static STATE: RefCell<UiState> = RefCell::new(UiState::default());
 }
 
-fn track_item(t: &rpc::TrackData) -> TrackItem {
+fn track_item_with(t: &rpc::TrackData, liked_ids: &std::collections::HashSet<String>) -> TrackItem {
     TrackItem {
         id: t.id.clone().into(),
         title: t.title.clone().into(),
@@ -42,7 +53,18 @@ fn track_item(t: &rpc::TrackData) -> TrackItem {
         album: t.album.clone().into(),
         duration: rpc::format_time(t.length_ms as f64 / 1000.0).into(),
         index: t.index,
+        track_no: if t.track_no > 0 {
+            t.track_no
+        } else {
+            t.index + 1
+        },
+        liked: liked_ids.contains(&t.id),
+        album_id: t.album_id.clone().into(),
     }
+}
+
+fn liked_ids_of(liked: &[rpc::TrackData]) -> std::collections::HashSet<String> {
+    liked.iter().map(|t| t.id.clone()).collect()
 }
 
 fn album_item(a: &AlbumEntry) -> AlbumItem {
@@ -81,8 +103,9 @@ pub fn ui_set_library(app: &AppWindow, data: rpc::LibraryData) {
                 name: a.name.clone().into(),
             })
             .collect();
-        let tracks: Vec<TrackItem> = st.tracks.iter().map(track_item).collect();
-        let liked: Vec<TrackItem> = st.liked.iter().map(track_item).collect();
+        let ids = liked_ids_of(&st.liked);
+        let tracks: Vec<TrackItem> = st.tracks.iter().map(|t| track_item_with(t, &ids)).collect();
+        let liked: Vec<TrackItem> = st.liked.iter().map(|t| track_item_with(t, &ids)).collect();
 
         app.set_albums(ModelRc::new(VecModel::from(albums)));
         app.set_artists(ModelRc::new(VecModel::from(artists)));
@@ -127,8 +150,9 @@ pub fn ui_set_queue(
     upnext: Vec<rpc::TrackData>,
     history: Vec<rpc::TrackData>,
 ) {
-    let upnext: Vec<TrackItem> = upnext.iter().map(track_item).collect();
-    let history: Vec<TrackItem> = history.iter().map(track_item).collect();
+    let ids = STATE.with(|s| liked_ids_of(&s.borrow().liked));
+    let upnext: Vec<TrackItem> = upnext.iter().map(|t| track_item_with(t, &ids)).collect();
+    let history: Vec<TrackItem> = history.iter().map(|t| track_item_with(t, &ids)).collect();
     app.set_queue_total(total as i32);
     app.set_queue_upnext(ModelRc::new(VecModel::from(upnext)));
     app.set_queue_history(ModelRc::new(VecModel::from(history)));
@@ -144,6 +168,7 @@ pub fn ui_show_album_detail(app: &AppWindow, detail: rpc::AlbumDetailData) {
             .map(|img| (img, true))
             .unwrap_or_default()
     });
+    let liked_ids = STATE.with(|s| liked_ids_of(&s.borrow().liked));
     let total_s: u64 = detail.tracks.iter().map(|t| t.length_ms / 1000).sum();
     let duration = if total_s >= 3600 {
         format!("{} hr {} min", total_s / 3600, (total_s % 3600) / 60)
@@ -157,7 +182,36 @@ pub fn ui_show_album_detail(app: &AppWindow, detail: rpc::AlbumDetailData) {
     }
     meta.push_str(&format!("{} tracks · {duration}", detail.tracks.len()));
 
-    let tracks: Vec<TrackItem> = detail.tracks.iter().map(track_item).collect();
+    // Group by disc when the album spans more than one.
+    let discs: std::collections::BTreeSet<i32> =
+        detail.tracks.iter().map(|t| t.disc.max(1)).collect();
+    let mut rows: Vec<DetailRow> = Vec::new();
+    if discs.len() > 1 {
+        for disc in discs {
+            rows.push(DetailRow {
+                is_header: true,
+                header: format!("DISC {disc}").into(),
+                track: TrackItem::default(),
+            });
+            rows.extend(
+                detail
+                    .tracks
+                    .iter()
+                    .filter(|t| t.disc.max(1) == disc)
+                    .map(|t| DetailRow {
+                        is_header: false,
+                        header: "".into(),
+                        track: track_item_with(t, &liked_ids),
+                    }),
+            );
+        }
+    } else {
+        rows.extend(detail.tracks.iter().map(|t| DetailRow {
+            is_header: false,
+            header: "".into(),
+            track: track_item_with(t, &liked_ids),
+        }));
+    }
     app.set_detail_album(AlbumItem {
         id: detail.id.into(),
         title: detail.title.into(),
@@ -168,8 +222,54 @@ pub fn ui_show_album_detail(app: &AppWindow, detail: rpc::AlbumDetailData) {
     });
     app.set_detail_meta(meta.into());
     app.set_detail_label(detail.label.into());
-    app.set_detail_tracks(ModelRc::new(VecModel::from(tracks)));
+    app.set_detail_tracks(ModelRc::new(VecModel::from(rows)));
     app.set_show_detail(true);
+}
+
+// ── Remote servers / browsing ───────────────────────────────────────────────
+
+fn server_item(s: &servers::SavedServer) -> ServerItem {
+    ServerItem {
+        kind: s.kind.clone().into(),
+        name: s.name.clone().into(),
+        url: s.url.clone().into(),
+    }
+}
+
+fn refresh_servers_model(app: &AppWindow) {
+    let items: Vec<ServerItem> =
+        STATE.with(|s| s.borrow().servers.iter().map(server_item).collect());
+    app.set_servers(ModelRc::new(VecModel::from(items)));
+}
+
+/// Called from the rpc worker when a browse level has been fetched.
+pub fn ui_browse_opened(
+    app: &AppWindow,
+    title: String,
+    path: String,
+    entries: Vec<rpc::BrowseEntryData>,
+    push: bool,
+) {
+    STATE.with(|s| {
+        let mut st = s.borrow_mut();
+        if push {
+            st.browse_stack.push((title, path));
+        }
+        let crumbs: Vec<&str> = st.browse_stack.iter().map(|(t, _)| t.as_str()).collect();
+        app.set_browse_title(crumbs.join("  ›  ").into());
+    });
+    let items: Vec<BrowseItem> = entries
+        .iter()
+        .map(|e| BrowseItem {
+            name: e.name.clone().into(),
+            path: e.path.clone().into(),
+            is_dir: e.is_dir,
+        })
+        .collect();
+    app.set_browse_entries(ModelRc::new(VecModel::from(items)));
+    app.set_browse_loading(false);
+    app.set_browse_error("".into());
+    app.set_browsing(true);
 }
 
 fn push_audio_to_ui(app: &AppWindow, a: &rpc::AudioSettingsData) {
@@ -205,6 +305,217 @@ pub fn ui_set_audio_settings(app: &AppWindow, data: rpc::AudioSettingsData) {
     STATE.with(|s| s.borrow_mut().audio = data);
 }
 
+// ── Playlists ───────────────────────────────────────────────────────────────
+
+fn playlist_item(p: &rpc::PlaylistData) -> PlaylistItem {
+    PlaylistItem {
+        id: p.id.clone().into(),
+        name: p.name.clone().into(),
+        description: p.description.clone().into(),
+        count: p.track_count as i32,
+    }
+}
+
+pub fn ui_set_playlists(app: &AppWindow, data: Vec<rpc::PlaylistData>) {
+    let items: Vec<PlaylistItem> = data.iter().map(playlist_item).collect();
+    STATE.with(|s| s.borrow_mut().playlists = data);
+    app.set_playlists(ModelRc::new(VecModel::from(items)));
+    // Refresh an open detail header (name/description/count may have changed).
+    let id = app.get_pl_detail().id.to_string();
+    if !id.is_empty() {
+        if let Some(p) = STATE.with(|s| s.borrow().playlists.iter().find(|p| p.id == id).cloned()) {
+            app.set_pl_detail(playlist_item(&p));
+        }
+    }
+}
+
+/// Called from the rpc worker with a playlist's track ids.
+pub fn ui_show_playlist(app: &AppWindow, id: String, track_ids: Vec<String>, open_picker: bool) {
+    let tracks: Vec<TrackItem> = STATE.with(|s| {
+        let mut st = s.borrow_mut();
+        st.pl_detail_id = Some(id.clone());
+        st.pl_detail_track_ids = track_ids.clone();
+        let ids = liked_ids_of(&st.liked);
+        track_ids
+            .iter()
+            .filter_map(|tid| st.tracks.iter().find(|t| &t.id == tid))
+            .map(|t| track_item_with(t, &ids))
+            .collect()
+    });
+    if let Some(p) = STATE.with(|s| s.borrow().playlists.iter().find(|p| p.id == id).cloned()) {
+        app.set_pl_detail(playlist_item(&p));
+    }
+    app.set_pl_detail_tracks(ModelRc::new(VecModel::from(tracks)));
+    app.set_pl_detail_open(true);
+    app.set_current_tab(5);
+    if open_picker {
+        app.invoke_open_track_picker();
+    } else if app.get_show_track_picker() {
+        // Keep the picker results in sync after an add.
+        let query = STATE.with(|s| s.borrow().picker_query.clone());
+        app.set_picker_results(ModelRc::new(VecModel::from(picker_results(&query))));
+    }
+}
+
+/// Track-only palette results for the add-to-playlist picker; tracks already
+/// in the playlist are hidden.
+fn picker_results(query: &str) -> Vec<PaletteItem> {
+    let q = query.trim().to_lowercase();
+    STATE.with(|s| {
+        let st = s.borrow();
+        st.tracks
+            .iter()
+            .filter(|t| !st.pl_detail_track_ids.contains(&t.id))
+            .filter(|t| {
+                q.is_empty()
+                    || [&t.title, &t.artist, &t.album]
+                        .iter()
+                        .any(|f| f.to_lowercase().contains(&q))
+            })
+            .take(12)
+            .map(|t| {
+                let art = st
+                    .albums
+                    .iter()
+                    .find(|a| a.data.title == t.album && a.data.artist == t.artist)
+                    .and_then(|a| a.image.clone());
+                PaletteItem {
+                    kind: "track".into(),
+                    id: t.id.clone().into(),
+                    title: t.title.clone().into(),
+                    subtitle: format!("{} · {}", t.artist, t.album).into(),
+                    index: t.index,
+                    has_art: art.is_some(),
+                    art: art.unwrap_or_default(),
+                }
+            })
+            .collect()
+    })
+}
+
+/// Called after a like/unlike round-trip: refresh liked list + hearts.
+pub fn ui_set_liked(app: &AppWindow, liked: Vec<rpc::TrackData>) {
+    STATE.with(|s| s.borrow_mut().liked = liked);
+    STATE.with(|s| {
+        let st = s.borrow();
+        let ids = liked_ids_of(&st.liked);
+        let tracks: Vec<TrackItem> = st.tracks.iter().map(|t| track_item_with(t, &ids)).collect();
+        let liked_items: Vec<TrackItem> =
+            st.liked.iter().map(|t| track_item_with(t, &ids)).collect();
+        app.set_tracks(ModelRc::new(VecModel::from(tracks)));
+        app.set_liked(ModelRc::new(VecModel::from(liked_items)));
+        app.set_now_liked(ids.contains(app.get_now_track_id().as_str()));
+    });
+}
+
+/// Resolves a track id to its file path (for queue inserts).
+fn track_path(id: &str) -> Option<String> {
+    STATE.with(|s| {
+        let st = s.borrow();
+        st.tracks
+            .iter()
+            .chain(st.liked.iter())
+            .find(|t| t.id == id)
+            .map(|t| t.path.clone())
+    })
+}
+
+pub fn is_liked(id: &str) -> bool {
+    STATE.with(|s| s.borrow().liked.iter().any(|t| t.id == id))
+}
+
+// ── Server switcher ─────────────────────────────────────────────────────────
+
+pub fn ui_set_discovered(app: &AppWindow, found: Vec<(String, String, u16)>) {
+    STATE.with(|s| s.borrow_mut().discovered = found);
+    let q = STATE.with(|s| s.borrow().switcher_query.clone());
+    app.set_switcher_results(ModelRc::new(VecModel::from(switcher_results(&q))));
+}
+
+fn server_row(
+    kind: &str,
+    title: String,
+    mut subtitle: String,
+    id: String,
+    active: &str,
+) -> PaletteItem {
+    if subtitle == active || id == active {
+        subtitle = format!("{subtitle} · connected");
+    }
+    PaletteItem {
+        kind: kind.into(),
+        id: id.into(),
+        title: title.into(),
+        subtitle: subtitle.into(),
+        index: -1,
+        has_art: false,
+        art: slint::Image::default(),
+    }
+}
+
+fn switcher_results(query: &str) -> Vec<PaletteItem> {
+    let q = query.trim().to_lowercase();
+    let hit =
+        |fields: &[&str]| q.is_empty() || fields.iter().any(|f| f.to_lowercase().contains(&q));
+    STATE.with(|s| {
+        let st = s.borrow();
+        let active = st.active_server.clone();
+        let mut out: Vec<PaletteItem> = Vec::new();
+
+        if hit(&["this mac", "localhost", "127.0.0.1:6061", "embedded"]) {
+            out.push(server_row(
+                "server",
+                "This Mac (embedded)".into(),
+                "127.0.0.1:6061".into(),
+                "127.0.0.1:6061".into(),
+                &active,
+            ));
+        }
+        for (name, host, port) in &st.discovered {
+            if host == "127.0.0.1" {
+                continue;
+            }
+            let addr = format!("{host}:{port}");
+            if hit(&[name, &addr]) {
+                out.push(server_row(
+                    "server",
+                    name.clone(),
+                    addr.clone(),
+                    addr,
+                    &active,
+                ));
+            }
+        }
+        for (i, srv) in st.servers.iter().enumerate() {
+            if hit(&[&srv.name, &srv.url]) {
+                out.push(server_row(
+                    if srv.kind == "jellyfin" {
+                        "jellyfin"
+                    } else {
+                        "subsonic"
+                    },
+                    srv.name.clone(),
+                    srv.url.clone(),
+                    format!("srv:{i}"),
+                    &active,
+                ));
+            }
+        }
+        // Free-form "connect to host[:port]" when the query looks like one.
+        let raw = query.trim();
+        if (raw.contains('.') || raw.contains(':')) && !out.iter().any(|r| r.id.as_str() == raw) {
+            out.push(server_row(
+                "server",
+                format!("Connect to {raw}"),
+                "remote rockboxd".into(),
+                raw.to_string(),
+                &active,
+            ));
+        }
+        out
+    })
+}
+
 fn palette_results(query: &str) -> Vec<PaletteItem> {
     let q = query.trim().to_lowercase();
     let hit =
@@ -217,12 +528,22 @@ fn palette_results(query: &str) -> Vec<PaletteItem> {
                 .iter()
                 .filter(|t| hit(&[&t.title, &t.artist, &t.album]))
                 .take(8)
-                .map(|t| PaletteItem {
-                    kind: "track".into(),
-                    id: t.id.clone().into(),
-                    title: t.title.clone().into(),
-                    subtitle: format!("{} · {}", t.artist, t.album).into(),
-                    index: t.index,
+                .map(|t| {
+                    // Reuse the album grid's thumbnail for the track's album.
+                    let art = st
+                        .albums
+                        .iter()
+                        .find(|a| a.data.title == t.album && a.data.artist == t.artist)
+                        .and_then(|a| a.image.clone());
+                    PaletteItem {
+                        kind: "track".into(),
+                        id: t.id.clone().into(),
+                        title: t.title.clone().into(),
+                        subtitle: format!("{} · {}", t.artist, t.album).into(),
+                        index: t.index,
+                        has_art: art.is_some(),
+                        art: art.unwrap_or_default(),
+                    }
                 }),
         );
         out.extend(
@@ -236,6 +557,27 @@ fn palette_results(query: &str) -> Vec<PaletteItem> {
                     title: a.data.title.clone().into(),
                     subtitle: a.data.artist.clone().into(),
                     index: -1,
+                    has_art: a.image.is_some(),
+                    art: a.image.clone().unwrap_or_default(),
+                }),
+        );
+        out.extend(
+            st.playlists
+                .iter()
+                .filter(|p| hit(&[&p.name, &p.description]))
+                .take(4)
+                .map(|p| PaletteItem {
+                    kind: "playlist".into(),
+                    id: p.id.clone().into(),
+                    title: p.name.clone().into(),
+                    subtitle: if p.track_count == 1 {
+                        "1 track".into()
+                    } else {
+                        format!("{} tracks", p.track_count).into()
+                    },
+                    index: -1,
+                    has_art: false,
+                    art: slint::Image::default(),
                 }),
         );
         out.extend(
@@ -249,6 +591,8 @@ fn palette_results(query: &str) -> Vec<PaletteItem> {
                     title: a.name.clone().into(),
                     subtitle: "".into(),
                     index: -1,
+                    has_art: false,
+                    art: slint::Image::default(),
                 }),
         );
         out
@@ -275,6 +619,26 @@ fn setup_backend() {
     }
 }
 
+/// Sets the Dock icon at runtime — the same AppIcon.icns the GPUI app
+/// bundles. Only meaningful on macOS; other platforms use the window icon.
+#[cfg(target_os = "macos")]
+fn set_dock_icon() {
+    use objc2::ClassType;
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::{MainThreadMarker, NSData};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let bytes: &[u8] =
+        include_bytes!("../../gpui/dist/Rockbox.app/Contents/Resources/AppIcon.icns");
+    let data = NSData::with_bytes(bytes);
+    if let Some(img) = NSImage::initWithData(NSImage::alloc(), &data) {
+        let app = NSApplication::sharedApplication(mtm);
+        unsafe { app.setApplicationIconImage(Some(&img)) };
+    }
+}
+
 fn main() -> Result<(), slint::PlatformError> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -285,7 +649,10 @@ fn main() -> Result<(), slint::PlatformError> {
     setup_backend();
     let app = AppWindow::new()?;
     #[cfg(target_os = "macos")]
-    app.set_titlebar_inset(24.0);
+    {
+        app.set_titlebar_inset(24.0);
+        set_dock_icon();
+    }
 
     // ── Skins ───────────────────────────────────────────────────────────────
     let skins = Rc::new(skin::load_all());
@@ -405,6 +772,18 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
     {
+        let tx = tx.clone();
+        app.on_queue_clear(move || {
+            let _ = tx.send(rpc::Cmd::QueueClear);
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_queue_remove(move |i| {
+            let _ = tx.send(rpc::Cmd::QueueRemove(i));
+        });
+    }
+    {
         let audio_tx = audio_tx.clone();
         let app_weak = app.as_weak();
         app.on_audio_set(move |key, value| {
@@ -483,6 +862,323 @@ fn main() -> Result<(), slint::PlatformError> {
             let _ = tx.send(rpc::Cmd::SetRepeat(mode));
         });
     }
+    // ── Server switcher ─────────────────────────────────────────────────────
+    STATE.with(|s| s.borrow_mut().active_server = rpc::endpoints().display);
+    {
+        let tx = tx.clone();
+        app.on_switcher_opened(move || {
+            let _ = tx.send(rpc::Cmd::DiscoverServers);
+        });
+    }
+    {
+        let app_weak = app.as_weak();
+        app.on_switcher_query(move |q| {
+            let app = app_weak.unwrap();
+            STATE.with(|s| s.borrow_mut().switcher_query = q.to_string());
+            app.set_switcher_results(ModelRc::new(VecModel::from(switcher_results(&q))));
+        });
+    }
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        app.on_switcher_activate(move |item| {
+            let app = app_weak.unwrap();
+            let kind = item.kind.to_string();
+            let id = item.id.to_string();
+            if kind == "server" {
+                let (host, port) = match id.rsplit_once(':') {
+                    Some((h, p)) => (h.to_string(), p.parse().unwrap_or(6061)),
+                    None => (id.clone(), 6061),
+                };
+                let display = format!("{host}:{port}");
+                STATE.with(|s| s.borrow_mut().active_server = display.clone());
+                app.set_status_text(display.into());
+                app.set_connected(false);
+                let _ = tx.send(rpc::Cmd::SwitchServer {
+                    host,
+                    grpc_port: port,
+                });
+            } else if let Some(idx) = id
+                .strip_prefix("srv:")
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                // Saved Subsonic / Jellyfin server → open the browse flow.
+                let srv = STATE.with(|s| {
+                    let mut st = s.borrow_mut();
+                    st.browse_stack.clear();
+                    st.servers.get(idx).cloned()
+                });
+                if let Some(srv) = srv {
+                    app.set_current_tab(4);
+                    app.set_browse_error("".into());
+                    app.set_browse_loading(true);
+                    let _ = tx.send(rpc::Cmd::ConnectServer(srv));
+                }
+            }
+        });
+    }
+
+    // ── Track / album context actions ───────────────────────────────────────
+    {
+        let tx = tx.clone();
+        app.on_track_like(move |id| {
+            let id: String = id.into();
+            let like = !is_liked(&id);
+            let _ = tx.send(rpc::Cmd::LikeTrack { id, like });
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_track_insert(move |id, position| {
+            if let Some(path) = track_path(&id) {
+                let _ = tx.send(rpc::Cmd::InsertTracks {
+                    position,
+                    tracks: vec![path],
+                });
+            }
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_album_insert(move |id, position| {
+            let _ = tx.send(rpc::Cmd::InsertAlbum {
+                album_id: id.into(),
+                position,
+            });
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_album_like(move |id| {
+            let _ = tx.send(rpc::Cmd::LikeAlbum(id.into()));
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_track_add_to_playlist(move |playlist_id, track_id| {
+            let _ = tx.send(rpc::Cmd::PlaylistAddTrack {
+                playlist_id: playlist_id.into(),
+                track_id: track_id.into(),
+            });
+        });
+    }
+
+    // ── Playlists ───────────────────────────────────────────────────────────
+    {
+        let tx = tx.clone();
+        app.on_playlists_open(move |id| {
+            let _ = tx.send(rpc::Cmd::OpenPlaylist(id.into()));
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_playlist_play(move |id| {
+            let _ = tx.send(rpc::Cmd::PlaySavedPlaylist(id.into()));
+        });
+    }
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        app.on_playlist_delete(move |id| {
+            let app = app_weak.unwrap();
+            let id: String = id.into();
+            if app.get_pl_detail().id.as_str() == id {
+                app.set_pl_detail_open(false);
+            }
+            let _ = tx.send(rpc::Cmd::PlaylistDelete(id));
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_playlist_form_submit(move |id, name, desc| {
+            let cmd = if id.is_empty() {
+                rpc::Cmd::PlaylistCreate {
+                    name: name.into(),
+                    description: desc.into(),
+                }
+            } else {
+                rpc::Cmd::PlaylistUpdate {
+                    id: id.into(),
+                    name: name.into(),
+                    description: desc.into(),
+                }
+            };
+            let _ = tx.send(cmd);
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_playlist_remove_track(move |track_id| {
+            let playlist_id = STATE.with(|s| s.borrow().pl_detail_id.clone());
+            if let Some(playlist_id) = playlist_id {
+                let _ = tx.send(rpc::Cmd::PlaylistRemoveTrack {
+                    playlist_id,
+                    track_id: track_id.into(),
+                });
+            }
+        });
+    }
+    {
+        let app_weak = app.as_weak();
+        app.on_plpicker_query(move |q| {
+            let app = app_weak.unwrap();
+            let q = q.to_lowercase();
+            let items: Vec<PaletteItem> = STATE.with(|s| {
+                s.borrow()
+                    .playlists
+                    .iter()
+                    .filter(|p| {
+                        q.is_empty()
+                            || p.name.to_lowercase().contains(&q)
+                            || p.description.to_lowercase().contains(&q)
+                    })
+                    .map(|p| PaletteItem {
+                        kind: "playlist".into(),
+                        id: p.id.clone().into(),
+                        title: p.name.clone().into(),
+                        subtitle: if p.track_count == 1 {
+                            "1 track".into()
+                        } else {
+                            format!("{} tracks", p.track_count).into()
+                        },
+                        index: -1,
+                        has_art: false,
+                        art: slint::Image::default(),
+                    })
+                    .collect()
+            });
+            app.set_plpicker_results(ModelRc::new(VecModel::from(items)));
+        });
+    }
+    {
+        let app_weak = app.as_weak();
+        app.on_picker_query(move |q| {
+            let app = app_weak.unwrap();
+            STATE.with(|s| s.borrow_mut().picker_query = q.to_string());
+            app.set_picker_results(ModelRc::new(VecModel::from(picker_results(&q))));
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_picker_add(move |track_id| {
+            let track_id: String = track_id.into();
+            let playlist_id = STATE.with(|s| {
+                let mut st = s.borrow_mut();
+                // Optimistic: hide it from the picker immediately.
+                st.pl_detail_track_ids.push(track_id.clone());
+                st.pl_detail_id.clone()
+            });
+            if let Some(playlist_id) = playlist_id {
+                let _ = tx.send(rpc::Cmd::PlaylistAddTrack {
+                    playlist_id,
+                    track_id,
+                });
+            }
+        });
+    }
+
+    // ── Remote servers ──────────────────────────────────────────────────────
+    STATE.with(|s| s.borrow_mut().servers = servers::load());
+    refresh_servers_model(&app);
+    {
+        let app_weak = app.as_weak();
+        app.on_server_add(move |kind, name, url, user, pass| {
+            let app = app_weak.unwrap();
+            STATE.with(|s| {
+                let mut st = s.borrow_mut();
+                st.servers.push(servers::SavedServer {
+                    kind: kind.into(),
+                    name: name.into(),
+                    url: url.into(),
+                    username: user.into(),
+                    password: pass.into(),
+                });
+                servers::save(&st.servers);
+            });
+            refresh_servers_model(&app);
+        });
+    }
+    {
+        let app_weak = app.as_weak();
+        app.on_server_delete(move |idx| {
+            let app = app_weak.unwrap();
+            STATE.with(|s| {
+                let mut st = s.borrow_mut();
+                if (idx as usize) < st.servers.len() {
+                    st.servers.remove(idx as usize);
+                    servers::save(&st.servers);
+                }
+            });
+            refresh_servers_model(&app);
+        });
+    }
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        app.on_server_connect(move |idx| {
+            let app = app_weak.unwrap();
+            let srv = STATE.with(|s| {
+                let mut st = s.borrow_mut();
+                st.browse_stack.clear();
+                st.servers.get(idx as usize).cloned()
+            });
+            if let Some(srv) = srv {
+                app.set_browse_loading(true);
+                let _ = tx.send(rpc::Cmd::ConnectServer(srv));
+            }
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_browse_open(move |path, title| {
+            let _ = tx.send(rpc::Cmd::Browse {
+                title: title.into(),
+                path: path.into(),
+                push: true,
+            });
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_browse_play_dir(move |path| {
+            let _ = tx.send(rpc::Cmd::PlayDir(path.into()));
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_browse_play_at(move |idx| {
+            let dir = STATE.with(|s| s.borrow().browse_stack.last().map(|(_, p)| p.clone()));
+            if let Some(dir) = dir {
+                let _ = tx.send(rpc::Cmd::PlayDirAt(dir, idx));
+            }
+        });
+    }
+    {
+        let tx = tx.clone();
+        let app_weak = app.as_weak();
+        app.on_browse_back(move || {
+            let app = app_weak.unwrap();
+            let target = STATE.with(|s| {
+                let mut st = s.borrow_mut();
+                st.browse_stack.pop();
+                st.browse_stack.last().cloned()
+            });
+            match target {
+                Some((title, path)) => {
+                    app.set_browse_loading(true);
+                    let _ = tx.send(rpc::Cmd::Browse {
+                        title,
+                        path,
+                        push: false,
+                    });
+                }
+                None => {
+                    app.set_browsing(false);
+                    app.set_browse_entries(ModelRc::new(VecModel::from(Vec::<BrowseItem>::new())));
+                }
+            }
+        });
+    }
     {
         let app_weak = app.as_weak();
         app.on_palette_query(move |text| {
@@ -496,6 +1192,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let cmd = match item.kind.as_str() {
                 "track" => rpc::Cmd::PlayAllAt(item.index),
                 "album" => rpc::Cmd::PlayAlbum(item.id.into()),
+                "playlist" => rpc::Cmd::PlaySavedPlaylist(item.id.into()),
                 _ => rpc::Cmd::PlayArtist(item.id.into()),
             };
             let _ = tx.send(cmd);
