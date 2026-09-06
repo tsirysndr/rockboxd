@@ -126,7 +126,7 @@ jobs:
         run: bash scripts/build-headless.sh
 
       - name: Build rockbox-embed
-        run: cargo build --release -p rockbox-embed
+        run: cargo build --release --locked -p rockbox-embed
 
       - name: Build librockboxd.a
         run: |

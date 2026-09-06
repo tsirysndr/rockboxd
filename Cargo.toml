@@ -133,7 +133,12 @@ rustyline = "=13.0.0"
 saffron = "=0.1.0"
 scopeguard = "1.2.0"
 sec1 = "0.7"
-serde = { version = ">=1.0.149, <1.0.225", features = ["derive"] }
+# serde must stay at exactly 1.0.221: swc_ecma_ast 0.118.2 (via deno_ast)
+# fails to compile against serde >= 1.0.222 (Content<'_>: Deserialize E0277
+# from the swc_common DeserializeEnum derive), while jacquard's
+# serde_html_form requires serde_core >= 1.0.221. 1.0.221 is the only
+# version satisfying both.
+serde = { version = ">=1.0.149, <1.0.222", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1.0.85"
 serde_repr = "=0.1.19"
