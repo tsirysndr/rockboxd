@@ -91,6 +91,7 @@ export component AppWindow inherits Window {
     // Height reserved at the top of the sidebar for the macOS traffic-light
     // buttons (set from Rust; 0 on other platforms).
     in-out property <length> titlebar-inset: 0px;
+    in-out property <bool> show-sidebar: true;
 
     // ── Callbacks into Rust ─────────────────────────────────────────────────
     callback play-pause();
@@ -167,6 +168,10 @@ export component AppWindow inherits Window {
                 root.show-audio = !root.show-audio;
                 return accept;
             }
+            if (event.text == "s") {
+                root.cycle-skin();
+                return accept;
+            }
             if (event.text == Key.Escape) {
                 if (root.show-help) {
                     root.show-help = false;
@@ -188,10 +193,14 @@ export component AppWindow inherits Window {
         height: 100%;
         // ── Sidebar ─────────────────────────────────────────────────────────
         sidebar := Rectangle {
-            width: 208px;
+            width: root.show-sidebar ? 208px : 0px;
             background: Theme.sidebar-bg;
+            clip: true;
+            animate width { duration: 160ms; easing: ease-out; }
 
             VerticalLayout {
+                width: 208px;
+                x: 0;
                 padding: 12px;
                 spacing: 4px;
 
@@ -313,9 +322,9 @@ export component AppWindow inherits Window {
                 height: 62px;
                 background: Theme.window-bg;
                 HorizontalLayout {
-                    padding-left: 24px;
-                    padding-right: 24px;
-                    spacing: 16px;
+                    padding-left: !root.show-sidebar && root.titlebar-inset > 0px ? 84px : 24px;
+                    padding-right: 16px;
+                    spacing: 12px;
                     Text {
                         text: root.show-detail ? "Album"
                             : root.current-tab == 0 ? "Albums"
@@ -330,6 +339,23 @@ export component AppWindow inherits Window {
                     SearchButton {
                         y: (parent.height - self.height) / 2;
                         clicked => { root.open-palette(); }
+                    }
+                    HorizontalLayout {
+                        spacing: 2px;
+                        IconButton {
+                            icon: root.show-sidebar ? Icons.panel-left-filled : Icons.panel-left;
+                            icon-size: 16px;
+                            accented: root.show-sidebar;
+                            y: (parent.height - self.height) / 2;
+                            clicked => { root.show-sidebar = !root.show-sidebar; }
+                        }
+                        IconButton {
+                            icon: root.show-queue ? Icons.panel-right-filled : Icons.panel-right;
+                            icon-size: 16px;
+                            accented: root.show-queue;
+                            y: (parent.height - self.height) / 2;
+                            clicked => { root.show-queue = !root.show-queue; }
+                        }
                     }
                 }
             }
@@ -538,7 +564,7 @@ export component AppWindow inherits Window {
                     // Track info
                     HorizontalLayout {
                         spacing: 12px;
-                        width: 26%;
+                        width: 24%;
                         Rectangle {
                             width: 60px;
                             height: 60px;
@@ -661,7 +687,7 @@ export component AppWindow inherits Window {
 
                     // VFD + volume
                     HorizontalLayout {
-                        spacing: 14px;
+                        spacing: 10px;
                         IconButton {
                             icon: Icons.equalizer;
                             icon-size: 16px;
@@ -685,20 +711,20 @@ export component AppWindow inherits Window {
                             vu-left: root.vu-left;
                             vu-right: root.vu-right;
                         }
-                        HorizontalLayout {
-                            spacing: 6px;
-                            Image {
-                                source: root.volume <= 0.01 ? Icons.volume-mute : Icons.volume;
-                                colorize: Theme.text-dim;
-                                width: 15px;
-                                height: 15px;
-                                y: (parent.height - self.height) / 2;
-                            }
-                            SlideBar {
-                                width: 90px;
-                                y: (parent.height - self.height) / 2;
-                                bar-height: 4px;
-                                progress: root.volume;
+                        Rectangle {
+                            width: 72px;
+                            Knob {
+                                x: (parent.width - self.width) / 2;
+                                // shift up half the value-text height so the
+                                // knob FACE (not the whole unit) is centered
+                                y: (parent.height - self.height) / 2 - 4px;
+                                height: 74px;
+                                size: 56px;
+                                gap: 2px;
+                                label: "";
+                                value-text: round(root.volume * 100) + "%";
+                                norm: root.volume;
+                                default-norm: 0.75;
                                 changed(p) => {
                                     root.volume = p;
                                     root.set-volume(p);
@@ -1450,6 +1476,7 @@ export component AppWindow inherits Window {
                 HelpRow { keys: "up / down"; label: "Navigate search results"; }
                 HelpRow { keys: "enter"; label: "Play selection"; }
                 HelpRow { keys: "e"; label: "Audio settings (EQ, replaygain…)"; }
+                HelpRow { keys: "s"; label: "Cycle skin"; }
                 HelpRow { keys: "esc"; label: "Close dialog / go back"; }
                 HelpRow { keys: "?"; label: "Show this help"; }
             }

@@ -954,10 +954,12 @@ export component Knob inherits VerticalLayout {
     in property <float> norm: 0; // 0..1
     in property <float> default-norm: 0.5; // double-click resets here
     in property <length> size: 54px;
+    in property <length> gap: 5px; // value-text ↔ knob spacing
     callback changed(float);
 
     property <float> press-start: 0;
-    spacing: 5px;
+    spacing: root.gap;
+    alignment: center;
     width: max(root.size + 16px, 72px);
 
     Text {
@@ -1028,7 +1030,7 @@ export component Knob inherits VerticalLayout {
             }
         }
     }
-    Text {
+    if root.label != "" : Text {
         text: root.label;
         color: Theme.text-dim;
         font-size: 10px;

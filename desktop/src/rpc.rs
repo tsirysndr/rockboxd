@@ -273,6 +273,10 @@ fn filename_stem(path: &str) -> String {
 
 fn push_now_playing(weak: &Weak<AppWindow>, np: NowPlaying) {
     let _ = weak.upgrade_in_event_loop(move |app| {
+        let codec = std::path::Path::new(&np.path)
+            .extension()
+            .map(|e| e.to_string_lossy().to_uppercase())
+            .unwrap_or_default();
         let elapsed = np.elapsed_ms as f32 / 1000.0;
         let length = np.length_ms as f32 / 1000.0;
         app.set_now_title(np.title.into());
@@ -284,7 +288,7 @@ fn push_now_playing(weak: &Weak<AppWindow>, np: NowPlaying) {
         app.set_elapsed_text(format_time(elapsed as f64).into());
         app.set_duration_text(format_time(length as f64).into());
         let khz = np.frequency as f64 / 1000.0;
-        app.set_vfd_info(format!("{:>4} kbps  {khz:.1} kHz", np.bitrate).into());
+        app.set_vfd_info(format!("{codec}  {} kbps  {khz:.1} kHz", np.bitrate).into());
     });
 }
 
@@ -365,25 +369,30 @@ async fn queue_loop(channel: Channel, weak: Weak<AppWindow>) {
 /// Local clock: advances elapsed between stream updates and animates the VU
 /// meters (decorative — the daemon does not export PCM levels over gRPC).
 async fn ticker(weak: Weak<AppWindow>) {
+    const TICK_S: f64 = 0.07; // ~14 fps — snappy VU without burning CPU
     let mut phase: f64 = 0.0;
     loop {
-        tokio::time::sleep(Duration::from_millis(250)).await;
-        phase += 0.25;
+        tokio::time::sleep(Duration::from_millis((TICK_S * 1000.0) as u64)).await;
+        phase += TICK_S;
         let t = phase;
         let _ = weak.upgrade_in_event_loop(move |app| {
             if app.get_playing() {
                 let length = app.get_length_s();
-                let elapsed = (app.get_elapsed_s() + 0.25).min(length.max(0.0));
+                let elapsed = (app.get_elapsed_s() + TICK_S as f32).min(length.max(0.0));
                 app.set_elapsed_s(elapsed);
                 app.set_progress(if length > 0.0 { elapsed / length } else { 0.0 });
                 app.set_elapsed_text(format_time(elapsed as f64).into());
-                let l = 0.62 + 0.22 * (t * 5.9).sin() + 0.12 * (t * 13.7).sin();
-                let r = 0.60 + 0.24 * (t * 5.1 + 1.3).sin() + 0.12 * (t * 11.3).sin();
+                // Lively pseudo-VU: a few incommensurate sines per channel so
+                // the pattern never visibly repeats.
+                let l = 0.60 + 0.24 * (t * 14.3).sin() + 0.14 * (t * 33.7).sin()
+                    + 0.08 * (t * 7.1).sin();
+                let r = 0.58 + 0.26 * (t * 12.9 + 1.3).sin() + 0.14 * (t * 29.1).sin()
+                    + 0.08 * (t * 8.3 + 0.7).sin();
                 app.set_vu_left(l.clamp(0.05, 1.0) as f32);
                 app.set_vu_right(r.clamp(0.05, 1.0) as f32);
             } else {
-                app.set_vu_left((app.get_vu_left() * 0.6).max(0.0));
-                app.set_vu_right((app.get_vu_right() * 0.6).max(0.0));
+                app.set_vu_left((app.get_vu_left() * 0.8).max(0.0));
+                app.set_vu_right((app.get_vu_right() * 0.8).max(0.0));
             }
         });
     }

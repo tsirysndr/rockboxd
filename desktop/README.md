@@ -13,8 +13,12 @@ FL Studio / VST synth UIs (neon accents).
 - **Library browser** — Albums grid (with cover art), Artists, Tracks, Liked;
   album detail page (art, year, label, track count, total duration, per-track
   play, shuffle).
-- **Transport** — play/pause, prev/next, seek, volume, shuffle toggle, repeat
-  cycle (off → all → one), all synced with the daemon over gRPC streams.
+- **Transport** — play/pause, prev/next, seek, shuffle toggle, repeat cycle
+  (off → all → one), and a rotary volume knob with percent readout, all
+  synced with the daemon over gRPC streams.
+- **VSCode-style panel toggles** — two buttons at the top right (after
+  search) show/hide the left navigation sidebar and the right queue panel;
+  the icon is filled while its panel is visible.
 - **Queue drawer** — Play Queue / History tabs, pinned Now Playing card, Up
   Next list; click any row to jump (`PlaylistService.Start`).
 - **Command palette** — press `/` (or click the search box) for a
@@ -26,10 +30,10 @@ FL Studio / VST synth UIs (neon accents).
   crossfade fade timings (drag vertically, scroll to nudge, double-click to
   reset), dropdowns for replaygain and crossfade modes, dithering toggle.
   Changes are coalesced and applied live via `SettingsService.SaveSettings`.
-- **VFD display** — jetAudio-style readout with elapsed time, bitrate,
-  sample rate and animated LED VU meters.
+- **VFD display** — jetAudio-style readout with elapsed time, codec,
+  bitrate, sample rate and animated LED VU meters.
 - **Skins** — five bundled (`Synthwave` default, `Late Night`, `Neutron`,
-  `Lunar`, `Porcelain`); click the SKIN entry in the sidebar to cycle. The
+  `Lunar`, `Porcelain`); press `s` or click the SKIN entry in the sidebar to cycle. The
   choice persists in `~/.config/rockbox.org/desktop-skin`.
 
 ## Build
