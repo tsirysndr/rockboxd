@@ -14,6 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("cargo:rustc-link-lib=framework=AudioToolbox");
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=Security");
+            // reqwest system-proxy (rocksky-sdk) → SCDynamicStore
+            println!("cargo:rustc-link-lib=framework=SystemConfiguration");
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=asound");

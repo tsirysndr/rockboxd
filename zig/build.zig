@@ -170,6 +170,9 @@ pub fn build(b: *std.Build) void {
         // FSEvents (notify crate, used by the library filesystem watcher and
         // the S3 server's PUT/DELETE → DB sync path) lives in CoreServices.
         exe.root_module.linkFramework("CoreServices", .{});
+        // reqwest's `system-proxy` feature (required by rocksky-sdk) reads
+        // the macOS proxy settings via SCDynamicStore.
+        exe.root_module.linkFramework("SystemConfiguration", .{});
         if (headless) {
             // Required by cpal's CoreAudio backend.
             exe.root_module.linkFramework("CoreAudio", .{});
@@ -402,6 +405,7 @@ pub fn build(b: *std.Build) void {
             embed_lib.root_module.linkFramework("CoreFoundation", .{});
             embed_lib.root_module.linkFramework("Security", .{});
             embed_lib.root_module.linkFramework("CoreServices", .{});
+            embed_lib.root_module.linkFramework("SystemConfiguration", .{});
             embed_lib.root_module.linkFramework("CoreAudio", .{});
             embed_lib.root_module.linkFramework("AudioUnit", .{});
             embed_lib.root_module.linkFramework("AudioToolbox", .{});

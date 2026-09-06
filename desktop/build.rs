@@ -49,6 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "CoreFoundation",
                     "Security",
                     "CoreServices",
+                    // reqwest system-proxy (rocksky-sdk) → SCDynamicStore
+                    "SystemConfiguration",
                 ] {
                     println!("cargo:rustc-link-lib=framework={fw}");
                 }
