@@ -11,31 +11,27 @@ use api::rockbox::v1alpha1::ResumeTrackRequest;
 use api::rockbox::v1alpha1::StatusRequest;
 use api::rockbox::v1alpha1::StreamCurrentTrackRequest;
 use api::rockbox::v1alpha1::StreamStatusRequest;
-use futures_util::SinkExt;
-use futures_util::StreamExt;
 use lofty::file::TaggedFileExt;
 use reqwest::multipart;
 use reqwest::Client;
 use rockbox_library::entity::album::Album;
 use rockbox_library::entity::track::Track;
-use serde_json::json;
-use serde_json::Value;
+use rocksky_sdk::{
+    RemoteCommand, RemoteNowPlaying, RemotePlayer, RemotePlayerConfig, RemoteStatus,
+};
 use std::env;
 use std::fs::File;
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use tokio::sync::Mutex;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::Error as WsError;
-use tokio_tungstenite::{connect_async_tls_with_config, Connector};
+use std::time::Duration;
+use tonic::transport::Channel;
 
 const AUDIO_EXTENSIONS: [&str; 18] = [
     "mp3", "ogg", "flac", "m4a", "aac", "mp4", "alac", "wav", "wv", "mpc", "aiff", "aif", "ac3",
     "opus", "spx", "sid", "ape", "wma",
 ];
-
-// const ROCKSKY_WS: &str = "ws://localhost:8000/ws";
 
 /// Minimal view over `~/.config/rockbox.org/settings.toml` — only the fields we
 /// need for the remote-control device label. Unknown keys are ignored by serde,
@@ -79,120 +75,26 @@ pub mod api {
     }
 }
 
-pub async fn run_ws_session(token: String) -> Result<(), Error> {
-    // Install the default crypto provider for rustls 0.23+. ring instead
-    // of aws_lc_rs because aws-lc-sys's cmake cross-compile doesn't survive
-    // cargo-ndk's flag injection on Android.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
-    let rocksky_ws =
-        env::var("ROCKSKY_WS").unwrap_or_else(|_| "wss://api.rocksky.app/ws".to_string());
-
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    let connector = Connector::Rustls(Arc::new(tls_config));
-
-    let mut request = rocksky_ws.as_str().into_client_request()?;
-    request
-        .headers_mut()
-        .insert("authorization", format!("Bearer {}", token).parse()?);
-
-    let (ws_stream, _) =
-        match connect_async_tls_with_config(request, None, false, Some(connector)).await {
-            Ok(stream) => stream,
-            Err(e) => {
-                if let WsError::Http(ref response) = e {
-                    let status = response.status();
-                    let body = response
-                        .body()
-                        .as_deref()
-                        .and_then(|b| std::str::from_utf8(b).ok())
-                        .unwrap_or("<empty body>");
-                    tracing::error!("WebSocket connection failed: HTTP {} — {}", status, body);
-                } else {
-                    tracing::error!("WebSocket connection failed: {:?}", e);
-                }
-                return Err(e.into());
-            }
-        };
-    tracing::info!("Connected to {}", rocksky_ws);
-
-    let (mut write, mut read) = ws_stream.split();
-    let device_id = Arc::new(Mutex::new(String::new()));
-
-    let device_name = rocksky_device_name();
-    tracing::info!("Registering as device \"{}\"", device_name);
-
-    write
-        .send(
-            json!({
-                "type": "register",
-                "clientName": device_name,
-                "token": token
-            })
-            .to_string()
-            .into(),
-        )
-        .await?;
-
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
-
-    // Spawn track stream
-    let tx_clone = tx.clone();
-    tokio::spawn(start_track_stream(tx_clone));
-
-    // Spawn status stream
-    tokio::spawn(start_status_stream(tx.clone()));
-
-    // Spawn sender
-    {
-        let device_id = device_id.clone();
-        let token = token.clone();
-        tokio::spawn(async move {
-            while let Some(msg) = rx.recv().await {
-                let id = device_id.lock().await.clone();
-                if let Err(e) = write
-                    .send(
-                        json!({
-                            "type": "message",
-                            "data": serde_json::from_str::<Value>(&msg).unwrap(),
-                            "device_id": id,
-                            "token": token
-                        })
-                        .to_string()
-                        .into(),
-                    )
-                    .await
-                {
-                    tracing::warn!("WebSocket send error: {}", e);
-                    break;
-                }
-            }
-        });
-    }
-
+fn grpc_url() -> String {
     let host = env::var("ROCKBOX_HOST").unwrap_or_else(|_| "localhost".to_string());
     let port = env::var("ROCKBOX_PORT").unwrap_or_else(|_| "6061".to_string());
-    let url = format!("tcp://{}:{}", host, port);
+    format!("tcp://{}:{}", host, port)
+}
 
-    // Retry gRPC connection up to 10 times with 1 second delay
-    let mut client = None;
+/// Connect to the local rockboxd gRPC server, retrying up to 10 times — the
+/// remote-player bridge starts alongside the daemon, before the server binds.
+async fn connect_playback_client() -> Result<PlaybackServiceClient<Channel>, Error> {
+    let url = grpc_url();
     for attempt in 1..=10 {
         match PlaybackServiceClient::connect(url.clone()).await {
-            Ok(c) => {
-                client = Some(c);
-                break;
-            }
+            Ok(client) => return Ok(client),
             Err(e) if attempt < 10 => {
                 tracing::warn!(
                     "gRPC connection attempt {}/10 failed: {}. Retrying...",
                     attempt,
                     e
                 );
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Err(e) => {
                 return Err(anyhow!(
@@ -202,210 +104,192 @@ pub async fn run_ws_session(token: String) -> Result<(), Error> {
             }
         }
     }
-    let mut client = client.unwrap();
+    unreachable!()
+}
 
-    // Separate client for the playlist service — used to resume from saved state
-    // after a daemon (re)start (see the "play" command handler below).
-    let mut playlist_client = PlaylistServiceClient::connect(url.clone())
+/// Run the Rocksky remote-player bridge. Registration, heartbeat, reconnect,
+/// and the device-id handshake are all owned by `rocksky_sdk::RemotePlayer`;
+/// this function only maps controller commands onto the local gRPC daemon and
+/// pushes daemon state (now-playing / transport status) back through the SDK.
+pub async fn run_remote_player(token: String) -> Result<(), Error> {
+    // Install the default crypto provider for rustls 0.23+. ring instead
+    // of aws_lc_rs because aws-lc-sys's cmake cross-compile doesn't survive
+    // cargo-ndk's flag injection on Android.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let ws_url = env::var("ROCKSKY_WS")
+        .unwrap_or_else(|_| rocksky_sdk::DEFAULT_REMOTE_WS.to_string());
+    let device_name = rocksky_device_name();
+    tracing::info!("Registering as device \"{}\" on {}", device_name, ws_url);
+
+    let remote = Arc::new(RemotePlayer::connect(
+        RemotePlayerConfig::new(token, device_name).url(ws_url),
+    ));
+
+    let mut client = connect_playback_client().await?;
+    // Separate client for the playlist service — used to resume from saved
+    // state after a daemon (re)start (see the Play command handler below).
+    let mut playlist_client = PlaylistServiceClient::connect(grpc_url())
         .await
         .map_err(|e| anyhow!("Failed to connect to Rockbox playlist gRPC service: {}", e))?;
 
-    while let Some(msg) = read.next().await {
-        let msg = match msg {
-            Ok(m) => m.to_string(),
-            Err(e) => {
-                tracing::error!("WebSocket read error: {:?}", e);
-                return Err(anyhow!("WebSocket read error: {:?}", e));
-            }
-        };
+    // The status stream owns this flag; the track stream reads it, because
+    // RemoteNowPlaying carries is_playing but the current-track gRPC stream
+    // alone doesn't know the transport state.
+    let is_playing = Arc::new(AtomicBool::new(false));
 
-        let msg: Value = serde_json::from_str(&msg)?;
-        // Our device id comes ONLY from the registration reply, which the server
-        // marks with `status: "registered"`. Do NOT read `deviceId` from any
-        // message: the server also broadcasts `device_registered` events carrying
-        // ANOTHER device's id whenever a new device (e.g. the web/mobile
-        // miniplayer) joins. Capturing that would clobber our own id, so our
-        // now-playing pushes would be tagged with the other device's id and every
-        // miniplayer would mislabel the source.
-        if msg["status"].as_str() == Some("registered") {
-            if let Some(id) = msg["deviceId"].as_str() {
-                *device_id.lock().await = id.to_string();
-            }
-        }
+    tokio::spawn(forward_track_stream(remote.clone(), is_playing.clone()));
+    tokio::spawn(forward_status_stream(remote.clone(), is_playing.clone()));
 
-        // Ignore presence / primary-selection announcements about other
-        // devices — they carry ANOTHER device's id and are informational for
-        // the miniplayers, not actionable for a headless player. (A lone
-        // player is auto-adopted as primary server-side, so we never need to
-        // react to `primary_changed`.)
-        match msg["type"].as_str() {
-            Some("device_registered") | Some("device_unregistered") | Some("primary_changed") => {
-                continue
-            }
-            _ => {}
-        }
-
-        if let Some("command") = msg["type"].as_str() {
-            if let Some(cmd) = msg["action"].as_str() {
-                match cmd {
-                    "play" => {
-                        // Decide between resume-from-pause and resume-from-saved
-                        // state based on the engine's current status (a bitmask:
-                        // PLAY=0x01, PAUSE=0x02 → 0 = stopped, 1 = playing,
-                        // 3 = paused). On a fresh daemon start the engine is
-                        // STOPPED, not paused, so a plain resume() is a no-op —
-                        // we must resume_track() to restore the playlist from the
-                        // control file and seek to the saved position (mirrors the
-                        // GPUI play/pause handler).
-                        let status = client
-                            .status(tonic::Request::new(StatusRequest {}))
-                            .await?
-                            .into_inner()
-                            .status;
-                        if status == 0 {
-                            playlist_client
-                                .resume_track(tonic::Request::new(ResumeTrackRequest {
-                                    start_index: 0,
-                                    crc: 0,
-                                    elapsed: 0,
-                                    offset: 0,
-                                }))
-                                .await?;
-                        } else {
-                            client.resume(tonic::Request::new(ResumeRequest {})).await?;
-                        }
-                    }
-                    "pause" => {
-                        client
-                            .pause(tonic::Request::new(PauseRequest::default()))
-                            .await?;
-                    }
-                    "next" => {
-                        client
-                            .next(tonic::Request::new(NextRequest::default()))
-                            .await?;
-                    }
-                    "previous" => {
-                        client
-                            .previous(tonic::Request::new(PreviousRequest::default()))
-                            .await?;
-                    }
-                    "seek" => {
-                        let pos = msg["args"]["position"].as_i64().unwrap_or(0);
-                        client
-                            .play(tonic::Request::new(PlayRequest {
-                                offset: 0,
-                                elapsed: pos,
-                            }))
-                            .await?;
-                    }
-
-                    _ => {
-                        tracing::debug!("Unknown command: {}", cmd);
-                    }
-                };
-            }
+    while let Some(cmd) = remote.next_command().await {
+        if let Err(e) = apply_command(&mut client, &mut playlist_client, cmd).await {
+            tracing::warn!("Failed to apply remote command: {}", e);
         }
     }
 
-    Err(anyhow!("Connection closed"))
+    Err(anyhow!("Remote player disconnected"))
 }
 
-pub async fn start_track_stream(tx: tokio::sync::mpsc::Sender<String>) -> Result<(), Error> {
-    let host = env::var("ROCKBOX_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("ROCKBOX_PORT").unwrap_or_else(|_| "6061".to_string());
-    let url = format!("tcp://{}:{}", host, port);
-
-    // Retry gRPC connection up to 10 times with 1 second delay
-    let mut client = None;
-    for attempt in 1..=10 {
-        match PlaybackServiceClient::connect(url.clone()).await {
-            Ok(c) => {
-                client = Some(c);
-                break;
-            }
-            Err(_) if attempt < 10 => {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
-            Err(e) => {
-                return Err(anyhow!(
-                    "Failed to connect to Rockbox gRPC server for track stream: {}",
-                    e
-                ));
+async fn apply_command(
+    client: &mut PlaybackServiceClient<Channel>,
+    playlist_client: &mut PlaylistServiceClient<Channel>,
+    cmd: RemoteCommand,
+) -> Result<(), Error> {
+    match cmd {
+        RemoteCommand::Play => {
+            // Decide between resume-from-pause and resume-from-saved state
+            // based on the engine's current status (a bitmask: PLAY=0x01,
+            // PAUSE=0x02 → 0 = stopped, 1 = playing, 3 = paused). On a fresh
+            // daemon start the engine is STOPPED, not paused, so a plain
+            // resume() is a no-op — we must resume_track() to restore the
+            // playlist from the control file and seek to the saved position
+            // (mirrors the GPUI play/pause handler).
+            let status = client
+                .status(tonic::Request::new(StatusRequest {}))
+                .await?
+                .into_inner()
+                .status;
+            if status == 0 {
+                playlist_client
+                    .resume_track(tonic::Request::new(ResumeTrackRequest {
+                        start_index: 0,
+                        crc: 0,
+                        elapsed: 0,
+                        offset: 0,
+                    }))
+                    .await?;
+            } else {
+                client.resume(tonic::Request::new(ResumeRequest {})).await?;
             }
         }
+        RemoteCommand::Pause => {
+            client
+                .pause(tonic::Request::new(PauseRequest::default()))
+                .await?;
+        }
+        RemoteCommand::Next => {
+            client
+                .next(tonic::Request::new(NextRequest::default()))
+                .await?;
+        }
+        RemoteCommand::Previous => {
+            client
+                .previous(tonic::Request::new(PreviousRequest::default()))
+                .await?;
+        }
+        RemoteCommand::Seek { position_ms } => {
+            client
+                .play(tonic::Request::new(PlayRequest {
+                    offset: 0,
+                    elapsed: position_ms as i64,
+                }))
+                .await?;
+        }
+        // Queue / shuffle / repeat / volume / audio-settings commands are
+        // deliberately not implemented for this bridge — rockboxd's own
+        // playlist engine is the source of truth and the now-playing pushes
+        // leave shuffle/repeat/volume unset, so controllers hide those
+        // controls rather than show them wrong.
+        other => {
+            tracing::debug!("Unsupported remote command: {:?}", other);
+        }
     }
-    let mut client = client.unwrap();
+    Ok(())
+}
+
+/// Forward the daemon's current-track gRPC stream to the miniplayers,
+/// reconnecting if the stream ends (e.g. the gRPC server restarts).
+async fn forward_track_stream(remote: Arc<RemotePlayer>, is_playing: Arc<AtomicBool>) {
+    loop {
+        if let Err(e) = track_stream_session(&remote, &is_playing).await {
+            tracing::warn!("Track stream ended: {}. Reconnecting...", e);
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
+async fn track_stream_session(
+    remote: &RemotePlayer,
+    is_playing: &AtomicBool,
+) -> Result<(), Error> {
+    let mut client = connect_playback_client().await?;
     let mut stream = client
         .stream_current_track(tonic::Request::new(StreamCurrentTrackRequest {}))
         .await?
         .into_inner();
 
-    while let Some(Ok(track)) = stream.next().await {
-        tx.send(
-            json!({
-                "type": "track",
-                "title": track.title,
-                "artist": track.artist,
-                "album_artist": track.album_artist,
-                "album": track.album,
-                "length": track.length,
-                "elapsed": track.elapsed,
-                "track_number": track.tracknum,
-                "disc_number": track.discnum,
-                "composer": track.composer,
-                "album_art": track.album_art
-            })
-            .to_string(),
-        )
-        .await?;
+    while let Some(track) = stream.message().await? {
+        remote.set_now_playing(RemoteNowPlaying {
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            album_artist: track.album_artist,
+            album_art: track.album_art.unwrap_or_default(),
+            duration_ms: track.length,
+            elapsed_ms: track.elapsed,
+            is_playing: is_playing.load(Ordering::Relaxed),
+            sample_rate: (track.frequency > 0).then_some(track.frequency as u32),
+            ..Default::default()
+        });
     }
 
-    Ok(())
+    Err(anyhow!("current-track stream closed"))
 }
 
-async fn start_status_stream(tx: tokio::sync::mpsc::Sender<String>) -> Result<(), Error> {
-    let host = env::var("ROCKBOX_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("ROCKBOX_PORT").unwrap_or_else(|_| "6061".to_string());
-    let url = format!("tcp://{}:{}", host, port);
-
-    // Retry gRPC connection up to 10 times with 1 second delay
-    let mut client = None;
-    for attempt in 1..=10 {
-        match PlaybackServiceClient::connect(url.clone()).await {
-            Ok(c) => {
-                client = Some(c);
-                break;
-            }
-            Err(_) if attempt < 10 => {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
-            Err(e) => {
-                return Err(anyhow!(
-                    "Failed to connect to Rockbox gRPC server for status stream: {}",
-                    e
-                ));
-            }
+/// Forward the daemon's transport-status gRPC stream to the miniplayers,
+/// reconnecting if the stream ends.
+async fn forward_status_stream(remote: Arc<RemotePlayer>, is_playing: Arc<AtomicBool>) {
+    loop {
+        if let Err(e) = status_stream_session(&remote, &is_playing).await {
+            tracing::warn!("Status stream ended: {}. Reconnecting...", e);
         }
+        tokio::time::sleep(Duration::from_secs(3)).await;
     }
-    let mut client = client.unwrap();
+}
+
+async fn status_stream_session(
+    remote: &RemotePlayer,
+    is_playing: &AtomicBool,
+) -> Result<(), Error> {
+    let mut client = connect_playback_client().await?;
     let mut stream = client
         .stream_status(tonic::Request::new(StreamStatusRequest {}))
         .await?
         .into_inner();
 
-    while let Some(Ok(status)) = stream.next().await {
-        tx.send(
-            json!({
-                "type": "status",
-                "status": status.status
-            })
-            .to_string(),
-        )
-        .await?;
+    while let Some(status) = stream.message().await? {
+        // Rockbox status is a bitmask: PLAY=0x01, PAUSE=0x02 → 0 = stopped,
+        // 1 = playing, 3 = paused.
+        let status = match status.status {
+            1 => RemoteStatus::Playing,
+            2 | 3 => RemoteStatus::Paused,
+            _ => RemoteStatus::Stopped,
+        };
+        is_playing.store(status == RemoteStatus::Playing, Ordering::Relaxed);
+        remote.set_status(status);
     }
 
-    Ok(())
+    Err(anyhow!("status stream closed"))
 }
 
 pub fn register_rockbox() -> Result<(), Error> {
@@ -423,18 +307,21 @@ pub fn register_rockbox() -> Result<(), Error> {
         rt.block_on(async move {
             let delay = 3;
 
+            // The SDK reconnects the WebSocket itself; this outer loop only
+            // covers run_remote_player bailing before the bridge is up (e.g.
+            // the local gRPC server never came within the connect retries).
             loop {
-                match run_ws_session(token.clone()).await {
+                match run_remote_player(token.clone()).await {
                     Ok(_) => {
-                        tracing::info!("WebSocket session ended cleanly");
+                        tracing::info!("Remote player session ended cleanly");
                     }
                     Err(e) => {
-                        tracing::error!("WebSocket session error: {:#?}", e);
+                        tracing::error!("Remote player session error: {:#?}", e);
                     }
                 }
 
-                tracing::info!("Reconnecting in {} seconds...", delay);
-                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                tracing::info!("Restarting remote player in {} seconds...", delay);
+                tokio::time::sleep(Duration::from_secs(delay)).await;
             }
         })
     });
