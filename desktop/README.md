@@ -1,3 +1,5 @@
+![Rockbox Desktop](../.github/assets/preview-slint.png)
+
 # rockbox-desktop — Slint client for rockboxd
 
 A modern, skinnable desktop app for [rockboxd](../README.md), built with

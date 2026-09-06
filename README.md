@@ -17,7 +17,7 @@
 [![discord](https://img.shields.io/discord/1292855167921815715?label=discord&logo=discord&color=5865F2)](https://discord.gg/tXPrgcPKSt)
 [![storybook](https://raw.githubusercontent.com/storybooks/brand/master/badge/badge-storybook.svg)](https://master--670ceec25af685dcdc87c0df.chromatic.com/?path=/story/components-albums--default)
 
-![Rockbox UI](./docs/gpui.png)
+![Rockbox Slint](./.github/assets/preview-slint.png)
 
 A modern take on the [Rockbox](https://www.rockbox.org) open source audio
 player, extended with Rust and Zig. Rockbox Daemon exposes the full Rockbox audio
@@ -25,6 +25,7 @@ engine — gapless playback, DSP, 20+ codecs, tag database — through gRPC,
 GraphQL, HTTP, and MPD APIs, in a single binary (`rockboxd`) and adds multi-room output via AirPlay, Snapcast,
 and Squeezelite.
 
+![Rockbox UI](./docs/gpui.png)
 ![Preview](./docs/preview.png)
 ![Desktop](./docs/desktop.png)
 ![macOS media controls](./docs/media-controls.png)
