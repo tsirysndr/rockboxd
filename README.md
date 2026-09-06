@@ -25,8 +25,8 @@ engine — gapless playback, DSP, 20+ codecs, tag database — through gRPC,
 GraphQL, HTTP, and MPD APIs, in a single binary (`rockboxd`) and adds multi-room output via AirPlay, Snapcast,
 and Squeezelite.
 
-![Rockbox UI](./docs/gpui.png)
 ![Preview](./docs/preview.png)
+![Rockbox UI](./docs/gpui.png)
 ![Desktop](./docs/desktop.png)
 ![macOS media controls](./docs/media-controls.png)
 ![macOS preview](./docs/preview-mac.png)
