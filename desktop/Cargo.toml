@@ -22,7 +22,9 @@ md5 = "0.7"
 mdns-sd = "0.11"
 if-addrs = "0.13"
 toml = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+# rustls-tls: artist pictures are absolute https:// CDN URLs — without a TLS
+# backend every fetch fails silently and the UI falls back to the default icon.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "5"
 tracing = "0.1"

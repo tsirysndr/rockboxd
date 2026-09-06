@@ -110,6 +110,9 @@ pub struct AlbumData {
 pub struct ArtistData {
     pub id: String,
     pub name: String,
+    /// Absolute CDN URL from the library DB (Rocksky artist metadata) —
+    /// unlike album art, which is a bare filename under /covers/.
+    pub image: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -804,6 +807,7 @@ async fn load_library(
             .map(|a| ArtistData {
                 id: a.id.clone(),
                 name: a.name.clone(),
+                image: a.image.clone().filter(|s| !s.is_empty()),
             })
             .collect(),
         tracks: to_track_data(&tracks),
@@ -814,6 +818,12 @@ async fn load_library(
         .iter()
         .enumerate()
         .filter_map(|(i, a)| a.art_file.clone().map(|f| (i, f)))
+        .collect();
+    let artist_images: Vec<(usize, String)> = data
+        .artists
+        .iter()
+        .enumerate()
+        .filter_map(|(i, a)| a.image.clone().map(|u| (i, u)))
         .collect();
 
     let _ = weak.upgrade_in_event_loop(move |app| crate::ui_set_library(&app, data));
@@ -826,6 +836,18 @@ async fn load_library(
             if let Some((w, h, rgba)) = fetch_thumb(&covers, &file, 320).await {
                 let _ = weak2.upgrade_in_event_loop(move |app| {
                     crate::ui_set_album_art(&app, idx, w, h, rgba);
+                });
+            }
+        }
+    });
+    // Artist pictures — absolute CDN URLs, fetched sequentially like album art.
+    let covers = ep.covers.clone();
+    let weak3 = weak.clone();
+    tokio::spawn(async move {
+        for (idx, url) in artist_images {
+            if let Some((w, h, rgba)) = fetch_thumb(&covers, &url, 160).await {
+                let _ = weak3.upgrade_in_event_loop(move |app| {
+                    crate::ui_set_artist_image(&app, idx, w, h, rgba);
                 });
             }
         }
@@ -853,7 +875,13 @@ fn to_track_data(tracks: &[Track]) -> Vec<TrackData> {
 }
 
 async fn fetch_thumb(covers_base: &str, file: &str, max: u32) -> Option<(u32, u32, Vec<u8>)> {
-    let url = format!("{covers_base}{file}");
+    // Artist pictures (and remote-track art) are absolute URLs; local album
+    // art is a bare filename served by the daemon's /covers/ endpoint.
+    let url = if file.starts_with("http://") || file.starts_with("https://") {
+        file.to_string()
+    } else {
+        format!("{covers_base}{file}")
+    };
     let bytes = reqwest::get(&url).await.ok()?.bytes().await.ok()?;
     tokio::task::spawn_blocking(move || {
         let img = image::load_from_memory(&bytes).ok()?;

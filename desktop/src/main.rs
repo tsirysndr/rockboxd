@@ -22,10 +22,15 @@ struct AlbumEntry {
     image: Option<slint::Image>,
 }
 
+struct ArtistEntry {
+    data: rpc::ArtistData,
+    image: Option<slint::Image>,
+}
+
 #[derive(Default)]
 struct UiState {
     albums: Vec<AlbumEntry>,
-    artists: Vec<rpc::ArtistData>,
+    artists: Vec<ArtistEntry>,
     tracks: Vec<rpc::TrackData>,
     liked: Vec<rpc::TrackData>,
     audio: rpc::AudioSettingsData,
@@ -78,6 +83,15 @@ fn album_item(a: &AlbumEntry) -> AlbumItem {
     }
 }
 
+fn artist_item(a: &ArtistEntry) -> ArtistItem {
+    ArtistItem {
+        id: a.data.id.clone().into(),
+        name: a.data.name.clone().into(),
+        image: a.image.clone().unwrap_or_default(),
+        has_image: a.image.is_some(),
+    }
+}
+
 /// Called from the rpc worker (on the UI thread) when the library loads.
 pub fn ui_set_library(app: &AppWindow, data: rpc::LibraryData) {
     STATE.with(|s| {
@@ -90,19 +104,19 @@ pub fn ui_set_library(app: &AppWindow, data: rpc::LibraryData) {
                 image: None,
             })
             .collect();
-        st.artists = data.artists;
+        st.artists = data
+            .artists
+            .into_iter()
+            .map(|a| ArtistEntry {
+                data: a,
+                image: None,
+            })
+            .collect();
         st.tracks = data.tracks;
         st.liked = data.liked;
 
         let albums: Vec<AlbumItem> = st.albums.iter().map(album_item).collect();
-        let artists: Vec<ArtistItem> = st
-            .artists
-            .iter()
-            .map(|a| ArtistItem {
-                id: a.id.clone().into(),
-                name: a.name.clone().into(),
-            })
-            .collect();
+        let artists: Vec<ArtistItem> = st.artists.iter().map(artist_item).collect();
         let ids = liked_ids_of(&st.liked);
         let tracks: Vec<TrackItem> = st.tracks.iter().map(|t| track_item_with(t, &ids)).collect();
         let liked: Vec<TrackItem> = st.liked.iter().map(|t| track_item_with(t, &ids)).collect();
@@ -135,6 +149,23 @@ pub fn ui_set_album_art(app: &AppWindow, idx: usize, w: u32, h: u32, rgba: Vec<u
         detail.art = image;
         detail.has_art = true;
         app.set_detail_album(detail);
+    }
+}
+
+/// Called per decoded artist picture thumbnail.
+pub fn ui_set_artist_image(app: &AppWindow, idx: usize, w: u32, h: u32, rgba: Vec<u8>) {
+    let image = slint::Image::from_rgba8(SharedPixelBuffer::clone_from_slice(&rgba, w, h));
+    STATE.with(|s| {
+        let mut st = s.borrow_mut();
+        if let Some(entry) = st.artists.get_mut(idx) {
+            entry.image = Some(image.clone());
+        }
+    });
+    let model = app.get_artists();
+    if let Some(mut row) = model.row_data(idx) {
+        row.image = image;
+        row.has_image = true;
+        model.set_row_data(idx, row);
     }
 }
 
@@ -583,16 +614,16 @@ fn palette_results(query: &str) -> Vec<PaletteItem> {
         out.extend(
             st.artists
                 .iter()
-                .filter(|a| hit(&[&a.name]))
+                .filter(|a| hit(&[&a.data.name]))
                 .take(4)
                 .map(|a| PaletteItem {
                     kind: "artist".into(),
-                    id: a.id.clone().into(),
-                    title: a.name.clone().into(),
+                    id: a.data.id.clone().into(),
+                    title: a.data.name.clone().into(),
                     subtitle: "".into(),
                     index: -1,
-                    has_art: false,
-                    art: slint::Image::default(),
+                    has_art: a.image.is_some(),
+                    art: a.image.clone().unwrap_or_default(),
                 }),
         );
         out
