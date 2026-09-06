@@ -117,8 +117,8 @@ pub async fn run_remote_player(token: String) -> Result<(), Error> {
     // cargo-ndk's flag injection on Android.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let ws_url = env::var("ROCKSKY_WS")
-        .unwrap_or_else(|_| rocksky_sdk::DEFAULT_REMOTE_WS.to_string());
+    let ws_url =
+        env::var("ROCKSKY_WS").unwrap_or_else(|_| rocksky_sdk::DEFAULT_REMOTE_WS.to_string());
     let device_name = rocksky_device_name();
     tracing::info!("Registering as device \"{}\" on {}", device_name, ws_url);
 
@@ -228,10 +228,7 @@ async fn forward_track_stream(remote: Arc<RemotePlayer>, is_playing: Arc<AtomicB
     }
 }
 
-async fn track_stream_session(
-    remote: &RemotePlayer,
-    is_playing: &AtomicBool,
-) -> Result<(), Error> {
+async fn track_stream_session(remote: &RemotePlayer, is_playing: &AtomicBool) -> Result<(), Error> {
     let mut client = connect_playback_client().await?;
     let mut stream = client
         .stream_current_track(tonic::Request::new(StreamCurrentTrackRequest {}))
