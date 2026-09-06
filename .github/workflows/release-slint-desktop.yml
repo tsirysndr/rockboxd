@@ -1,0 +1,158 @@
+name: release slint desktop app
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to attach the archives to"
+        type: string
+        required: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    # Skip SDK / language-binding releases — those tags publish libraries,
+    # not the desktop app.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!startsWith(github.event.release.tag_name, 'clojure-v') &&
+       !startsWith(github.event.release.tag_name, 'clojure-ffi-v') &&
+       !startsWith(github.event.release.tag_name, 'bindings-v') &&
+       !startsWith(github.event.release.tag_name, 'elixir-v') &&
+       !startsWith(github.event.release.tag_name, 'erlang-v') &&
+       !startsWith(github.event.release.tag_name, 'gleam-v'))
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos-aarch64
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Resolve version
+        id: vars
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "archive=rockbox-desktop-${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: slint-desktop-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: slint-desktop-${{ matrix.target }}-
+
+      # llvm@22 crashes in setSymbolInRelocationInfo on Mach-O — use llvm@21
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@21 cmake protobuf
+          echo "/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin" >> $GITHUB_PATH
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libunwind-dev \
+            libasound2-dev \
+            libdbus-1-dev \
+            libfontconfig1-dev \
+            libxkbcommon-dev \
+            protobuf-compiler \
+            curl \
+            wget \
+            zip \
+            unzip \
+            cmake
+
+      - name: Set Rust flags
+        run: echo "RUSTFLAGS=-A warnings" >> $GITHUB_ENV
+
+      # The web UIs are embedded into rockbox-server, which librockboxd.a
+      # links for the in-process daemon.
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Build Web UI
+        run: |
+          cd webui/rockbox
+          deno install
+          deno run build
+          rm -r node_modules
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install admin UI dependencies
+        working-directory: crates/s3/s3webui
+        run: bun install --frozen-lockfile
+
+      - name: Build admin UI
+        working-directory: crates/s3/s3webui
+        run: |
+          bun run build
+          rm -r node_modules
+
+      # ── Embedded daemon: headless firmware → rockbox-embed → librockboxd.a ─
+      - name: Build headless firmware
+        run: bash scripts/build-headless.sh
+
+      - name: Build rockbox-embed
+        run: cargo build --release -p rockbox-embed
+
+      - name: Build librockboxd.a
+        run: |
+          cd zig
+          zig build lib -Doptimize=ReleaseFast
+
+      # ── Slint desktop app (links librockboxd.a via desktop/build.rs) ──────
+      # --locked: the committed lock pins slint-build 1.17.1 (since yanked);
+      # a fresh resolution would fail, the locked graph still downloads fine.
+      - name: Build desktop app
+        working-directory: desktop
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          STAGE=rockbox-desktop-${{ steps.vars.outputs.version }}-${{ matrix.target }}
+          mkdir -p "$STAGE"
+          cp desktop/target/release/rockbox-desktop "$STAGE/"
+          cp desktop/README.md "$STAGE/"
+          cp -r desktop/skins "$STAGE/skins"
+          tar -czf "${{ steps.vars.outputs.archive }}" "$STAGE"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.vars.outputs.archive }}
+          tag_name: ${{ steps.vars.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
