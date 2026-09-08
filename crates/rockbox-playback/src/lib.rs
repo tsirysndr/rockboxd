@@ -2324,8 +2324,7 @@ impl Engine {
                         if let Some(tag_len) = source::id3v2_len(src.cache_path()) {
                             let want = tag_len.saturating_add(256 * 1024).min(size);
                             if want > HEADER_BYTES && src.prefetch_range(0, want).is_ok() {
-                                meta = rockbox_metadata::read(src.cache_path())
-                                    .unwrap_or_default();
+                                meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
                             }
                         }
                     }
@@ -2338,8 +2337,7 @@ impl Engine {
                     if meta.duration.is_zero() && size > HEADER_BYTES {
                         if let Some((start, end)) = source::mp4_moov_extent(&mut src) {
                             if src.prefetch_range(start, end).is_ok() {
-                                meta = rockbox_metadata::read(src.cache_path())
-                                    .unwrap_or_default();
+                                meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
                             }
                         }
                     }
@@ -2975,7 +2973,6 @@ fn apply_replaygain_track(dsp: &mut rockbox_dsp::Dsp, meta: &Metadata) {
         rg.raw_album_peak,
     );
 }
-
 
 #[cfg(test)]
 mod insertion_tests {

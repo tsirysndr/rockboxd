@@ -64,9 +64,7 @@ impl MediaSource for FileSource {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "http")]
-pub use http::{
-    id3v2_len, mp4_moov_extent, open_remote, HttpSource, HttpStream, IcyInfo, Remote,
-};
+pub use http::{id3v2_len, mp4_moov_extent, open_remote, HttpSource, HttpStream, IcyInfo, Remote};
 
 #[cfg(feature = "http")]
 mod http {
