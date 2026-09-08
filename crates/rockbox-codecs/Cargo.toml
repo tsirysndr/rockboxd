@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-codecs"
-version = "0.2.1"
+version = "0.2.2"
 description = "Rockbox audio decoders (FLAC, MP3, Vorbis, ALAC, WavPack, WAV/ADPCM, …) as a reusable decoding library"
 authors = { workspace = true }
 edition = { workspace = true }
@@ -65,7 +65,7 @@ mod = []
 [dependencies]
 # Provides get_metadata() (the codec_api id3 contract) at the C symbol
 # level and the public Metadata type re-exposed by Decoder::metadata().
-rockbox-metadata = { version = "0.1.0", path = "../rockbox-metadata" }
+rockbox-metadata = { version = "0.1.1", path = "../rockbox-metadata" }
 
 [build-dependencies]
 cc = "1"
