@@ -10983,7 +10983,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-playback"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cpal",
  "quick-xml 0.37.5",

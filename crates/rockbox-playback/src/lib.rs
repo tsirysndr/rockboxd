@@ -538,6 +538,23 @@ const ST_STOPPED: u8 = 0;
 const ST_PLAYING: u8 = 1;
 const ST_PAUSED: u8 = 2;
 
+/// Output levels for a meter, as produced by the audio callback.
+///
+/// Each value is a 0..1 RMS over one callback buffer — roughly 10-20 ms —
+/// taken *after* volume, balance and fade, so it reflects what is actually
+/// leaving the device rather than what was decoded.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Levels {
+    pub left: f32,
+    pub right: f32,
+    /// The same signal through a one-pole low-pass at roughly 200 Hz. A meter
+    /// driven by this moves with the bass, which is what reads as "following
+    /// the music"; full-band RMS is dominated by whatever is loudest and
+    /// tends to sit near the top.
+    pub low_left: f32,
+    pub low_right: f32,
+}
+
 /// A snapshot of the player's status.
 #[derive(Debug, Clone)]
 pub struct Status {
@@ -557,6 +574,9 @@ pub struct Status {
     pub shuffle: bool,
     /// The current repeat mode.
     pub repeat: RepeatMode,
+    /// Output levels at the moment of the call, for a meter. Zero when
+    /// nothing is playing.
+    pub levels: Levels,
 }
 
 /// Configuration for [`Player::with_config`].
@@ -796,6 +816,17 @@ struct Shared {
     /// The current [`RepeatMode`] as `u8` (mirrored from the engine).
     repeat: AtomicU8,
     ring: Mutex<VecDeque<i16>>,
+    /// Output levels, for a meter. Four `f32`s bit-packed into atomics so the
+    /// audio callback never takes a lock to publish them — a meter is not
+    /// worth a priority inversion in the callback that feeds the speakers.
+    ///
+    /// Each is a 0..1 RMS over the callback's own buffer: `low_*` is the same
+    /// signal through a one-pole low-pass, which is what makes a meter move
+    /// with the bass rather than with sibilance.
+    level_l: AtomicU32,
+    level_r: AtomicU32,
+    level_low_l: AtomicU32,
+    level_low_r: AtomicU32,
     meta: Mutex<Option<Metadata>>,
     /// Live mirror of the DSP-chain settings, updated by the engine as it
     /// applies each `Set*` command, so [`Player::dsp_settings`] can read the
@@ -833,6 +864,27 @@ impl Shared {
     }
     fn ring_frames(&self) -> usize {
         self.ring.lock().unwrap().len() / 2
+    }
+
+    /// The levels the audio callback last published.
+    fn levels(&self) -> Levels {
+        Levels {
+            left: f32::from_bits(self.level_l.load(Ordering::Relaxed)),
+            right: f32::from_bits(self.level_r.load(Ordering::Relaxed)),
+            low_left: f32::from_bits(self.level_low_l.load(Ordering::Relaxed)),
+            low_right: f32::from_bits(self.level_low_r.load(Ordering::Relaxed)),
+        }
+    }
+
+    /// Publish one buffer's levels. Called from the audio callback, so it
+    /// takes no locks and allocates nothing.
+    fn set_levels(&self, levels: Levels) {
+        self.level_l.store(levels.left.to_bits(), Ordering::Relaxed);
+        self.level_r.store(levels.right.to_bits(), Ordering::Relaxed);
+        self.level_low_l
+            .store(levels.low_left.to_bits(), Ordering::Relaxed);
+        self.level_low_r
+            .store(levels.low_right.to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -1350,6 +1402,7 @@ impl Player {
             queue_len: self.shared.queue_len.load(Ordering::Relaxed),
             shuffle: self.shared.shuffle.load(Ordering::Relaxed),
             repeat: RepeatMode::from_u8(self.shared.repeat.load(Ordering::Relaxed)),
+            levels: self.shared.levels(),
         }
     }
 }
@@ -1381,6 +1434,10 @@ fn make_shared(config: &PlayerConfig, rate: u32) -> Arc<Shared> {
         shuffle: AtomicBool::new(config.shuffle),
         repeat: AtomicU8::new(config.repeat.to_u8()),
         ring: Mutex::new(VecDeque::new()),
+        level_l: AtomicU32::new(0),
+        level_r: AtomicU32::new(0),
+        level_low_l: AtomicU32::new(0),
+        level_low_r: AtomicU32::new(0),
         meta: Mutex::new(None),
         dsp: Mutex::new(config.dsp.clone()),
         queue: Mutex::new(Vec::new()),
@@ -1452,6 +1509,8 @@ fn spawn_stream_writer(
             // 2 channels * 2 bytes/sample.
             let mut buf = vec![0u8; chunk_frames * 4];
             let mut cur_amp = 0.0f32;
+            let mut meter = LevelMeter::default();
+            let alpha = LevelMeter::alpha(rate);
             let mut next = Instant::now() + frame_dur;
 
             while !stop_thread.load(Ordering::Relaxed) {
@@ -1481,7 +1540,16 @@ fn spawn_stream_writer(
                         let rv = ((r as f32) * cur_amp * gain_r).clamp(-32768.0, 32767.0) as i16;
                         frame[0..2].copy_from_slice(&lv.to_le_bytes());
                         frame[2..4].copy_from_slice(&rv.to_le_bytes());
+                        // Measured after gain, balance and fade: what the
+                        // meter shows is what leaves the output.
+                        meter.push(
+                            alpha,
+                            (lv as f32 / 32768.0).abs(),
+                            (rv as f32 / 32768.0).abs(),
+                        );
                     }
+                    drop(ring);
+                    shared.set_levels(meter.take());
                 }
 
                 // A write/flush error means the consumer went away (pipe
@@ -1516,6 +1584,65 @@ fn spawn_stream_writer(
 /// (~⅓ s full-range, matching Rockbox's pause/stop fade) for click-free
 /// transitions.
 #[cfg(feature = "cpal")]
+/// Accumulates one callback buffer's worth of level, full-band and low.
+///
+/// A one-pole low-pass per channel, carried across callbacks so the filter
+/// does not restart every buffer, plus running sums of squares. Deliberately
+/// trivial arithmetic: this runs inside the audio callback, where anything
+/// that can block or allocate is a dropout.
+#[derive(Default)]
+struct LevelMeter {
+    /// Low-pass state, one per channel.
+    lp_l: f32,
+    lp_r: f32,
+    sum_l: f32,
+    sum_r: f32,
+    sum_low_l: f32,
+    sum_low_r: f32,
+    frames: u32,
+}
+
+impl LevelMeter {
+    /// `alpha` for a one-pole low-pass at roughly 200 Hz, for a given rate.
+    fn alpha(rate: u32) -> f32 {
+        let cutoff = 200.0;
+        let rc = 1.0 / (std::f32::consts::TAU * cutoff);
+        let dt = 1.0 / rate.max(1) as f32;
+        dt / (rc + dt)
+    }
+
+    fn push(&mut self, alpha: f32, left: f32, right: f32) {
+        self.lp_l += alpha * (left - self.lp_l);
+        self.lp_r += alpha * (right - self.lp_r);
+        self.sum_l += left * left;
+        self.sum_r += right * right;
+        self.sum_low_l += self.lp_l * self.lp_l;
+        self.sum_low_r += self.lp_r * self.lp_r;
+        self.frames += 1;
+    }
+
+    /// The buffer's RMS, resetting the sums but keeping the filter state.
+    fn take(&mut self) -> Levels {
+        let frames = self.frames.max(1) as f32;
+        let rms = |sum: f32| (sum / frames).sqrt().clamp(0.0, 1.0);
+        let levels = Levels {
+            left: rms(self.sum_l),
+            right: rms(self.sum_r),
+            // Low-passing removes most of the energy, so the band is scaled
+            // to reach the top of a meter on bass-heavy material rather than
+            // hovering near the floor.
+            low_left: (rms(self.sum_low_l) * 3.0).clamp(0.0, 1.0),
+            low_right: (rms(self.sum_low_r) * 3.0).clamp(0.0, 1.0),
+        };
+        self.sum_l = 0.0;
+        self.sum_r = 0.0;
+        self.sum_low_l = 0.0;
+        self.sum_low_r = 0.0;
+        self.frames = 0;
+        levels
+    }
+}
+
 fn build_stream(
     device: &cpal::Device,
     rate: u32,
@@ -1529,6 +1656,8 @@ fn build_stream(
     // ~1/3 second to fade the full 0..1 range, matching pcmbuf_fade_tick.
     let step = 3.0 / rate as f32;
     let mut cur_amp = 0.0f32;
+    let mut meter = LevelMeter::default();
+    let alpha = LevelMeter::alpha(rate);
 
     let err_fn = |e| eprintln!("rockbox-playback: output stream error: {e}");
     let stream = device
@@ -1543,6 +1672,9 @@ fn build_stream(
                 // resume is click-free from where it left off.
                 if target == 0.0 && cur_amp == 0.0 {
                     data.fill(0.0);
+                    // Silence is a level too: a meter left holding its last
+                    // reading looks stuck rather than stopped.
+                    shared.set_levels(Levels::default());
                     return;
                 }
                 let mut ring = shared.ring.lock().unwrap();
@@ -1564,7 +1696,11 @@ fn build_stream(
                     if frame.len() > 1 {
                         frame[1] = (r as f32 / 32768.0) * cur_amp * gain_r;
                     }
+                    // Measured here, after gain, balance and fade: what the
+                    // meter shows is what leaves the device.
+                    meter.push(alpha, frame[0].abs(), frame.get(1).copied().unwrap_or(0.0).abs());
                 }
+                shared.set_levels(meter.take());
             },
             err_fn,
             None,
@@ -3435,5 +3571,81 @@ mod shuffle_repeat_tests {
         let reordered =
             (0..8).any(|_| shuffled_order(10, 0, &mut rng) != (0..10).collect::<Vec<_>>());
         assert!(reordered, "shuffle never reordered a 10-track queue");
+    }
+}
+
+#[cfg(test)]
+mod level_meter_tests {
+    use super::*;
+
+    fn drive(meter: &mut LevelMeter, alpha: f32, sample: f32, frames: usize) {
+        for _ in 0..frames {
+            meter.push(alpha, sample, sample);
+        }
+    }
+
+    /// Silence reads as silence, not as the last thing that played.
+    #[test]
+    fn silence_is_zero() {
+        let mut meter = LevelMeter::default();
+        drive(&mut meter, LevelMeter::alpha(44_100), 0.0, 512);
+        assert_eq!(meter.take(), Levels::default());
+    }
+
+    /// A constant signal is entirely below 200 Hz, so both bands see it.
+    #[test]
+    fn a_steady_signal_fills_both_bands() {
+        let mut meter = LevelMeter::default();
+        let alpha = LevelMeter::alpha(44_100);
+        // Long enough for the one-pole to settle.
+        drive(&mut meter, alpha, 0.5, 44_100);
+
+        let levels = meter.take();
+        assert!((levels.left - 0.5).abs() < 0.01, "{levels:?}");
+        assert!(levels.low_left > 0.9, "bass should reach the top: {levels:?}");
+    }
+
+    /// The point of the low band: something that alternates every sample is
+    /// the highest frequency representable, and must not move a bass meter.
+    #[test]
+    fn the_low_band_ignores_high_frequencies() {
+        let mut meter = LevelMeter::default();
+        let alpha = LevelMeter::alpha(44_100);
+        for i in 0..44_100 {
+            let sample = if i % 2 == 0 { 0.9 } else { -0.9 };
+            meter.push(alpha, sample, sample);
+        }
+
+        let levels = meter.take();
+        assert!(levels.left > 0.8, "full band should see it: {levels:?}");
+        assert!(
+            levels.low_left < 0.1,
+            "bass band should not: {levels:?}"
+        );
+    }
+
+    /// Taking resets the window but keeps the filter, so the next buffer does
+    /// not start from a re-settling low-pass.
+    #[test]
+    fn taking_resets_the_window_but_not_the_filter() {
+        let mut meter = LevelMeter::default();
+        let alpha = LevelMeter::alpha(44_100);
+        drive(&mut meter, alpha, 0.5, 44_100);
+        let settled = meter.take().low_left;
+
+        drive(&mut meter, alpha, 0.5, 64);
+        let next = meter.take().low_left;
+        assert!(
+            (next - settled).abs() < 0.05,
+            "the filter restarted: {settled} then {next}"
+        );
+    }
+
+    #[test]
+    fn levels_never_exceed_one() {
+        let mut meter = LevelMeter::default();
+        drive(&mut meter, LevelMeter::alpha(44_100), 1.0, 4_096);
+        let levels = meter.take();
+        assert!(levels.left <= 1.0 && levels.low_left <= 1.0, "{levels:?}");
     }
 }
