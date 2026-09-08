@@ -64,7 +64,9 @@ impl MediaSource for FileSource {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "http")]
-pub use http::{open_remote, HttpSource, HttpStream, IcyInfo, Remote};
+pub use http::{
+    id3v2_len, mp4_moov_extent, open_remote, HttpSource, HttpStream, IcyInfo, Remote,
+};
 
 #[cfg(feature = "http")]
 mod http {
@@ -274,6 +276,17 @@ mod http {
             }
             self.pos = 0;
             Ok(())
+        }
+
+        /// Prefetch exactly `[start, end)` (clamped to the size) into the
+        /// cache, leaving the read cursor where it was. Used to pull a
+        /// trailer into view — a non-faststart MP4 keeps `moov` at EOF, so
+        /// the header window alone is not enough to parse its metadata.
+        pub fn prefetch_range(&mut self, start: u64, end: u64) -> io::Result<()> {
+            let pos = self.pos;
+            let result = self.ensure(start, end);
+            self.pos = pos;
+            result
         }
 
         /// Make sure `[start, end)` is present in the cache, fetching the
@@ -632,6 +645,93 @@ mod http {
             _ => return None,
         };
         Some(format!(".{ext}"))
+    }
+
+    /// Byte range `[start, end)` of the top-level `moov` box, found by walking
+    /// the MP4 atom chain over ranged reads.
+    ///
+    /// A non-faststart file keeps `moov` at EOF, out of reach of the header
+    /// prefetch; locating it exactly beats guessing a tail length, since the
+    /// box can be larger than any fixed guess. Returns `None` as soon as the
+    /// bytes stop looking like an atom chain, so calling it on a non-MP4 costs
+    /// one comparison and no extra fetch. Leaves the read cursor where it was.
+    pub fn mp4_moov_extent(src: &mut HttpSource) -> Option<(u64, u64)> {
+        let size = src.size();
+        let restore = src.stream_position().ok()?;
+        let mut pos = 0u64;
+        let mut found = None;
+
+        // Top-level chains are short (ftyp / free / mdat / moov); the cap is
+        // only there so a malformed file can't spin.
+        for _ in 0..16 {
+            if pos.saturating_add(8) > size || src.seek(SeekFrom::Start(pos)).is_err() {
+                break;
+            }
+
+            let mut head = [0u8; 16];
+            if src.read_exact(&mut head[..8]).is_err() {
+                break;
+            }
+            let short = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as u64;
+
+            let len = match short {
+                // Extended 64-bit size follows the type field.
+                1 => {
+                    if src.read_exact(&mut head[8..16]).is_err() {
+                        break;
+                    }
+                    u64::from_be_bytes([
+                        head[8], head[9], head[10], head[11], head[12], head[13], head[14],
+                        head[15],
+                    ])
+                }
+                // Zero means "to end of file".
+                0 => size - pos,
+                n => n,
+            };
+
+            if len < 8 || pos.saturating_add(len) > size {
+                break;
+            }
+            if &head[4..8] == b"moov" {
+                found = Some((pos, pos + len));
+                break;
+            }
+            pos += len;
+        }
+
+        let _ = src.seek(SeekFrom::Start(restore));
+        found
+    }
+
+    /// Total byte length of the ID3v2 tag at the start of `path`, header
+    /// included, or `None` when the file does not begin with one.
+    ///
+    /// The size is stored as four *syncsafe* bytes (7 bits each), and the
+    /// optional footer adds another 10. Used to widen the header prefetch: a
+    /// tag with embedded cover art can push the first MPEG frame — and the
+    /// Xing header the duration comes from — past the default window.
+    pub fn id3v2_len(path: &std::path::Path) -> Option<u64> {
+        let mut header = [0u8; 10];
+        std::fs::File::open(path)
+            .ok()?
+            .read_exact(&mut header)
+            .ok()?;
+
+        if &header[..3] != b"ID3" {
+            return None;
+        }
+        // A syncsafe integer never sets the high bit of any byte.
+        if header[6..10].iter().any(|b| b & 0x80 != 0) {
+            return None;
+        }
+
+        let size = header[6..10]
+            .iter()
+            .fold(0u64, |acc, &b| (acc << 7) | u64::from(b));
+        let footer = if header[5] & 0x10 != 0 { 10 } else { 0 };
+
+        Some(size + 10 + footer)
     }
 
     /// Extract a file extension (with dot) from a URL path so the temp cache

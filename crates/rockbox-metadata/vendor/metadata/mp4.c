@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2005 Magnus Holmgren
  *
@@ -155,12 +154,35 @@ static unsigned int read_mp4_atom(int fd, uint32_t* size,
 
     if (*size == 1)
     {
-        /* FAT32 doesn't support files this big, so something seems to
-         * be wrong. (64-bit sizes should only be used when required.)
+        /* A size of 1 means the real length is a 64-bit value following the
+         * type field. Streaming encoders emit this for mdat because the
+         * payload length isn't known when the header is written, so it does
+         * not imply a file too big for the filesystem — read it and carry on.
+         * The header is 16 bytes here rather than 8.
          */
-        errno = EFBIG;
-        *type = 0;
-        return 0;
+        uint64_t largesize = 0;
+
+        read_uint64be(fd, &largesize);
+
+        if (largesize < 16 || (largesize - 16) > UINT32_MAX)
+        {
+            errno = EFBIG;
+            *type = 0;
+            return 0;
+        }
+
+        if (largesize > (uint64_t) size_left)
+        {
+            size_left = 0;
+        }
+        else
+        {
+            size_left -= (uint32_t) largesize;
+        }
+
+        *size = (uint32_t) (largesize - 16);
+
+        return size_left;
     }
 
     if (*size > 0)
@@ -636,8 +658,26 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             break;
 
         case MP4_meta:
-            lseek(fd, 4, SEEK_CUR);  /* Skip version */
-            size -= 4;
+            /* ISO-BMFF declares `meta` a FullBox, so its payload starts with
+             * a zero version/flags word. QuickTime-flavoured files (Samsung
+             * recorders among them) omit it and start straight at the first
+             * child atom. Skipping unconditionally desynchronises the walk on
+             * those, so only skip when the word really is version/flags.
+             */
+            {
+                uint32_t version = 0;
+
+                read_uint32be(fd, &version);
+
+                if (version == 0)
+                {
+                    size -= 4;
+                }
+                else
+                {
+                    lseek(fd, -4, SEEK_CUR);
+                }
+            }
             /* Fall through */
 
         case MP4_moov:
