@@ -857,10 +857,25 @@ int qtmovie_read(stream_t *file, demux_res_t *demux_res)
             return 1;
         }
 
-        if (chunk_len == 1)
-            return 0;
-
         chunk_id = stream_read_uint32(qtmovie.stream);
+
+        if (chunk_len == 1)
+        {
+            /* The real length is a 64-bit value following the type field —
+             * common on mdat written by streaming encoders, which don't know
+             * the payload length up front. Every case below works in terms of
+             * "chunk_len - 8", and we have just consumed 8 extra header
+             * bytes, so normalise to the true length minus those 8.
+             */
+            uint64_t hi = stream_read_uint32(qtmovie.stream);
+            uint64_t lo = stream_read_uint32(qtmovie.stream);
+            uint64_t largesize = (hi << 32) | lo;
+
+            if (largesize < 16 || (largesize - 8) > (uint64_t) SIZE_MAX)
+                return 0;
+
+            chunk_len = (size_t) (largesize - 8);
+        }
 
         switch (chunk_id)
         {

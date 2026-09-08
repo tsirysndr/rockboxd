@@ -1,6 +1,6 @@
 [package]
 name = "rockbox-metadata"
-version = "0.1.0"
+version = "0.1.1"
 description = "Audio file metadata / tag parser for 40+ formats (MP3, FLAC, Vorbis, Opus, MP4/AAC/ALAC, WavPack, APE, WMA, chiptunes, …) extracted from Rockbox"
 authors = { workspace = true }
 edition = { workspace = true }

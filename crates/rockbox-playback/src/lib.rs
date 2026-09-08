@@ -2308,13 +2308,47 @@ impl Engine {
                     // as soon as the header is present. ~512 KiB covers the
                     // format/rate/duration for the common codecs.
                     const HEADER_BYTES: u64 = 512 * 1024;
+                    const TAIL_BYTES: u64 = 1024 * 1024;
                     if src.prefetch(HEADER_BYTES).is_err() {
                         return Some(false);
                     }
                     let size = src.size();
                     // Parse tags/duration from the prefetched header (the cache
                     // file is full-size and sparse, so this reads what's there).
-                    let meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                    let mut meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                    // An MP3 can carry an ID3v2 tag (cover art) larger than the
+                    // header window, leaving the first MPEG frame — and the
+                    // Xing/VBR header that holds the duration — unfetched.
+                    // Extend the front past the tag and retry.
+                    if meta.duration.is_zero() && size > HEADER_BYTES {
+                        if let Some(tag_len) = source::id3v2_len(src.cache_path()) {
+                            let want = tag_len.saturating_add(256 * 1024).min(size);
+                            if want > HEADER_BYTES && src.prefetch_range(0, want).is_ok() {
+                                meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                            }
+                        }
+                    }
+                    // A non-faststart MP4 keeps `moov` at EOF, so the header
+                    // window can't reach it. Walk the atom chain to find the
+                    // box and fetch exactly it — a fixed tail guess misses the
+                    // ones whose `moov` is bigger than the guess. The parser
+                    // seeks over `mdat` rather than reading it, so header +
+                    // `moov` is enough and the hole between is never touched.
+                    if meta.duration.is_zero() && size > HEADER_BYTES {
+                        if let Some((start, end)) = source::mp4_moov_extent(&mut src) {
+                            if src.prefetch_range(start, end).is_ok() {
+                                meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                            }
+                        }
+                    }
+                    // Last resort for a container whose chain we can't walk:
+                    // take the tail and hope the trailer lives there.
+                    if meta.duration.is_zero() && size > HEADER_BYTES {
+                        let tail = size.saturating_sub(TAIL_BYTES).max(HEADER_BYTES);
+                        if src.prefetch_range(tail, size).is_ok() {
+                            meta = rockbox_metadata::read(src.cache_path()).unwrap_or_default();
+                        }
+                    }
                     let ext = src
                         .cache_path()
                         .extension()

@@ -10629,7 +10629,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-codecs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cc",
  "cpal",
@@ -10735,7 +10735,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-ffi"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rockbox-codecs",
  "rockbox-dsp",
@@ -10901,7 +10901,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-metadata"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "cpal",
@@ -10983,7 +10983,7 @@ dependencies = [
 
 [[package]]
 name = "rockbox-playback"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "cpal",
  "quick-xml 0.37.5",
