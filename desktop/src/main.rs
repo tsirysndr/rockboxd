@@ -650,8 +650,9 @@ fn setup_backend() {
     }
 }
 
-/// Sets the Dock icon at runtime — the same AppIcon.icns the GPUI app
-/// bundles. Only meaningful on macOS; other platforms use the window icon.
+/// Sets the Dock icon at runtime from the bundled `assets/AppIcon.icns`
+/// (built from `macos/Rockbox/Assets.xcassets`, same artwork as the GPUI
+/// app). Only meaningful on macOS; other platforms use the window icon.
 #[cfg(target_os = "macos")]
 fn set_dock_icon() {
     use objc2::ClassType;
@@ -661,8 +662,7 @@ fn set_dock_icon() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    let bytes: &[u8] =
-        include_bytes!("../../gpui/dist/Rockbox.app/Contents/Resources/AppIcon.icns");
+    let bytes: &[u8] = include_bytes!("../assets/AppIcon.icns");
     let data = NSData::with_bytes(bytes);
     if let Some(img) = NSImage::initWithData(NSImage::alloc(), &data) {
         let app = NSApplication::sharedApplication(mtm);

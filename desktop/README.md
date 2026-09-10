@@ -89,7 +89,9 @@ ui/app.slint         window, sidebar, views, player bar, overlays (palette,
 ui/components.slint  IconButton, PlayPauseButton, SlideBar, MeterStrip,
                      VfdDisplay, AlbumCard, TrackRow/TrackListHeader, …
 ui/theme.slint       Theme global — every visual token, overwritten per skin
-ui/icons.slint       Icons global — Lucide-style SVGs shared with gpui/assets
+ui/icons.slint       Icons global — Lucide-style SVGs from assets/icons
+assets/              self-contained: icons/*.svg, fonts/*.ttf, AppIcon.icns
+                     (copies — never reference paths outside desktop/)
 src/main.rs          UI-thread state (thread_local), callbacks, skin cycling
 src/rpc.rs           tokio worker: tonic clients, StreamCurrentTrack /
                      StreamStatus / StreamPlaylist followers, command loop
