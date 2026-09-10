@@ -59,6 +59,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("cargo:rustc-link-lib=dylib=asound");
                 println!("cargo:rustc-link-lib=dylib=unwind");
                 println!("cargo:rustc-link-lib=dylib=dbus-1");
+
+                // librockboxd.a bundles rockbox-embed and rockbox-server,
+                // which are `staticlib` crates — so it carries its own copy of
+                // the Rust standard library. Normally harmless: std reaches
+                // this binary through rlibs, and the linker never pulls an
+                // archive member for a symbol it already has.
+                //
+                // `lto = "thin"` (see Cargo.toml) breaks that. rustc then
+                // hands the linker loose *.rcgu.o objects instead of rlibs,
+                // and loose objects are unconditional definitions, so every
+                // std symbol in the archive collides:
+                //
+                //   rust-lld: error: duplicate symbol: alloc::raw_vec::handle_error
+                //
+                // Both copies come from the same rustc and are identical, so
+                // taking the first is correct. GNU ld tolerates this shape by
+                // default; rust-lld — the x86_64-unknown-linux-gnu default —
+                // does not, which is why this only ever failed on Linux CI
+                // and never on macOS.
+                println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
             }
             _ => {}
         }
