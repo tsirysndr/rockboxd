@@ -148,6 +148,57 @@ pub async fn all(pool: Pool<Sqlite>) -> Result<Vec<Track>, Error> {
     Ok(result)
 }
 
+/// `(id, path)` for every local track. Cheap projection for the scan's delete
+/// reconciliation, which only needs to stat each path — pulling full rows for
+/// a 50k-track library just to call `Path::exists()` is wasteful.
+pub async fn local_paths(pool: Pool<Sqlite>) -> Result<Vec<(String, String)>, Error> {
+    let result: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, path FROM track WHERE is_remote = 0")
+            .fetch_all(&pool)
+            .await?;
+    Ok(result)
+}
+
+/// Delete tracks by id together with every row that references them, in a
+/// single transaction. Returns the number of `track` rows removed.
+pub async fn delete_by_ids(pool: Pool<Sqlite>, ids: &[String]) -> Result<u64, Error> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
+    let placeholders = vec!["?"; ids.len()].join(",");
+    let mut tx = pool.begin().await?;
+
+    // Referencing tables keyed by track_id. `track_stats` goes too: its
+    // play/skip counters are keyed by the old cuid and a re-added file always
+    // gets a fresh id, so they could never be reattached.
+    for table in [
+        "album_tracks",
+        "artist_tracks",
+        "playlist_tracks",
+        "saved_playlist_tracks",
+        "favourites",
+        "track_stats",
+    ] {
+        let sql = format!("DELETE FROM {} WHERE track_id IN ({})", table, placeholders);
+        let mut query = sqlx::query(&sql);
+        for id in ids {
+            query = query.bind(id);
+        }
+        query.execute(&mut *tx).await?;
+    }
+
+    let sql = format!("DELETE FROM track WHERE id IN ({})", placeholders);
+    let mut query = sqlx::query(&sql);
+    for id in ids {
+        query = query.bind(id);
+    }
+    let deleted = query.execute(&mut *tx).await?.rows_affected();
+
+    tx.commit().await?;
+    Ok(deleted)
+}
+
 /// Paginated track list narrowed by Jellyfin's alpha-jump filter params —
 /// see [`super::artist::filtered`] for the parameter semantics.
 pub async fn filtered(

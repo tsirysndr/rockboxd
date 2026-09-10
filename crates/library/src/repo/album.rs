@@ -253,6 +253,33 @@ pub async fn name_prefixes(pool: Pool<Sqlite>) -> Result<Vec<String>, sqlx::Erro
     .await
 }
 
+/// Drop albums that no longer have a single track, plus any `album_tracks`
+/// row pointing at a track that is gone. Albums are only ever created by the
+/// scanner (`audio_scan::save_audio_metadata`), so "no tracks" always means
+/// "leftover from deleted files" — never a legitimately empty album.
+/// Returns the number of `album` rows removed.
+pub async fn delete_orphans(pool: Pool<Sqlite>) -> Result<u64, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        "DELETE FROM album_tracks
+         WHERE NOT EXISTS (SELECT 1 FROM track WHERE track.id = album_tracks.track_id)",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let deleted = sqlx::query(
+        "DELETE FROM album
+         WHERE NOT EXISTS (SELECT 1 FROM track WHERE track.album_id = album.id)",
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    tx.commit().await?;
+    Ok(deleted)
+}
+
 pub async fn update_album_art(
     pool: Pool<Sqlite>,
     id: &str,

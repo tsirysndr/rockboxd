@@ -33,8 +33,33 @@ pub fn scan_audio_files(
     pool: Pool<Sqlite>,
     audio_dir: PathBuf,
 ) -> BoxFuture<'static, Result<Vec<PathBuf>, Error>> {
-    let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS));
-    scan_audio_files_inner(pool, audio_dir, sem)
+    Box::pin(async move {
+        let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_SCANS));
+        let found = scan_audio_files_inner(pool.clone(), audio_dir.clone(), sem).await?;
+
+        // Every scan also purges rows whose backing file disappeared since the
+        // last one, so a deleted file never lingers in the library.
+        let indexed = repo::track::local_paths(pool.clone()).await?;
+
+        // Guard: a scan that turned up nothing at all while the DB still holds
+        // local tracks means the music dir is empty or its volume isn't
+        // mounted — not that the user deleted their whole library.
+        if found.is_empty() && !indexed.is_empty() {
+            tracing::warn!(
+                "scan of {} found no audio files — skipping delete reconciliation",
+                audio_dir.display()
+            );
+            return Ok(found);
+        }
+
+        match prune_missing(pool, indexed).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("scan: removed {} track(s) whose file no longer exists", n),
+            Err(e) => tracing::warn!("scan: delete reconciliation failed: {}", e),
+        }
+
+        Ok(found)
+    })
 }
 
 fn scan_audio_files_inner(
@@ -93,22 +118,58 @@ fn scan_audio_files_inner(
 
 /// Remove tracks whose backing file no longer exists on disk.
 ///
-/// Backstop for filesystem watcher events that get dropped silently
-/// (e.g. inotify on NFS/SMB/FUSE, kqueue coalescing on BSDs). Only
-/// touches local rows (is_remote = 0).
+/// Runs at the end of every [`scan_audio_files`], and periodically from the
+/// watcher as a backstop for filesystem events that get dropped silently
+/// (e.g. inotify on NFS/SMB/FUSE, kqueue coalescing on BSDs). Only touches
+/// local rows (is_remote = 0) — a remote URL never "exists" on disk.
 pub async fn reconcile_deletions(pool: Pool<Sqlite>) -> Result<u64, Error> {
-    let tracks = repo::track::all(pool.clone()).await?;
-    let mut removed = 0u64;
-    for track in tracks {
-        if Path::new(&track.path).exists() {
-            continue;
-        }
-        match repo::track::delete_by_path(pool.clone(), &track.path).await {
-            Ok(Some(_)) => removed += 1,
-            Ok(None) => {}
-            Err(e) => tracing::warn!("reconcile delete {}: {}", track.path, e),
-        }
+    let indexed = repo::track::local_paths(pool.clone()).await?;
+    prune_missing(pool, indexed).await
+}
+
+/// Delete the `(id, path)` rows whose `path` is gone from the filesystem, then
+/// sweep up the albums and artists that lost their last track. Returns the
+/// number of tracks removed.
+async fn prune_missing(pool: Pool<Sqlite>, indexed: Vec<(String, String)>) -> Result<u64, Error> {
+    if indexed.is_empty() {
+        return Ok(0);
     }
+
+    // stat() per track blocks; keep tens of thousands of them off the runtime.
+    let missing: Vec<String> = tokio::task::spawn_blocking(move || {
+        indexed
+            .into_iter()
+            .filter(|(_, path)| !Path::new(path).exists())
+            .map(|(id, path)| {
+                tracing::debug!("scan: {} no longer exists, removing from library", path);
+                id
+            })
+            .collect()
+    })
+    .await?;
+
+    if missing.is_empty() {
+        return Ok(0);
+    }
+
+    // SQLite caps bound parameters per statement (999 on older builds).
+    let mut removed = 0u64;
+    for chunk in missing.chunks(500) {
+        removed += repo::track::delete_by_ids(pool.clone(), chunk).await?;
+    }
+
+    // Albums first: an artist stays alive while it still owns an album.
+    match repo::album::delete_orphans(pool.clone()).await {
+        Ok(n) if n > 0 => tracing::info!("scan: removed {} album(s) left with no tracks", n),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("scan: album orphan cleanup failed: {}", e),
+    }
+    match repo::artist::delete_orphans(pool).await {
+        Ok(n) if n > 0 => tracing::info!("scan: removed {} artist(s) left with no tracks", n),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("scan: artist orphan cleanup failed: {}", e),
+    }
+
     Ok(removed)
 }
 

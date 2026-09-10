@@ -219,6 +219,41 @@ pub async fn update_genres(pool: &Pool<Sqlite>, id: &str, genres: &str) -> Resul
     }
 }
 
+/// Drop artists left with neither a track nor an album, plus the dangling
+/// `artist_tracks` / `artist_genres` rows. Run this *after*
+/// [`super::album::delete_orphans`] so albums of a fully-deleted artist are
+/// already gone — otherwise the album check keeps the artist alive.
+/// Returns the number of `artist` rows removed.
+pub async fn delete_orphans(pool: Pool<Sqlite>) -> Result<u64, Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        "DELETE FROM artist_tracks
+         WHERE NOT EXISTS (SELECT 1 FROM track WHERE track.id = artist_tracks.track_id)",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let deleted = sqlx::query(
+        "DELETE FROM artist
+         WHERE NOT EXISTS (SELECT 1 FROM track WHERE track.artist_id = artist.id)
+           AND NOT EXISTS (SELECT 1 FROM album WHERE album.artist_id = artist.id)",
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    sqlx::query(
+        "DELETE FROM artist_genres
+         WHERE NOT EXISTS (SELECT 1 FROM artist WHERE artist.id = artist_genres.artist_id)",
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(deleted)
+}
+
 pub async fn save_artist_genre(
     pool: &Pool<Sqlite>,
     id: &str,

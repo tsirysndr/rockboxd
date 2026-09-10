@@ -1,4 +1,4 @@
-use crate::audio_scan::{reconcile_deletions, save_audio_metadata, scan_audio_files};
+use crate::audio_scan::{save_audio_metadata, scan_audio_files};
 use crate::repo;
 use anyhow::Error;
 use notify::event::{ModifyKind, RenameMode};
@@ -105,13 +105,10 @@ fn spawn_periodic_rescan(pool: Pool<Sqlite>, music_dir: PathBuf) {
                 debug!("watcher: rescan still running, skipping tick");
                 continue;
             };
+            // scan_audio_files reconciles deletions itself once the walk is
+            // done, so no separate reconcile pass is needed here.
             if let Err(e) = scan_audio_files(pool.clone(), music_dir.clone()).await {
                 warn!("watcher: periodic rescan failed: {}", e);
-            }
-            match reconcile_deletions(pool.clone()).await {
-                Ok(0) => {}
-                Ok(n) => info!("watcher: reconciled {} missing track(s)", n),
-                Err(e) => warn!("watcher: reconcile_deletions failed: {}", e),
             }
         }
     });
