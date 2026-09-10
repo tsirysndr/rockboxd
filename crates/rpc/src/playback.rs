@@ -861,4 +861,41 @@ impl PlaybackService for Playback {
             Box::pin(output) as Self::StreamPlaylistStream
         ))
     }
+
+    type StreamLevelsStream =
+        Pin<Box<dyn Stream<Item = Result<Levels, tonic::Status>> + Send + Sync + 'static>>;
+
+    /// Output levels for a meter, polled rather than brokered: levels are a
+    /// sampled quantity, not an event, and a message per output buffer would
+    /// be several hundred a second to draw a bar that redraws at frame rate.
+    async fn stream_levels(
+        &self,
+        _request: tonic::Request<StreamLevelsRequest>,
+    ) -> Result<tonic::Response<Self::StreamLevelsStream>, tonic::Status> {
+        // 20 Hz — fast enough that a kick still reads as a kick once the
+        // client applies attack/release, cheap enough to leave running.
+        const PERIOD: std::time::Duration = std::time::Duration::from_millis(50);
+
+        let output = async_stream::try_stream! {
+            let mut ticker = tokio::time::interval(PERIOD);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                // A plain read of the four words the audio path publishes. It
+                // touches no firmware state, so unlike the mutating handlers
+                // it needs no `fw_bus::run_on_broker` hop.
+                let levels = rb::sound::pcm::levels();
+                yield Levels {
+                    left: levels.left,
+                    right: levels.right,
+                    low_left: levels.low_left,
+                    low_right: levels.low_right,
+                };
+            }
+        };
+
+        Ok(tonic::Response::new(
+            Box::pin(output) as Self::StreamLevelsStream
+        ))
+    }
 }

@@ -1,1 +1,3 @@
 /target
+# staged by package-linux.sh for the .deb / .rpm builds
+/dist

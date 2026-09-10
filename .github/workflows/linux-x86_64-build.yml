@@ -42,7 +42,7 @@ jobs:
             ~/.cargo/git
             zig/.zig-cache
             target
-            gpui/target
+            desktop/target
             build-lib
             build-headless
           key: linux-x86_64-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -58,6 +58,7 @@ jobs:
             libdbus-1-dev \
             libfdk-aac-dev \
             libfreetype6-dev \
+            libfontconfig1-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev \
             libxcb1-dev \
@@ -108,7 +109,7 @@ jobs:
       - name: Build rockbox-embed
         # Run this directly after rockboxd so an embed-side break (missing
         # rb_daemon_start export, signature drift, etc.) surfaces before the
-        # rockbox CLI / zig lib / gpui chain consumes its output.
+        # rockbox CLI / zig lib / desktop chain consumes its output.
         #
         # Remove the cached static archive so cargo always re-links from the
         # current target/release/deps. Cargo's mtime check usually catches
@@ -150,11 +151,12 @@ jobs:
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
 
-      - name: Build rockbox-gpui (Linux)
-        # Fails hard if the GPUI Linux build is broken — we want loud feedback
-        # rather than silently shipping packages without the desktop app.
-        working-directory: gpui
-        run: bash package.sh
+      - name: Build rockbox-desktop (Linux)
+        # The Slint client — it links the librockboxd.a built above, so it has
+        # to come after that step. Fails hard if the build is broken: we want
+        # loud feedback rather than silently shipping packages without the
+        # desktop app.
+        run: bash desktop/package-linux.sh
 
       - name: Download typesense-server
         run: |
@@ -200,10 +202,10 @@ jobs:
           install -m 0755 target/release/rockbox    "$pkg_root/usr/local/bin/rockbox"
           install -m 0755 zig/zig-out/bin/rockboxd  "$pkg_root/usr/local/bin/rockboxd"
           install -m 0755 /tmp/typesense-server     "$pkg_root/usr/local/bin/typesense-server"
-          # gpui/package.sh stages: gpui/dist/usr/bin/rockbox-gpui,
-          # gpui/dist/usr/share/applications/rockbox-gpui.desktop,
-          # gpui/dist/usr/share/pixmaps/rockbox-gpui.png
-          cp -r gpui/dist/usr/. "$pkg_root/usr/"
+          # desktop/package-linux.sh stages: desktop/dist/usr/bin/rockbox-desktop,
+          # desktop/dist/usr/share/applications/rockbox-desktop.desktop,
+          # desktop/dist/usr/share/pixmaps/rockbox-desktop.png
+          cp -r desktop/dist/usr/. "$pkg_root/usr/"
           sed -i "s/^Version: .*/Version: ${VERSION}/" "$pkg_root/DEBIAN/control"
           dpkg-deb --build --root-owner-group "$pkg_root" "rockbox_${VERSION}_amd64.deb"
           sha256sum "rockbox_${VERSION}_amd64.deb" > "rockbox_${VERSION}_amd64.deb.sha256"
@@ -219,7 +221,7 @@ jobs:
           install -m 0755 target/release/rockbox    "${src_root}/usr/local/bin/rockbox"
           install -m 0755 zig/zig-out/bin/rockboxd  "${src_root}/usr/local/bin/rockboxd"
           install -m 0755 /tmp/typesense-server     "${src_root}/usr/local/bin/typesense-server"
-          cp -r gpui/dist/usr/. "${src_root}/usr/"
+          cp -r desktop/dist/usr/. "${src_root}/usr/"
           sed -i "s/^Version:        .*/Version:        ${VERSION}/" "${src_root}/rockbox.spec"
 
           rpm_top="$(pwd)/rpmbuild"

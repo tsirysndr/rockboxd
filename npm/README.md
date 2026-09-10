@@ -44,7 +44,7 @@ its sha256 checksum against the published `.sha256` asset, and extracts the
 
 | Variable                    | Effect                                                           |
 | --------------------------- | ---------------------------------------------------------------- |
-| `ROCKBOX_VERSION`           | Pin a specific release tag (e.g. `2026.07.28`) instead of latest |
+| `ROCKBOX_VERSION`           | Pin a specific release tag (e.g. `2026.09.10`) instead of latest |
 | `GITHUB_TOKEN` / `GH_TOKEN` | Authenticate GitHub API requests (avoids rate limits in CI)      |
 
 ## License

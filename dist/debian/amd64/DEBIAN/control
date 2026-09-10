@@ -1,8 +1,8 @@
 Package: rockbox
-Version:  2026.07.28
+Version:  2026.09.10
 Section: user/multimedia
 Priority: optional
 Architecture: amd64
 Maintainer: Tsiry Sandratraina <tsiry.sndr@rocksky.app>
-Depends: libfreetype6-dev, libunwind-dev, libfdk-aac-dev, alsa-utils, libasound2-dev, libdbus-1-dev, bluez, pulseaudio-module-bluetooth, libxkbcommon-dev, libxkbcommon-x11-dev, libxcb1-dev, libxcb-render0-dev, libxcb-shape0-dev, libxcb-xfixes0-dev
+Depends: libfontconfig1-dev, libfreetype6-dev, libgl1, libegl1, libunwind-dev, libfdk-aac-dev, alsa-utils, libasound2-dev, libdbus-1-dev, bluez, pulseaudio-module-bluetooth, libxkbcommon-dev, libxkbcommon-x11-dev, libxcb1-dev, libxcb-render0-dev, libxcb-shape0-dev, libxcb-xfixes0-dev
 Description: Rockbox open source high quality audio player

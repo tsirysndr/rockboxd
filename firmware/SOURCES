@@ -542,6 +542,7 @@ drivers/rds.c
 sound.c
 pcm_sampr.c
 pcm.c
+pcm_meter.c
 pcm_mixer.c
 #if (CONFIG_PLATFORM & PLATFORM_HOSTED)
 /* Network PCM sinks — excluded on WASM because raw TCP/UDP sockets are

@@ -68,6 +68,37 @@ pub fn switch_sink(sink: i32) -> bool {
     unsafe { crate::pcm_switch_sink(sink) != 0 }
 }
 
+/// Output levels for a meter, measured on the PCM leaving the device.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Levels {
+    /// 0..1 RMS over one output buffer.
+    pub left: f32,
+    pub right: f32,
+    /// The same signal below roughly 200 Hz, which is what makes a meter move
+    /// with the bass rather than with whatever is loudest.
+    pub low_left: f32,
+    pub low_right: f32,
+}
+
+/// Read the levels the audio path last published. Zero while stopped, so a
+/// meter reads as stopped rather than stuck at its last value.
+pub fn levels() -> Levels {
+    /// Matches `PCM_METER_SCALE` in `firmware/export/pcm_meter.h`.
+    const SCALE: f32 = 32767.0;
+
+    let (mut left, mut right, mut low_left, mut low_right) = (0u32, 0u32, 0u32, 0u32);
+    unsafe {
+        crate::pcm_meter_read(&mut left, &mut right, &mut low_left, &mut low_right);
+    }
+
+    Levels {
+        left: (left as f32 / SCALE).min(1.0),
+        right: (right as f32 / SCALE).min(1.0),
+        low_left: (low_left as f32 / SCALE).min(1.0),
+        low_right: (low_right as f32 / SCALE).min(1.0),
+    }
+}
+
 pub fn airplay_set_host(host: &str, port: u16) {
     let chost = CString::new(host).expect("host must not contain null bytes");
     unsafe { crate::pcm_airplay_set_host(chost.as_ptr(), port) }

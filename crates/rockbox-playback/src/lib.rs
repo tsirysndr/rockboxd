@@ -880,7 +880,8 @@ impl Shared {
     /// takes no locks and allocates nothing.
     fn set_levels(&self, levels: Levels) {
         self.level_l.store(levels.left.to_bits(), Ordering::Relaxed);
-        self.level_r.store(levels.right.to_bits(), Ordering::Relaxed);
+        self.level_r
+            .store(levels.right.to_bits(), Ordering::Relaxed);
         self.level_low_l
             .store(levels.low_left.to_bits(), Ordering::Relaxed);
         self.level_low_r
@@ -1698,7 +1699,11 @@ fn build_stream(
                     }
                     // Measured here, after gain, balance and fade: what the
                     // meter shows is what leaves the device.
-                    meter.push(alpha, frame[0].abs(), frame.get(1).copied().unwrap_or(0.0).abs());
+                    meter.push(
+                        alpha,
+                        frame[0].abs(),
+                        frame.get(1).copied().unwrap_or(0.0).abs(),
+                    );
                 }
                 shared.set_levels(meter.take());
             },
@@ -3602,7 +3607,10 @@ mod level_meter_tests {
 
         let levels = meter.take();
         assert!((levels.left - 0.5).abs() < 0.01, "{levels:?}");
-        assert!(levels.low_left > 0.9, "bass should reach the top: {levels:?}");
+        assert!(
+            levels.low_left > 0.9,
+            "bass should reach the top: {levels:?}"
+        );
     }
 
     /// The point of the low band: something that alternates every sample is
@@ -3618,10 +3626,7 @@ mod level_meter_tests {
 
         let levels = meter.take();
         assert!(levels.left > 0.8, "full band should see it: {levels:?}");
-        assert!(
-            levels.low_left < 0.1,
-            "bass band should not: {levels:?}"
-        );
+        assert!(levels.low_left < 0.1, "bass band should not: {levels:?}");
     }
 
     /// Taking resets the window but keeps the filter, so the next buffer does

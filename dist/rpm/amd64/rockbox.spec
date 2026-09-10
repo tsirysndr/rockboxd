@@ -1,5 +1,5 @@
 Name:           rockbox
-Version:        2026.07.28
+Version:        2026.09.10
 Release:        1%{?dist}
 Summary:        High quality audio player
 
@@ -7,7 +7,9 @@ License:        GPL-2.0
 
 BuildArch:      x86_64
 
-Requires: freetype, libunwind, alsa-utils, alsa-lib-devel, fdk-aac-devel, dbus-devel, bluez, pulseaudio-module-bluetooth, libxkbcommon-devel, libxkbcommon-x11-devel, libxcb-devel
+# fontconfig + mesa-libGL/EGL are what the Slint desktop app needs at runtime;
+# the rest are the daemon's (alsa, dbus, bluez, fdk-aac).
+Requires: fontconfig, freetype, mesa-libGL, mesa-libEGL, libunwind, alsa-utils, alsa-lib-devel, fdk-aac-devel, dbus-devel, bluez, pulseaudio-module-bluetooth, libxkbcommon-devel, libxkbcommon-x11-devel, libxcb-devel
 
 %description
 Rockbox open source high quality audio player
@@ -26,9 +28,9 @@ cp -r %{_sourcedir}/amd64/usr %{buildroot}/
 /usr/local/bin/rockbox
 /usr/local/bin/rockboxd
 /usr/local/bin/typesense-server
-/usr/bin/rockbox-gpui
-/usr/share/applications/rockbox-gpui.desktop
-/usr/share/pixmaps/rockbox-gpui.png
+/usr/bin/rockbox-desktop
+/usr/share/applications/rockbox-desktop.desktop
+/usr/share/pixmaps/rockbox-desktop.png
 /usr/lib/systemd/user/rockbox.service
 
 %post

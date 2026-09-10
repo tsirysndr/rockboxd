@@ -29,6 +29,7 @@
 #include "sound.h"
 #include "general.h"
 #include "pcm-internal.h"
+#include "pcm_meter.h"
 #include "pcm_mixer.h"
 #include "pcm_sink.h"
 
@@ -148,11 +149,13 @@ static inline void pcm_play_dma_start_int(const void *addr, size_t size)
     /* Smoothed transition might not have happened so sync now */
     pcm_sync_pcm_factors();
 #endif
+    pcm_meter_feed(addr, size);
     sinks[cur_sink]->ops.play(addr, size);
 }
 
 static inline void pcm_play_dma_stop_int(void)
 {
+    pcm_meter_reset();
     sinks[cur_sink]->ops.stop();
 }
 
@@ -164,6 +167,10 @@ bool pcm_play_dma_complete_callback(enum pcm_dma_status status,
         status = pcm_play_dma_status_callback(status);
 
     if (status >= PCM_DMAST_OK && pcm_get_more_int(addr, size)) {
+        /* Every buffer after the first reaches the sink through here rather
+         * than through ops.play(), so the meter has to be fed from both to
+         * see the whole stream. */
+        pcm_meter_feed(*addr, *size);
         return true;
     }
 
@@ -349,6 +356,7 @@ void pcm_external_write(const void *addr, size_t size)
 {
     struct pcm_sink* sink = sinks[cur_sink];
     if (sink && sink->ops.play) {
+        pcm_meter_feed(addr, size);
         sink->ops.play(addr, size);
     }
 }

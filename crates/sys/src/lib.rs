@@ -1145,6 +1145,12 @@ extern "C" {
     fn pcm_play_lock();
     fn pcm_play_unlock();
     fn pcm_switch_sink(sink: c_int) -> c_uchar;
+    fn pcm_meter_read(
+        left: *mut c_uint,
+        right: *mut c_uint,
+        low_left: *mut c_uint,
+        low_right: *mut c_uint,
+    );
     fn pcm_fifo_set_path(path: *const c_char);
     fn pcm_airplay_set_host(host: *const c_char, port: c_ushort);
     fn pcm_airplay_add_receiver(host: *const c_char, port: c_ushort);

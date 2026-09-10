@@ -6,7 +6,7 @@ amd64/usr/local/
 arm64/usr/local/
 armhf/usr/local/
 
-# CI-staged GPUI app (amd64 only — rockbox-gpui binary + .desktop + icon)
+# CI-staged Slint desktop app (amd64 only — rockbox-desktop binary + .desktop + icon)
 amd64/usr/bin/
 amd64/usr/share/applications/
 amd64/usr/share/pixmaps/

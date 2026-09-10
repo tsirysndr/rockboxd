@@ -2299,6 +2299,23 @@ pub struct PlayAllTracksRequest {
 pub struct PlayAllTracksResponse {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StreamPlaylistRequest {}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StreamLevelsRequest {}
+/// Output levels for a meter, measured on the PCM leaving the device.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Levels {
+    /// 0..1 RMS over one output buffer.
+    #[prost(float, tag = "1")]
+    pub left: f32,
+    #[prost(float, tag = "2")]
+    pub right: f32,
+    /// The same signal below roughly 200 Hz, which is what makes a meter move
+    /// with the bass rather than with whatever is loudest.
+    #[prost(float, tag = "3")]
+    pub low_left: f32,
+    #[prost(float, tag = "4")]
+    pub low_right: f32,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlaylistResponse {
     #[prost(int32, tag = "1")]
@@ -2834,6 +2851,27 @@ pub mod playback_service_client {
             ));
             self.inner.server_streaming(req, path, codec).await
         }
+        pub async fn stream_levels(
+            &mut self,
+            request: impl tonic::IntoRequest<super::StreamLevelsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::Levels>>,
+            tonic::Status,
+        > {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.PlaybackService/StreamLevels",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.PlaybackService",
+                "StreamLevels",
+            ));
+            self.inner.server_streaming(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -2960,6 +2998,15 @@ pub mod playback_service_server {
             &self,
             request: tonic::Request<super::StreamPlaylistRequest>,
         ) -> std::result::Result<tonic::Response<Self::StreamPlaylistStream>, tonic::Status>;
+        /// Server streaming response type for the StreamLevels method.
+        type StreamLevelsStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::Levels, tonic::Status>,
+            > + std::marker::Send
+            + 'static;
+        async fn stream_levels(
+            &self,
+            request: tonic::Request<super::StreamLevelsRequest>,
+        ) -> std::result::Result<tonic::Response<Self::StreamLevelsStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct PlaybackServiceServer<T> {
@@ -3998,6 +4045,50 @@ pub mod playback_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StreamPlaylistSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.PlaybackService/StreamLevels" => {
+                    #[allow(non_camel_case_types)]
+                    struct StreamLevelsSvc<T: PlaybackService>(pub Arc<T>);
+                    impl<T: PlaybackService>
+                        tonic::server::ServerStreamingService<super::StreamLevelsRequest>
+                        for StreamLevelsSvc<T>
+                    {
+                        type Response = super::Levels;
+                        type ResponseStream = T::StreamLevelsStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::StreamLevelsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PlaybackService>::stream_levels(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = StreamLevelsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

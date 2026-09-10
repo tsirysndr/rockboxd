@@ -296,6 +296,7 @@ async fn run(
     tokio::spawn(status_loop(weak.clone()));
     tokio::spawn(queue_loop(weak.clone()));
     tokio::spawn(ticker(weak.clone()));
+    tokio::spawn(levels_loop(weak.clone()));
 
     // Main loop: connect → init volume → load library → follow current track.
     // Re-reads chan()/endpoints() every attempt so server switches apply.
@@ -581,15 +582,12 @@ async fn queue_loop(weak: Weak<AppWindow>) {
     }
 }
 
-/// Local clock: advances elapsed between stream updates and animates the VU
-/// meters (decorative — the daemon does not export PCM levels over gRPC).
+/// Local clock: advances elapsed between stream updates. The VU meters are a
+/// real measurement of the audio leaving the device — see [`levels_loop`].
 async fn ticker(weak: Weak<AppWindow>) {
-    const TICK_S: f64 = 0.07; // ~14 fps — snappy VU without burning CPU
-    let mut phase: f64 = 0.0;
+    const TICK_S: f64 = 0.07;
     loop {
         tokio::time::sleep(Duration::from_millis((TICK_S * 1000.0) as u64)).await;
-        phase += TICK_S;
-        let t = phase;
         let _ = weak.upgrade_in_event_loop(move |app| {
             if app.get_playing() {
                 let length = app.get_length_s();
@@ -597,23 +595,78 @@ async fn ticker(weak: Weak<AppWindow>) {
                 app.set_elapsed_s(elapsed);
                 app.set_progress(if length > 0.0 { elapsed / length } else { 0.0 });
                 app.set_elapsed_text(format_time(elapsed as f64).into());
-                // Lively pseudo-VU: a few incommensurate sines per channel so
-                // the pattern never visibly repeats.
-                let l = 0.60
-                    + 0.24 * (t * 14.3).sin()
-                    + 0.14 * (t * 33.7).sin()
-                    + 0.08 * (t * 7.1).sin();
-                let r = 0.58
-                    + 0.26 * (t * 12.9 + 1.3).sin()
-                    + 0.14 * (t * 29.1).sin()
-                    + 0.08 * (t * 8.3 + 0.7).sin();
-                app.set_vu_left(l.clamp(0.05, 1.0) as f32);
-                app.set_vu_right(r.clamp(0.05, 1.0) as f32);
-            } else {
-                app.set_vu_left((app.get_vu_left() * 0.8).max(0.0));
-                app.set_vu_right((app.get_vu_right() * 0.8).max(0.0));
             }
         });
+    }
+}
+
+/// Drives the VFD meters from the daemon's output level tap.
+///
+/// Uses the bass band, not the full-band RMS: a meter driven by everything
+/// sits near the top on anything loud, and reads as an ornament. The low band
+/// moves with the beat, which is what a meter is for.
+async fn levels_loop(weak: Weak<AppWindow>) {
+    // Auto-gain, so kicks reach the top on any material.
+    //
+    // A fixed scale cannot: bass RMS depends on the mix, the master and the
+    // volume, and a factor chosen for one track leaves another at half height.
+    // Instead the loudest thing heard recently *is* the top of the meter. The
+    // reference jumps up instantly and falls slowly, so a quiet passage does
+    // not immediately re-normalise into looking loud.
+    const FLOOR: f32 = 0.02;
+    // Per update at 20 Hz — about a 1.5 second half-life, which is release
+    // rather than memory. Slower and a quiet passage stays squashed for most
+    // of a verse.
+    const DECAY: f32 = 0.977;
+
+    loop {
+        let mut playback = PlaybackServiceClient::new(chan());
+        let mut sw = switch_rx();
+        let mut reference = FLOOR;
+
+        if let Ok(resp) = playback.stream_levels(StreamLevelsRequest {}).await {
+            let mut stream = resp.into_inner();
+            loop {
+                tokio::select! {
+                    msg = stream.message() => match msg {
+                        Ok(Some(levels)) => {
+                            let peak = levels.low_left.max(levels.low_right);
+                            reference = (reference * DECAY).max(peak).max(FLOOR);
+                            let scale = |value: f32| (value / reference).clamp(0.0, 1.0);
+                            let (left, right) =
+                                (scale(levels.low_left), scale(levels.low_right));
+
+                            let _ = weak.upgrade_in_event_loop(move |app| {
+                                // Fast attack, slow release: real meter
+                                // ballistics. An instant attack reads as
+                                // jitter and an instant release flickers
+                                // between buffers, but too slow an attack
+                                // clips the top off a kick, which is the one
+                                // thing the meter exists to show.
+                                let ease = |current: f32, target: f32| {
+                                    if target > current {
+                                        current + (target - current) * 0.8
+                                    } else {
+                                        current + (target - current) * 0.15
+                                    }
+                                };
+                                app.set_vu_left(ease(app.get_vu_left(), left).clamp(0.0, 1.0));
+                                app.set_vu_right(ease(app.get_vu_right(), right).clamp(0.0, 1.0));
+                            });
+                        }
+                        Ok(None) | Err(_) => break,
+                    },
+                    _ = sw.recv() => break,
+                }
+            }
+        }
+
+        // A meter frozen at its last reading looks broken rather than stopped.
+        let _ = weak.upgrade_in_event_loop(|app| {
+            app.set_vu_left(0.0);
+            app.set_vu_right(0.0);
+        });
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
 

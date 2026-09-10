@@ -178,6 +178,19 @@ message PlayAllTracksResponse {}
 
 message StreamPlaylistRequest {}
 
+message StreamLevelsRequest {}
+
+// Output levels for a meter, measured on the PCM leaving the device.
+message Levels {
+  // 0..1 RMS over one output buffer.
+  float left = 1;
+  float right = 2;
+  // The same signal below roughly 200 Hz, which is what makes a meter move
+  // with the bass rather than with whatever is loudest.
+  float low_left = 3;
+  float low_right = 4;
+}
+
 message PlaylistResponse {
   int32 index = 1;
   int32 amount = 2;
@@ -209,4 +222,5 @@ service PlaybackService {
   rpc StreamCurrentTrack(StreamCurrentTrackRequest) returns (stream CurrentTrackResponse) {}
   rpc StreamStatus(StreamStatusRequest) returns (stream StatusResponse) {}
   rpc StreamPlaylist(StreamPlaylistRequest) returns (stream PlaylistResponse) {}
+  rpc StreamLevels(StreamLevelsRequest) returns (stream Levels) {}
 }

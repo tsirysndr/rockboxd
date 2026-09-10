@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.09.10]
+
+### Added
+- `desktop`: new **skinnable Slint client** (`desktop/`, Slint 1.17 + tonic) that boots an in-process rockboxd via `librockboxd.a` when nothing listens on 6061 and degrades to a remote-only client when the archive is absent — library browser with cover-art album grid, album/artist detail, queue drawer (Play Queue / History) fed by `StreamPlaylist`, Raycast-style command palette, keyboard shortcuts, a jetAudio-style VFD readout, a frameless macOS window keeping the native traffic lights, and five TOML skins (user skins load from `~/.config/rockbox.org/skins/`)
+- `desktop`: **playlists** (list, create/edit modal, detail with per-track remove, track picker, palette results), **remote servers** (save/authenticate Subsonic/Navidrome and Jellyfin, browse through the daemon's `navidrome://` and `jellyfin://` schemes, stream via `PlayDirectory`), a **server switcher** over the embedded daemon plus mDNS-discovered LAN peers with live gRPC re-pointing, and **restore after restart** rebuilt from the `PlaylistResume` + `GetGlobalStatus` snapshot
+- `desktop`: a rotary **volume knob**, VSCode-style sidebar/queue **panel toggles**, the **codec** shown alongside bitrate and sample rate in the VFD, and `s` to cycle skins
+- `pcm`: **output level tap for meters** — per-channel RMS over one output buffer plus the same signal through a one-pole low-pass at roughly 200 Hz, measured on the PCM leaving the device after gain, balance and fade, and published through relaxed atomics so the audio callback never takes a lock to feed a meter; silence publishes zero rather than holding the last reading, so a stopped meter reads as stopped
+- `rpc`/`desktop`: the daemon exports those levels over gRPC as **`PlaybackService.StreamLevels`** (20 Hz), and the desktop VFD meters are now driven by that measurement instead of the synthesised sines they animated before — bass band, auto-gained against the loudest thing heard recently, with fast-attack / slow-release ballistics
+- `playback`: **HLS and MPEG-DASH adaptive streaming** — queue entries can be live or VOD `.m3u8` / `.mpd` manifests, with a master + media playlist parser (variant selection, `EXT-X-MEDIA` audio groups, `EXT-X-MAP`, `EXT-X-BYTERANGE`, live reload), an MPD parser and segment planner (`SegmentTemplate` `$Number$`/`$Time$`, `SegmentTimeline`, `SegmentList`, `BaseURL` chains), an MPEG-TS demuxer (PAT→PMT→PES to raw ADTS/MP3) and an fMP4 demuxer that re-frames to ADTS for the streaming codec path
+- `playback`: **configurable audio output** — `OutputConfig` on `PlayerConfig` drains the engine's stereo-i16 ring through cpal, stdout, a named FIFO, a Unix socket or TCP (listen or connect); every non-cpal backend paces to a monotonic clock and mirrors the cpal callback's fade/balance semantics, and cpal is now a default-on feature a headless build can drop
+- `npm`: **`@rockboxd/cli`** package installing the prebuilt binaries
+- `library`: a library scan now **removes tracks whose file no longer exists**, along with the albums and artists left with nothing, so a deleted file cannot linger in the library until the watcher happens to catch it
+- `bindings`: configurable audio output exposed in all language bindings, and HLS/MPEG-DASH streaming documented in each
+
+### Changed
+- `packaging`: the Linux `.deb` and `.rpm` now ship the **Slint desktop app** (`/usr/bin/rockbox-desktop`) in place of the GPUI one — new `desktop/package-linux.sh` stages the binary, `.desktop` entry and icon, and the runtime dependencies gain fontconfig and GL/EGL
+- `rocksky`: the remote player is now built on the **official `rocksky-sdk` `RemotePlayer`** (mirroring the playerd daemon) rather than a hand-rolled tungstenite session; the crate is a thin bridge between `RemoteCommand` and the local gRPC daemon, keeps status-aware resume and the `settings.toml` `device_name`, and drops the tungstenite/webpki-roots dependency stack
+
+### Fixed
+- `mp4`: read **64-bit atom sizes** and reach a **trailing `moov`** — files whose `moov` sits at EOF and/or whose `mdat` carries an extended size produced no duration and often failed to parse at all, which then read downstream as "live stream, unknown length"; a size field of 1 is a normal streaming artifact rather than corruption, and QuickTime-flavoured writers that omit the `meta` FullBox version/flags are handled
+- `build`: link **`SystemConfiguration.framework`** on macOS — `reqwest`'s system-proxy support (pulled in by `rocksky-sdk`) needs it in every macOS link
+- `desktop`: display artist pictures instead of the default icon
+- `deps`: pin `serde` to 1.0.221, the only version old `swc` and `jacquard` both accept
+- `npm`: make `npx @rockboxd/cli` work by sharing one `bin/run.js` dispatcher between both bin entries, defaulting to the `rockboxd` daemon
+
 ## [2026.07.28]
 
 ### Added
