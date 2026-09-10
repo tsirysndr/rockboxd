@@ -131,14 +131,14 @@ jobs:
           zig build lib -Doptimize=ReleaseFast
 
       - name: Flatten librockboxd.a (belt-and-suspenders)
-        # zig/build.zig already wires scripts/flatten-archive.sh into the
-        # linux branch of the lib step, but run it again here so a stale
+        # zig/build.zig already wires scripts/flatten-archive.sh into the lib
+        # step (macOS and Linux alike), but run it again here so a stale
         # zig-cache can't silently skip the flatten. The script is idempotent
         # — re-flattening an already-flat archive is a no-op. Verifying
         # rb_daemon_start here makes a regression visible at this step
         # instead of inside the rust-lld output a minute later.
         run: |
-          bash scripts/flatten-archive.sh zig/zig-out/lib/librockboxd.a
+          bash scripts/flatten-archive.sh zig/zig-out/lib/librockboxd.a rb_daemon_start
           echo "--- members containing daemon ---"
           ar t zig/zig-out/lib/librockboxd.a | grep -i daemon || true
           echo "--- rb_daemon_start symbol ---"

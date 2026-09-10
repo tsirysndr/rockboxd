@@ -126,12 +126,30 @@ jobs:
         run: bash scripts/build-headless.sh
 
       - name: Build rockbox-embed
-        run: cargo build --release --locked -p rockbox-embed
+        # Drop the archive first so cargo always re-links it from the current
+        # deps, then assert the daemon entry point is exported — an embed-side
+        # break should fail here, not as an undefined symbol in the desktop
+        # link several minutes later.
+        run: |
+          rm -f target/release/librockbox_embed.a
+          cargo build --release --locked -p rockbox-embed
+          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
 
       - name: Build librockboxd.a
+        # Same staleness defence one layer up. zig/build.zig runs
+        # scripts/flatten-archive.sh (both macOS and Linux) which already
+        # asserts rb_daemon_start survived the repack; re-checking here keeps
+        # the failure visible even if a future build.zig drops that step.
         run: |
+          rm -f zig/zig-out/lib/librockboxd.a
           cd zig
           zig build lib -Doptimize=ReleaseFast
+          cd ..
+          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
 
       # ── Slint desktop app (links librockboxd.a via desktop/build.rs) ──────
       # --locked: the committed lock pins slint-build 1.17.1 (since yanked);

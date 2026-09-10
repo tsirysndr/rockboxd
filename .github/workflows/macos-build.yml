@@ -90,10 +90,14 @@ jobs:
 
       - name: Build librockboxd.a (embedded daemon for Swift app)
         run: |
+          rm -f target/release/librockbox_embed.a zig/zig-out/lib/librockboxd.a
           cargo build --release -p rockbox-embed
           CPU_FLAG=""
           [ "$(uname -m)" = "x86_64" ] && CPU_FLAG="-Dcpu=x86_64"
-          cd zig && zig build lib -Doptimize=ReleaseFast $CPU_FLAG
+          (cd zig && zig build lib -Doptimize=ReleaseFast $CPU_FLAG)
+          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
 

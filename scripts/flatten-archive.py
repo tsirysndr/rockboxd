@@ -101,6 +101,23 @@ def is_elf_dynamic(content: bytes) -> bool:
     return e_type == 3  # ET_DYN
 
 
+def is_macho_dylib(content: bytes) -> bool:
+    """Return True if `content` is a Mach-O dynamic library (MH_DYLIB). Same
+    reasoning as `is_elf_dynamic`: the consumer links those via `-l`/framework
+    flags, and Apple's ld refuses an archive that carries one as a member."""
+    if len(content) < 16:
+        return False
+    magic = content[:4]
+    if magic == b"\xcf\xfa\xed\xfe" or magic == b"\xce\xfa\xed\xfe":  # LE (64/32)
+        endian = "<"
+    elif magic == b"\xfe\xed\xfa\xcf" or magic == b"\xfe\xed\xfa\xce":  # BE
+        endian = ">"
+    else:
+        return False
+    (filetype,) = struct.unpack_from(f"{endian}I", content, 12)
+    return filetype == 0x6  # MH_DYLIB
+
+
 def is_archive(content: bytes) -> bool:
     return content.startswith(ARCHIVE_MAGIC)
 
@@ -113,7 +130,7 @@ def safe_basename(name: str) -> str:
 def extract(archive_path: Path, outdir: Path, prefix: str) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     for index, name, content in parse_archive(archive_path):
-        if is_elf_dynamic(content):
+        if is_elf_dynamic(content) or is_macho_dylib(content):
             continue
         if is_archive(content):
             nested = outdir / f"{prefix}_n{index}.a"

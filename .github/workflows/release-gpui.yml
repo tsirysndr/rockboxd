@@ -111,8 +111,15 @@ jobs:
 
       # ── Step 3: rockbox-embed Rust crate ──────────────────────────────────
       - name: Build rockbox-embed
+        # Drop the archive first so cargo re-links it from the current deps,
+        # then assert the daemon entry point is exported — an embed-side break
+        # should fail here rather than as an undefined symbol in the GPUI link.
         run: |
+          rm -f target/release/librockbox_embed.a
           cargo build --release -p rockbox-embed
+          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
 
       # ── Step 4: Fat static library ────────────────────────────────────────
       # Remove the cached archive so the zig link step always re-runs — the
@@ -120,8 +127,13 @@ jobs:
       # would otherwise leave a stale librockboxd.a in place.
       - name: Build librockboxd.a
         run: |
+          rm -f zig/zig-out/lib/librockboxd.a
           cd zig
           zig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}
+          cd ..
+          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
 
       # ── Step 5: GPUI app + DMG ────────────────────────────────────────────
       - name: Build and package

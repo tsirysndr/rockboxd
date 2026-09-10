@@ -61,9 +61,7 @@ pub fn build(b: *std.Build) void {
     // SDK's Frameworks and usr/lib dirs to the search paths.
     const macos_sdk = b.option([]const u8, "macos-sdk", "macOS SDK sysroot (e.g. .../MacOSX.sdk) for framework/lib search in hermetic builds") orelse "";
 
-    const fw_dir = if (fw_dir_opt.len > 0) fw_dir_opt
-                   else if (headless) "../build-headless"
-                   else "../build-lib";
+    const fw_dir = if (fw_dir_opt.len > 0) fw_dir_opt else if (headless) "../build-headless" else "../build-lib";
     const rust_lib_dir = if (rust_triple_opt.len > 0)
         b.fmt("../target/{s}/release", .{rust_triple_opt})
     else
@@ -457,22 +455,28 @@ pub fn build(b: *std.Build) void {
         const install_embed = b.addInstallArtifact(embed_lib, .{});
 
         const lib_step = b.step("lib", "Build the embeddable static library (zig-out/lib/librockboxd.a)");
-        if (target.result.os.tag == .macos) {
-            // Zig's llvm-ar emits a GNU-format archive; Apple's ld rejects it
-            // with "archive member invalid control bits". Repack in-place with
-            // libtool -static to produce a BSD-format archive macOS ld accepts.
+        if (target.result.os.tag == .macos or target.result.os.tag == .linux) {
+            // Zig packs each input archive into librockboxd.a, and how the
+            // inputs survive (flat .o members vs nested .a) depends on the
+            // host toolchain. Consumers then hit undefined symbols:
+            //
+            //   * Linux: rust-lld doesn't unpack nested .a / .so members, so
+            //     rb_daemon_start & co. come out undefined.
+            //   * macOS: the old fix repacked in place (`libtool -static -o X
+            //     X`). On the macOS 26 runner image that quietly dropped the
+            //     Rust half of the archive — the firmware members linked but
+            //     `_rb_daemon_start` was undefined in every consumer.
+            //
+            // flatten-archive.sh extracts every object to a temp dir and
+            // rebuilds the archive (libtool on Darwin, ar elsewhere), so the
+            // result is the same shape everywhere. It also asserts the daemon
+            // entry point survived, turning a truncated archive into a failure
+            // here instead of in a consumer's link minutes later.
             const lib_out = b.getInstallPath(.lib, "librockboxd.a");
-            const repack = b.addSystemCommand(&.{ "libtool", "-static", "-o", lib_out, lib_out });
-            repack.step.dependOn(&install_embed.step);
-            lib_step.dependOn(&repack.step);
-        } else if (target.result.os.tag == .linux) {
-            // Zig packs each input archive as a member of librockboxd.a, so
-            // GNU/Linux linkers (including rust-lld) see nested .a / .so
-            // members and don't unpack them — symbols like rb_daemon_start
-            // end up undefined. Flatten with our helper, mirroring the macOS
-            // libtool repack above.
-            const lib_out = b.getInstallPath(.lib, "librockboxd.a");
-            const flatten = b.addSystemCommand(&.{ "bash", "../scripts/flatten-archive.sh", lib_out });
+            const flatten = b.addSystemCommand(&.{
+                "bash",  "../scripts/flatten-archive.sh",
+                lib_out, "rb_daemon_start",
+            });
             flatten.step.dependOn(&install_embed.step);
             lib_step.dependOn(&flatten.step);
         } else {
