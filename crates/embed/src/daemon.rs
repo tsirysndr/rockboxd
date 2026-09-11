@@ -182,6 +182,12 @@ pub unsafe extern "C" fn rb_daemon_start(
 
     install_subscriber();
 
+    // Before the firmware opens anything: a GUI-launched process inherits
+    // launchd's 256-fd soft limit on macOS, which the daemon's servers blow
+    // through on boot. `start_servers` raises it too — this just gets it done
+    // before firmware init rather than midway through.
+    rockbox_server::rlimit::raise_fd_limit();
+
     let music_dir = if music_dir_ptr.is_null() {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
         format!("{home}/Music")

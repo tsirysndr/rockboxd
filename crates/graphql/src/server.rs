@@ -22,6 +22,20 @@ use crate::{
     RockboxSchema,
 };
 
+/// Worker threads for this server — see `rockbox_server::http::workers` for
+/// why the daemon caps them instead of taking actix's one-per-CPU default.
+fn http_workers() -> usize {
+    std::env::var("ROCKBOX_HTTP_WORKERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().min(4))
+                .unwrap_or(4)
+        })
+}
+
 async fn index_ws(
     schema: web::Data<RockboxSchema>,
     req: HttpRequest,
@@ -138,6 +152,7 @@ pub async fn start() -> Result<(), Error> {
             .route("/tracks/{id}", web::head().to(index_file))
             .service(dist)
     })
+    .workers(http_workers())
     .bind(addr)?
     .run()
     .await

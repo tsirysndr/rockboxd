@@ -26,6 +26,20 @@ const AUDIO_EXTENSIONS: [&str; 18] = [
     "opus", "spx", "sid", "ape", "wma",
 ];
 
+/// Worker threads for this server — see `rockbox_server::http::workers` for
+/// why the daemon caps them instead of taking actix's one-per-CPU default.
+fn http_workers() -> usize {
+    std::env::var("ROCKBOX_HTTP_WORKERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().min(4))
+                .unwrap_or(4)
+        })
+}
+
 /// Cap each individual PUT at 2 GiB. Larger files would need multipart
 /// upload support, which is intentionally out of scope for v1.
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024 * 1024;
@@ -102,6 +116,7 @@ pub async fn start() -> anyhow::Result<()> {
             .route("/{bucket}/{key:.*}", web::get().to(handlers::get_object))
             .route("/{bucket}/{key:.*}", web::head().to(handlers::head_object))
     })
+    .workers(http_workers())
     .bind(&addr)?
     .run()
     .await?;

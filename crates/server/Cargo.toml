@@ -11,6 +11,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 anyhow = "1.0.89"
+libc.workspace = true
 async-std = {version = "1.13.0", features = ["unstable"]}
 futures-util = "0.3.31"
 lazy_static = "1.5.0"

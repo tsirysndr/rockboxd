@@ -25,6 +25,20 @@ use sqlx::{Executor, Pool, Sqlite};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Worker threads for this server — see `rockbox_server::http::workers` for
+/// why the daemon caps them instead of taking actix's one-per-CPU default.
+fn http_workers() -> usize {
+    std::env::var("ROCKBOX_HTTP_WORKERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().min(4))
+                .unwrap_or(4)
+        })
+}
+
 pub struct JellyfinState {
     pub pool: Pool<Sqlite>,
     pub username: Arc<String>,
@@ -155,6 +169,7 @@ pub async fn start() -> anyhow::Result<()> {
             .configure(configure_routes)
             .default_service(web::to(log_unrouted))
     })
+    .workers(http_workers())
     .bind(&addr)?
     .run()
     .await?;

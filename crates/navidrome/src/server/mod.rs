@@ -12,6 +12,20 @@ use std::sync::{
     Arc, Mutex, OnceLock,
 };
 
+/// Worker threads for this server — see `rockbox_server::http::workers` for
+/// why the daemon caps them instead of taking actix's one-per-CPU default.
+fn http_workers() -> usize {
+    std::env::var("ROCKBOX_HTTP_WORKERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().min(4))
+                .unwrap_or(4)
+        })
+}
+
 // ── Now-playing shared state ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -464,6 +478,7 @@ pub async fn start() -> anyhow::Result<()> {
                 web::post().to(handlers::search2),
             )
     })
+    .workers(http_workers())
     .bind(addr)?
     .run()
     .await?;

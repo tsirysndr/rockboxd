@@ -29,6 +29,7 @@ pub mod handlers;
 pub mod http;
 pub mod kv;
 pub mod player_events;
+pub mod rlimit;
 pub mod scan;
 
 // Force netstream FFI symbols into the staticlib output.
@@ -543,6 +544,7 @@ async fn run_http_server() -> Result<(), Error> {
             .route("/openapi.json", web::get().to(handlers::docs::get_openapi))
             .configure(bluetooth_routes)
     })
+    .workers(http::workers())
     .bind(addr)?
     .run()
     .await?;
@@ -575,6 +577,11 @@ fn bluetooth_routes(_cfg: &mut actix_web::web::ServiceConfig) {
 
 #[no_mangle]
 pub extern "C" fn start_servers() {
+    // Before anything binds: the servers below open more descriptors than the
+    // 256-fd soft limit macOS hands every process, and actix-server turns the
+    // resulting EMFILE into a worker-thread panic that aborts the daemon.
+    rlimit::raise_fd_limit();
+
     thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

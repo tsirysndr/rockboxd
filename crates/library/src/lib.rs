@@ -1,8 +1,8 @@
 use std::env;
 
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode},
-    Error, Executor, Pool, Sqlite, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+    Error, Executor, Pool, Sqlite,
 };
 use tracing::{debug, info, warn};
 
@@ -29,7 +29,20 @@ pub async fn create_connection_pool() -> Result<Pool<Sqlite>, Error> {
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(30));
-    let pool = SqlitePool::connect_with(options).await?;
+    // Every server thread (REST, GraphQL, Subsonic, Jellyfin, broker, …) builds
+    // its own pool, and a WAL connection costs three fds (`.db`, `-wal`,
+    // `-shm`). sqlx's default of 10 per pool therefore burns ~180 descriptors
+    // on a daemon that is only ever serving a handful of concurrent queries.
+    // Override with ROCKBOX_DB_MAX_CONNECTIONS.
+    let max_connections = env::var("ROCKBOX_DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(4);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(max_connections)
+        .connect_with(options)
+        .await?;
     pool.execute(include_str!(
         "../migrations/20240923093823_create_tables.sql"
     ))
