@@ -63,7 +63,24 @@ client** (build.rs prints a warning); it then requires an externally started
 `rockboxd`.
 
 Environment overrides: `ROCKBOX_HOST`, `ROCKBOX_GRPC_PORT` (6061),
-`ROCKBOX_GRAPHQL_PORT` (6062, used for `/covers/` album art).
+`ROCKBOX_GRAPHQL_PORT` (6062, used for `/covers/` album art),
+`ROCKBOX_HTTP_WORKERS` (2, threads per embedded HTTP server),
+`ROCKBOX_DB_MAX_CONNECTIONS` (4, SQLite pool size per server thread).
+
+## Packaging
+
+```sh
+bash desktop/package-macos.sh   # → desktop/dist/Rockbox.app + Rockbox.dmg
+bash desktop/package-linux.sh   # → desktop/dist/usr/{bin,share}/…
+```
+
+`package-macos.sh` builds the icon from the shared appiconset, writes the
+`Info.plist` (including the `NSLocalNetworkUsageDescription` /
+`NSBonjourServices` entries the embedded daemon needs to see LAN devices on
+macOS 15+), ad-hoc signs the bundle and wraps it in a DMG with an
+`/Applications` symlink. That DMG is the release artifact and what the
+`homebrew-tap` cask installs. Pass `SKIP_BUILD=1` to package an existing
+`target/release/rockbox-desktop`, and `VERSION=…` to stamp the bundle.
 
 ## Skins
 

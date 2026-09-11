@@ -47,7 +47,13 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "archive=rockbox-desktop-${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_OUTPUT"
+          # macOS ships a double-clickable .app inside a .dmg (that is what the
+          # homebrew-tap cask installs); Linux ships the binary in a tarball.
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            echo "archive=Rockbox-${VERSION}-${{ matrix.target }}.dmg" >> "$GITHUB_OUTPUT"
+          else
+            echo "archive=rockbox-desktop-${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: mlugg/setup-zig@v2
         with:
@@ -158,7 +164,20 @@ jobs:
         working-directory: desktop
         run: cargo build --release --locked
 
-      - name: Package
+      # Rockbox.app + Rockbox.dmg — icon from the shared appiconset, Info.plist
+      # with the Bonjour entries the embedded daemon needs on macOS 15+, ad-hoc
+      # signed. SKIP_BUILD: the binary was built in the previous step.
+      - name: Package (macOS .app + .dmg)
+        if: runner.os == 'macOS'
+        env:
+          SKIP_BUILD: "1"
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          bash desktop/package-macos.sh
+          mv desktop/dist/Rockbox.dmg "${{ steps.vars.outputs.archive }}"
+
+      - name: Package (Linux tarball)
+        if: runner.os == 'Linux'
         run: |
           STAGE=rockbox-desktop-${{ steps.vars.outputs.version }}-${{ matrix.target }}
           mkdir -p "$STAGE"
