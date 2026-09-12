@@ -38,6 +38,8 @@ pub enum Cmd {
     PlayAlbum(String),
     PlayAlbumAt(String, i32),
     PlayArtist(String),
+    PlayArtistAt(String, i32),
+    PlayArtistShuffled(String),
     PlayAllAt(i32),
     PlayLikedAt(i32),
     QueueJump(i32),
@@ -86,6 +88,9 @@ pub enum Cmd {
     LikeTrack {
         id: String,
         like: bool,
+        /// Identifies the optimistic UI flip this request belongs to; handed
+        /// back to `ui_set_liked` so a stale response can't undo a newer click.
+        seq: u64,
     },
     LikeAlbum(String),
     SwitchServer {
@@ -1198,6 +1203,24 @@ async fn cmd_loop(
                         })
                         .await?;
                 }
+                Cmd::PlayArtistAt(id, pos) => {
+                    playback
+                        .play_artist_tracks(PlayArtistTracksRequest {
+                            artist_id: id,
+                            shuffle: None,
+                            position: Some(pos),
+                        })
+                        .await?;
+                }
+                Cmd::PlayArtistShuffled(id) => {
+                    playback
+                        .play_artist_tracks(PlayArtistTracksRequest {
+                            artist_id: id,
+                            shuffle: Some(true),
+                            position: Some(0),
+                        })
+                        .await?;
+                }
                 Cmd::PlayAllAt(pos) => {
                     playback
                         .play_all_tracks(PlayAllTracksRequest {
@@ -1357,19 +1380,38 @@ async fn cmd_loop(
                         .await?;
                     refresh_queue(&channel, &weak).await;
                 }
-                Cmd::LikeTrack { id, like } => {
-                    let mut lib = LibraryServiceClient::new(channel.clone());
-                    if like {
-                        lib.like_track(LikeTrackRequest { id }).await?;
-                    } else {
-                        lib.unlike_track(UnlikeTrackRequest { id }).await?;
-                    }
-                    if let Ok(resp) = lib.get_liked_tracks(GetLikedTracksRequest {}).await {
-                        let liked = to_track_data(&resp.into_inner().tracks);
-                        let _ = weak.upgrade_in_event_loop(move |app| {
-                            crate::ui_set_liked(&app, liked);
-                        });
-                    }
+                Cmd::LikeTrack { id, like, seq } => {
+                    // Detached: every other command waits its turn in this
+                    // loop, and a like is the one request that can take
+                    // seconds (the daemon mirrors it to Rocksky). Blocking here
+                    // would stall play/pause and seek behind a heart click.
+                    // The UI has already flipped optimistically — this just
+                    // sends the request and reconciles when it lands.
+                    let channel = channel.clone();
+                    let weak = weak.clone();
+                    tokio::spawn(async move {
+                        let mut lib = LibraryServiceClient::new(channel);
+                        let sent = if like {
+                            lib.like_track(LikeTrackRequest { id: id.clone() })
+                                .await
+                                .map(|_| ())
+                        } else {
+                            lib.unlike_track(UnlikeTrackRequest { id: id.clone() })
+                                .await
+                                .map(|_| ())
+                        };
+                        if let Err(e) = sent {
+                            tracing::warn!("like {id} failed: {e}");
+                        }
+                        // Refetch either way: on failure this is what rolls the
+                        // optimistic heart back to what the daemon actually has.
+                        if let Ok(resp) = lib.get_liked_tracks(GetLikedTracksRequest {}).await {
+                            let liked = to_track_data(&resp.into_inner().tracks);
+                            let _ = weak.upgrade_in_event_loop(move |app| {
+                                crate::ui_set_liked(&app, liked, Some((id, seq)));
+                            });
+                        }
+                    });
                 }
                 Cmd::SwitchServer { host, grpc_port } => {
                     switch_server(&host, grpc_port);

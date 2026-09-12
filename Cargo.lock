@@ -10796,6 +10796,7 @@ dependencies = [
  "slab",
  "sqlx",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

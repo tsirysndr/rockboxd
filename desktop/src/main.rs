@@ -44,6 +44,23 @@ struct UiState {
     pl_detail_id: Option<String>,
     pl_detail_track_ids: Vec<String>,
     picker_query: String,
+    /// Heart clicks the daemon has not answered yet, keyed by track id.
+    ///
+    /// A like is never instant — the daemon still has a DB write and a gRPC
+    /// round-trip to do — so the UI flips the icon on click and records the
+    /// intent here, the same optimistic update the web client does. The entry
+    /// is retired when that click's own response lands (see `settle_pending`).
+    pending_likes: std::collections::HashMap<String, PendingLike>,
+    /// Hands out `PendingLike::seq`. Monotonic, so a later click always wins
+    /// over an earlier one's response.
+    like_seq: u64,
+}
+
+/// An optimistic heart click awaiting its response.
+#[derive(Clone, Copy, Debug)]
+struct PendingLike {
+    seq: u64,
+    liked: bool,
 }
 
 thread_local! {
@@ -68,8 +85,35 @@ fn track_item_with(t: &rpc::TrackData, liked_ids: &std::collections::HashSet<Str
     }
 }
 
-fn liked_ids_of(liked: &[rpc::TrackData]) -> std::collections::HashSet<String> {
-    liked.iter().map(|t| t.id.clone()).collect()
+/// Retire the optimistic entry that `seq` answers.
+///
+/// Cleared whether the request succeeded or failed: the caller refetches the
+/// liked list either way, so dropping the entry lets a rejected like fall back
+/// to whatever the daemon actually has. A newer click on the same track carries
+/// a higher `seq` and is left alone, so a slow response can't undo it.
+fn settle_pending(
+    pending: &mut std::collections::HashMap<String, PendingLike>,
+    id: &str,
+    seq: u64,
+) {
+    if pending.get(id).is_some_and(|p| p.seq == seq) {
+        pending.remove(id);
+    }
+}
+
+/// The set of track ids whose heart should read as filled: what the daemon
+/// last told us, with any unsettled clicks applied on top.
+fn liked_ids(st: &UiState) -> std::collections::HashSet<String> {
+    let mut ids: std::collections::HashSet<String> =
+        st.liked.iter().map(|t| t.id.clone()).collect();
+    for (id, pending) in &st.pending_likes {
+        if pending.liked {
+            ids.insert(id.clone());
+        } else {
+            ids.remove(id);
+        }
+    }
+    ids
 }
 
 fn album_item(a: &AlbumEntry) -> AlbumItem {
@@ -117,7 +161,7 @@ pub fn ui_set_library(app: &AppWindow, data: rpc::LibraryData) {
 
         let albums: Vec<AlbumItem> = st.albums.iter().map(album_item).collect();
         let artists: Vec<ArtistItem> = st.artists.iter().map(artist_item).collect();
-        let ids = liked_ids_of(&st.liked);
+        let ids = liked_ids(&st);
         let tracks: Vec<TrackItem> = st.tracks.iter().map(|t| track_item_with(t, &ids)).collect();
         let liked: Vec<TrackItem> = st.liked.iter().map(|t| track_item_with(t, &ids)).collect();
 
@@ -181,7 +225,7 @@ pub fn ui_set_queue(
     upnext: Vec<rpc::TrackData>,
     history: Vec<rpc::TrackData>,
 ) {
-    let ids = STATE.with(|s| liked_ids_of(&s.borrow().liked));
+    let ids = STATE.with(|s| liked_ids(&s.borrow()));
     let upnext: Vec<TrackItem> = upnext.iter().map(|t| track_item_with(t, &ids)).collect();
     let history: Vec<TrackItem> = history.iter().map(|t| track_item_with(t, &ids)).collect();
     app.set_queue_total(total as i32);
@@ -199,7 +243,7 @@ pub fn ui_show_album_detail(app: &AppWindow, detail: rpc::AlbumDetailData) {
             .map(|img| (img, true))
             .unwrap_or_default()
     });
-    let liked_ids = STATE.with(|s| liked_ids_of(&s.borrow().liked));
+    let liked_ids = STATE.with(|s| liked_ids(&s.borrow()));
     let total_s: u64 = detail.tracks.iter().map(|t| t.length_ms / 1000).sum();
     let duration = if total_s >= 3600 {
         format!("{} hr {} min", total_s / 3600, (total_s % 3600) / 60)
@@ -255,6 +299,57 @@ pub fn ui_show_album_detail(app: &AppWindow, detail: rpc::AlbumDetailData) {
     app.set_detail_label(detail.label.into());
     app.set_detail_tracks(ModelRc::new(VecModel::from(rows)));
     app.set_show_detail(true);
+}
+
+/// Opens the artist page. Built entirely from the library already in `STATE`,
+/// so it needs no round-trip — accepts an artist id or a name, since the
+/// palette carries ids while some callers only have the display name.
+pub fn ui_show_artist_detail(app: &AppWindow, id: &str) {
+    let Some((artist, albums, tracks)) = STATE.with(|s| {
+        let st = s.borrow();
+        let entry = st
+            .artists
+            .iter()
+            .find(|a| a.data.id == id || a.data.name == id)?;
+        let name = entry.data.name.clone();
+        let albums: Vec<AlbumItem> = st
+            .albums
+            .iter()
+            .filter(|a| a.data.artist == name)
+            .map(album_item)
+            .collect();
+        let ids = liked_ids(&st);
+        // Re-indexed from zero: a row's `index` is the position handed back to
+        // `play-artist-at`, and that list is this one, not the whole library.
+        let tracks: Vec<TrackItem> = st
+            .tracks
+            .iter()
+            .filter(|t| t.artist == name)
+            .enumerate()
+            .map(|(i, t)| {
+                let mut item = track_item_with(t, &ids);
+                item.index = i as i32;
+                item
+            })
+            .collect();
+        Some((artist_item(entry), albums, tracks))
+    }) else {
+        return;
+    };
+
+    let meta = format!(
+        "{} {} · {} {}",
+        albums.len(),
+        if albums.len() == 1 { "album" } else { "albums" },
+        tracks.len(),
+        if tracks.len() == 1 { "song" } else { "songs" },
+    );
+    app.set_artist_detail(artist);
+    app.set_artist_detail_meta(meta.into());
+    app.set_artist_detail_albums(ModelRc::new(VecModel::from(albums)));
+    app.set_artist_detail_tracks(ModelRc::new(VecModel::from(tracks)));
+    app.set_show_detail(false);
+    app.set_show_artist(true);
 }
 
 // ── Remote servers / browsing ───────────────────────────────────────────────
@@ -366,7 +461,7 @@ pub fn ui_show_playlist(app: &AppWindow, id: String, track_ids: Vec<String>, ope
         let mut st = s.borrow_mut();
         st.pl_detail_id = Some(id.clone());
         st.pl_detail_track_ids = track_ids.clone();
-        let ids = liked_ids_of(&st.liked);
+        let ids = liked_ids(&st);
         track_ids
             .iter()
             .filter_map(|tid| st.tracks.iter().find(|t| &t.id == tid))
@@ -425,18 +520,91 @@ fn picker_results(query: &str) -> Vec<PaletteItem> {
 }
 
 /// Called after a like/unlike round-trip: refresh liked list + hearts.
-pub fn ui_set_liked(app: &AppWindow, liked: Vec<rpc::TrackData>) {
-    STATE.with(|s| s.borrow_mut().liked = liked);
+///
+/// `settled` names the click this response answers, if any, so its optimistic
+/// entry can be retired.
+pub fn ui_set_liked(app: &AppWindow, liked: Vec<rpc::TrackData>, settled: Option<(String, u64)>) {
+    STATE.with(|s| {
+        let mut st = s.borrow_mut();
+        st.liked = liked;
+        if let Some((id, seq)) = settled {
+            settle_pending(&mut st.pending_likes, &id, seq);
+        }
+    });
     STATE.with(|s| {
         let st = s.borrow();
-        let ids = liked_ids_of(&st.liked);
-        let tracks: Vec<TrackItem> = st.tracks.iter().map(|t| track_item_with(t, &ids)).collect();
+        let ids = liked_ids(&st);
+        // The Liked tab lists the liked tracks themselves, so its *membership*
+        // changed — rebuild it. Every other view keeps its rows and only needs
+        // the flag re-stamped.
         let liked_items: Vec<TrackItem> =
             st.liked.iter().map(|t| track_item_with(t, &ids)).collect();
-        app.set_tracks(ModelRc::new(VecModel::from(tracks)));
         app.set_liked(ModelRc::new(VecModel::from(liked_items)));
-        app.set_now_liked(ids.contains(app.get_now_track_id().as_str()));
+        refresh_liked_flags(app, &ids);
     });
+}
+
+/// Re-stamps `TrackItem::liked` on every track row currently on screen.
+///
+/// The library tabs could be rebuilt from `STATE`, but the album-detail,
+/// playlist-detail and queue lists are built from data that only ever existed
+/// in the message that produced them — `STATE` never keeps it. Rebuilding them
+/// is therefore not an option, and the previous version simply skipped them, so
+/// clicking a heart anywhere but the Tracks/Liked tabs sent the request and
+/// left the icon unchanged: the like looked broken even though the daemon had
+/// recorded it.
+///
+/// Patching the live models in place fixes every view at once, and — unlike
+/// swapping in a fresh model — leaves the list's scroll position alone.
+fn refresh_liked_flags(app: &AppWindow, ids: &std::collections::HashSet<String>) {
+    patch_track_model(&app.get_tracks(), ids);
+    patch_track_model(&app.get_liked(), ids);
+    patch_track_model(&app.get_pl_detail_tracks(), ids);
+    patch_track_model(&app.get_artist_detail_tracks(), ids);
+    patch_track_model(&app.get_queue_upnext(), ids);
+    patch_track_model(&app.get_queue_history(), ids);
+
+    // Album detail wraps each track in a DetailRow so it can interleave
+    // "DISC n" headers.
+    if let Some(vm) = app
+        .get_detail_tracks()
+        .as_any()
+        .downcast_ref::<VecModel<DetailRow>>()
+    {
+        for i in 0..vm.row_count() {
+            let Some(mut row) = vm.row_data(i) else {
+                continue;
+            };
+            if row.is_header {
+                continue;
+            }
+            let liked = ids.contains(row.track.id.as_str());
+            if row.track.liked != liked {
+                row.track.liked = liked;
+                vm.set_row_data(i, row);
+            }
+        }
+    }
+
+    app.set_now_liked(ids.contains(app.get_now_track_id().as_str()));
+}
+
+/// Set `liked` on each row of a plain track model. A no-op for the empty
+/// literal `[]` the properties start out as — that is not a `VecModel`.
+fn patch_track_model(model: &ModelRc<TrackItem>, ids: &std::collections::HashSet<String>) {
+    let Some(vm) = model.as_any().downcast_ref::<VecModel<TrackItem>>() else {
+        return;
+    };
+    for i in 0..vm.row_count() {
+        let Some(mut item) = vm.row_data(i) else {
+            continue;
+        };
+        let liked = ids.contains(item.id.as_str());
+        if item.liked != liked {
+            item.liked = liked;
+            vm.set_row_data(i, item);
+        }
+    }
 }
 
 /// Resolves a track id to its file path (for queue inserts).
@@ -452,7 +620,29 @@ fn track_path(id: &str) -> Option<String> {
 }
 
 pub fn is_liked(id: &str) -> bool {
-    STATE.with(|s| s.borrow().liked.iter().any(|t| t.id == id))
+    STATE.with(|s| {
+        let st = s.borrow();
+        // An unconfirmed click wins, so clicking twice in a row toggles back
+        // instead of re-sending the same request.
+        match st.pending_likes.get(id) {
+            Some(pending) => pending.liked,
+            None => st.liked.iter().any(|t| t.id == id),
+        }
+    })
+}
+
+/// Flip a heart before the daemon answers, then let `ui_set_liked` reconcile.
+fn set_like_optimistically(app: &AppWindow, id: &str, like: bool) -> u64 {
+    let (seq, ids) = STATE.with(|s| {
+        let mut st = s.borrow_mut();
+        st.like_seq += 1;
+        let seq = st.like_seq;
+        st.pending_likes
+            .insert(id.to_string(), PendingLike { seq, liked: like });
+        (seq, liked_ids(&st))
+    });
+    refresh_liked_flags(app, &ids);
+    seq
 }
 
 // ── Server switcher ─────────────────────────────────────────────────────────
@@ -952,10 +1142,17 @@ fn main() -> Result<(), slint::PlatformError> {
     // ── Track / album context actions ───────────────────────────────────────
     {
         let tx = tx.clone();
+        let app_weak = app.as_weak();
         app.on_track_like(move |id| {
             let id: String = id.into();
             let like = !is_liked(&id);
-            let _ = tx.send(rpc::Cmd::LikeTrack { id, like });
+            // Flip the icon now; the request goes out in the background and
+            // `ui_set_liked` settles it (or rolls it back) when it answers.
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
+            let seq = set_like_optimistically(&app, &id, like);
+            let _ = tx.send(rpc::Cmd::LikeTrack { id, like, seq });
         });
     }
     {
@@ -1219,23 +1416,156 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let tx = tx.clone();
+        let app_weak = app.as_weak();
         app.on_palette_activate(move |item| {
-            let cmd = match item.kind.as_str() {
-                "track" => rpc::Cmd::PlayAllAt(item.index),
-                "album" => rpc::Cmd::PlayAlbum(item.id.into()),
-                "playlist" => rpc::Cmd::PlaySavedPlaylist(item.id.into()),
-                _ => rpc::Cmd::PlayArtist(item.id.into()),
-            };
-            let _ = tx.send(cmd);
+            // Albums and artists open their page rather than playing: opening
+            // one is what a search result is for, and the play button is right
+            // there once you land. Tracks and playlists still play — there is
+            // no page for them to open.
+            match item.kind.as_str() {
+                "album" => {
+                    let _ = tx.send(rpc::Cmd::OpenAlbum(item.id.into()));
+                }
+                "artist" => {
+                    if let Some(app) = app_weak.upgrade() {
+                        ui_show_artist_detail(&app, item.id.as_str());
+                    }
+                }
+                "playlist" => {
+                    let _ = tx.send(rpc::Cmd::PlaySavedPlaylist(item.id.into()));
+                }
+                _ => {
+                    let _ = tx.send(rpc::Cmd::PlayAllAt(item.index));
+                }
+            }
         });
     }
     {
         let app_weak = app.as_weak();
         app.on_open_artist(move |name| {
             let app = app_weak.unwrap();
-            app.invoke_open_palette_with(name);
+            ui_show_artist_detail(&app, name.as_str());
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_play_artist_at(move |id, index| {
+            let _ = tx.send(rpc::Cmd::PlayArtistAt(id.into(), index));
+        });
+    }
+    {
+        let tx = tx.clone();
+        app.on_play_artist_shuffled(move |id| {
+            let _ = tx.send(rpc::Cmd::PlayArtistShuffled(id.into()));
         });
     }
 
     app.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn track(id: &str) -> rpc::TrackData {
+        rpc::TrackData {
+            id: id.into(),
+            title: String::new(),
+            artist: String::new(),
+            album: String::new(),
+            length_ms: 0,
+            index: 0,
+            disc: 0,
+            track_no: 0,
+            path: String::new(),
+            album_id: String::new(),
+        }
+    }
+
+    fn state(liked: &[&str], pending: &[(&str, u64, bool)]) -> UiState {
+        UiState {
+            liked: liked.iter().map(|id| track(id)).collect(),
+            pending_likes: pending
+                .iter()
+                .map(|(id, seq, liked)| {
+                    (
+                        id.to_string(),
+                        PendingLike {
+                            seq: *seq,
+                            liked: *liked,
+                        },
+                    )
+                })
+                .collect(),
+            ..UiState::default()
+        }
+    }
+
+    #[test]
+    fn unsettled_click_wins_over_the_server_list() {
+        // Liking fills the heart before the daemon answers…
+        assert!(liked_ids(&state(&[], &[("a", 1, true)])).contains("a"));
+        // …and unliking empties it even though the server still lists it.
+        assert!(!liked_ids(&state(&["b"], &[("b", 1, false)])).contains("b"));
+    }
+
+    #[test]
+    fn server_list_stands_where_nothing_is_pending() {
+        let ids = liked_ids(&state(&["a", "b"], &[("c", 1, true)]));
+        assert_eq!(ids.len(), 3);
+        for id in ["a", "b", "c"] {
+            assert!(ids.contains(id), "{id} missing");
+        }
+    }
+
+    #[test]
+    fn a_settled_like_leaves_the_heart_filled() {
+        let mut st = state(&[], &[("a", 1, true)]);
+        // Response arrives and the daemon agrees `a` is liked.
+        st.liked = vec![track("a")];
+        settle_pending(&mut st.pending_likes, "a", 1);
+
+        assert!(st.pending_likes.is_empty());
+        assert!(liked_ids(&st).contains("a"));
+    }
+
+    #[test]
+    fn a_failed_like_rolls_back() {
+        let mut st = state(&[], &[("a", 1, true)]);
+        // The request failed, so the refetched list still lacks `a`. Settling
+        // on failure too is what lets the heart fall back to the truth —
+        // leaving the entry would strand it filled forever.
+        settle_pending(&mut st.pending_likes, "a", 1);
+
+        assert!(st.pending_likes.is_empty());
+        assert!(!liked_ids(&st).contains("a"));
+    }
+
+    #[test]
+    fn a_stale_response_cannot_undo_a_newer_click() {
+        // Like (seq 1), then unlike (seq 2) before the first answers.
+        let mut st = state(&[], &[("a", 2, false)]);
+        // Now seq 1's response lands, carrying a server list from before the
+        // unlike. It must not retire seq 2's entry.
+        settle_pending(&mut st.pending_likes, "a", 1);
+        st.liked = vec![track("a")];
+
+        assert_eq!(st.pending_likes.len(), 1);
+        assert!(
+            !liked_ids(&st).contains("a"),
+            "stale response undid the unlike"
+        );
+
+        // seq 2's own response then settles it.
+        settle_pending(&mut st.pending_likes, "a", 2);
+        assert!(st.pending_likes.is_empty());
+    }
+
+    #[test]
+    fn settling_an_unknown_id_is_a_no_op() {
+        let mut pending: HashMap<String, PendingLike> = HashMap::new();
+        settle_pending(&mut pending, "ghost", 7);
+        assert!(pending.is_empty());
+    }
 }

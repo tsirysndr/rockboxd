@@ -38,6 +38,33 @@ impl Library {
     }
 }
 
+/// Mirror a like to the user's Rocksky account. Runs detached from the RPC —
+/// the local favourite is already committed, so a failure here costs the remote
+/// scrobble, not the like itself.
+async fn sync_like_to_rocksky(
+    pool: sqlx::Pool<Sqlite>,
+    track_id: &str,
+) -> Result<(), anyhow::Error> {
+    let Some(track) = repo::track::find(pool.clone(), track_id).await? else {
+        return Ok(());
+    };
+    let Some(album) = repo::album::find(pool, &track.album_id).await? else {
+        return Ok(());
+    };
+    rockbox_rocksky::like(track, album).await
+}
+
+/// Counterpart to [`sync_like_to_rocksky`].
+async fn sync_unlike_to_rocksky(
+    pool: sqlx::Pool<Sqlite>,
+    track_id: &str,
+) -> Result<(), anyhow::Error> {
+    let Some(track) = repo::track::find(pool, track_id).await? else {
+        return Ok(());
+    };
+    rockbox_rocksky::unlike(track).await
+}
+
 #[tonic::async_trait]
 impl LibraryService for Library {
     async fn get_albums(
@@ -151,23 +178,18 @@ impl LibraryService for Library {
         .await
         .map_err(|e| tonic::Status::internal(e.to_string()))?;
 
-        let track = repo::track::find(self.pool.clone(), &params.id)
-            .await
-            .map_err(|e| tonic::Status::internal(e.to_string()))?;
-
-        if let Some(track) = track {
-            let album = repo::album::find(self.pool.clone(), &track.album_id)
-                .await
-                .map_err(|e| tonic::Status::internal(e.to_string()))?;
-            if let Some(album) = album {
-                match rockbox_rocksky::like(track, album).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Error liking track: {:?}", e);
-                    }
-                }
+        // The local favourite is already committed above, which is all
+        // `GetLikedTracks` reads — so answer now and mirror to Rocksky in the
+        // background. That call uploads the album cover and POSTs to
+        // api.rocksky.app with no timeout; awaiting it here made every client's
+        // heart icon hang on the network round-trip.
+        let pool = self.pool.clone();
+        let id = params.id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = sync_like_to_rocksky(pool, &id).await {
+                tracing::warn!("rocksky like sync failed for {id}: {e}");
             }
-        }
+        });
 
         Ok(tonic::Response::new(LikeTrackResponse {}))
     }
@@ -200,18 +222,15 @@ impl LibraryService for Library {
             .await
             .map_err(|e| tonic::Status::internal(e.to_string()))?;
 
-        let track = repo::track::find(self.pool.clone(), &params.id)
-            .await
-            .map_err(|e| tonic::Status::internal(e.to_string()))?;
-
-        if let Some(track) = track {
-            match rockbox_rocksky::unlike(track).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Error unliking track: {:?}", e);
-                }
+        // Answer as soon as the local favourite is gone; mirror to Rocksky in
+        // the background. See `like_track` for why.
+        let pool = self.pool.clone();
+        let id = params.id.clone();
+        tokio::spawn(async move {
+            if let Err(e) = sync_unlike_to_rocksky(pool, &id).await {
+                tracing::warn!("rocksky unlike sync failed for {id}: {e}");
             }
-        }
+        });
 
         Ok(tonic::Response::new(UnlikeTrackResponse {}))
     }

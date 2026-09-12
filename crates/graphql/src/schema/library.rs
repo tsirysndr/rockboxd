@@ -197,6 +197,27 @@ impl LibraryQuery {
 #[derive(Default)]
 pub struct LibraryMutation;
 
+/// Mirror a like to the user's Rocksky account. Runs detached from the
+/// mutation — the local favourite is already committed, so a failure here costs
+/// the remote scrobble, not the like itself.
+async fn sync_like_to_rocksky(pool: Pool<Sqlite>, track_id: &str) -> Result<(), anyhow::Error> {
+    let Some(track) = repo::track::find(pool.clone(), track_id).await? else {
+        return Ok(());
+    };
+    let Some(album) = repo::album::find(pool, &track.album_id).await? else {
+        return Ok(());
+    };
+    rockbox_rocksky::like(track, album).await
+}
+
+/// Counterpart to [`sync_like_to_rocksky`].
+async fn sync_unlike_to_rocksky(pool: Pool<Sqlite>, track_id: &str) -> Result<(), anyhow::Error> {
+    let Some(track) = repo::track::find(pool, track_id).await? else {
+        return Ok(());
+    };
+    rockbox_rocksky::unlike(track).await
+}
+
 #[Object]
 impl LibraryMutation {
     async fn like_track(&self, ctx: &Context<'_>, id: String) -> Result<i32, Error> {
@@ -212,19 +233,16 @@ impl LibraryMutation {
         )
         .await?;
 
-        let track = repo::track::find(pool.clone(), &id).await?;
-
-        if let Some(track) = track {
-            let album = repo::album::find(pool.clone(), &track.album_id).await?;
-            if let Some(album) = album {
-                match rockbox_rocksky::like(track, album).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Error liking track: {:?}", e);
-                    }
-                }
+        // The local favourite is committed, which is all `likedTracks` reads —
+        // so answer now and mirror to Rocksky in the background. That call
+        // uploads the album cover and POSTs to api.rocksky.app with no timeout;
+        // awaiting it held the mutation open for the whole round-trip.
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            if let Err(e) = sync_like_to_rocksky(pool, &id).await {
+                tracing::warn!("rocksky like sync failed for {id}: {e}");
             }
-        }
+        });
         Ok(0)
     }
 
@@ -247,16 +265,13 @@ impl LibraryMutation {
         let pool = ctx.data::<Pool<Sqlite>>()?;
         repo::favourites::delete(pool.clone(), &id).await?;
 
-        let track = repo::track::find(pool.clone(), &id).await?;
-
-        if let Some(track) = track {
-            match rockbox_rocksky::unlike(track).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Error unliking track: {:?}", e);
-                }
+        // Background, same as `like_track`.
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            if let Err(e) = sync_unlike_to_rocksky(pool, &id).await {
+                tracing::warn!("rocksky unlike sync failed for {id}: {e}");
             }
-        }
+        });
         Ok(0)
     }
 
