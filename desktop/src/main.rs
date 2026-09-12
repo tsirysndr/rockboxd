@@ -216,6 +216,19 @@ pub fn ui_set_artist_image(app: &AppWindow, idx: usize, w: u32, h: u32, rgba: Ve
 pub fn ui_set_now_art(app: &AppWindow, w: u32, h: u32, rgba: Vec<u8>) {
     let image = slint::Image::from_rgba8(SharedPixelBuffer::clone_from_slice(&rgba, w, h));
     app.set_now_art(image);
+    // Blurred once here rather than per-frame in the UI: it backs the full
+    // player and the player bar, and the thumbnail it comes from is small
+    // enough that this is cheap.
+    if let Some(buffer) = image::RgbaImage::from_raw(w, h, rgba) {
+        let blurred = image::imageops::blur(&buffer, 18.0);
+        app.set_now_art_blurred(slint::Image::from_rgba8(
+            SharedPixelBuffer::clone_from_slice(
+                blurred.as_raw(),
+                blurred.width(),
+                blurred.height(),
+            ),
+        ));
+    }
     app.set_now_has_art(true);
 }
 

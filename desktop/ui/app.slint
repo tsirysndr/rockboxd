@@ -35,7 +35,11 @@ export component AppWindow inherits Window {
     in-out property <string> now-track-id: "";
     in-out property <bool> now-liked: false;
     in-out property <image> now-art;
+    /// Same artwork, pre-blurred in Rust — the wash behind the full player.
+    in-out property <image> now-art-blurred;
     in-out property <bool> now-has-art: false;
+    /// Full-window now-playing canvas. The player bar stays visible below it.
+    in-out property <bool> show-full-player: false;
     in-out property <bool> playing: false;
     in-out property <bool> stopped: true;
     in-out property <float> progress: 0; // 0..1
@@ -279,8 +283,19 @@ export component AppWindow inherits Window {
                 root.cycle-skin();
                 return accept;
             }
+            if (event.text == "f") {
+                // The full player is a canvas for the current track's art and
+                // title; with nothing playing there is nothing to show, so the
+                // key does nothing rather than opening an empty one.
+                if (!root.stopped && root.now-title != "") {
+                    root.show-full-player = !root.show-full-player;
+                }
+                return accept;
+            }
             if (event.text == Key.Escape) {
-                if (root.show-confirm-delete) {
+                if (root.show-full-player) {
+                    root.show-full-player = false;
+                } else if (root.show-confirm-delete) {
                     root.show-confirm-delete = false;
                 } else if (root.show-playlist-picker) {
                     root.show-playlist-picker = false;
@@ -321,7 +336,9 @@ export component AppWindow inherits Window {
         height: 100%;
         // ── Sidebar ─────────────────────────────────────────────────────────
         sidebar := Rectangle {
-            width: root.show-sidebar ? 208px : 0px;
+            // Collapsed while the full player is up: the canvas is the point,
+            // and library navigation behind it is not.
+            width: root.show-sidebar && !root.show-full-player ? 208px : 0px;
             background: Theme.sidebar-bg;
             clip: true;
             animate width { duration: 160ms; easing: ease-out; }
@@ -1250,7 +1267,27 @@ export component AppWindow inherits Window {
             // ── Player bar ──────────────────────────────────────────────────
             player := Rectangle {
                 height: 92px;
+                clip: true;
                 background: Theme.panel-bg;
+                // Carries the artwork wash across the seam so the bar reads as
+                // the bottom edge of the canvas rather than a separate strip.
+                if root.show-full-player && root.now-has-art : Image {
+                    x: -20px;
+                    y: -20px;
+                    width: parent.width + 40px;
+                    height: parent.height + 40px;
+                    source: root.now-art-blurred;
+                    image-fit: cover;
+                    opacity: 0.28;
+                }
+                // Tinted with the window colour, not a fixed near-black: the
+                // controls here are themed, and a dark scrim under a light skin
+                // would leave all of them dark on dark.
+                if root.show-full-player : Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    background: Theme.window-bg.with-alpha(0.72);
+                }
                 Rectangle { height: 1px; y: 0; width: parent.width; background: Theme.border; }
 
                 HorizontalLayout {
@@ -1261,9 +1298,12 @@ export component AppWindow inherits Window {
                     // Track info
                     HorizontalLayout {
                         spacing: 12px;
-                        width: 24%;
+                        // The thumbnail's slot is reclaimed for the title once
+                        // the artwork is shown full size above.
+                        width: root.show-full-player ? 38% : 24%;
                         Rectangle {
-                            width: 60px;
+                            visible: !root.show-full-player;
+                            width: root.show-full-player ? 0px : 60px;
                             height: 60px;
                             y: (parent.height - self.height) / 2;
                             background: Theme.art-placeholder;
@@ -1281,6 +1321,13 @@ export component AppWindow inherits Window {
                                 height: 22px;
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
+                            }
+                            // Clicking the artwork opens the full player —
+                            // the same gesture as every phone music app.
+                            art-touch := TouchArea {
+                                enabled: !root.stopped;
+                                mouse-cursor: pointer;
+                                clicked => { root.show-full-player = true; }
                             }
                         }
                         VerticalLayout {
@@ -1445,6 +1492,86 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
+
+    // ── Full-window now-playing canvas ──────────────────────────────────────
+    // Sits above the library content but stops short of the player bar, so
+    // transport, volume and the VFD stay where they always are. Declared before
+    // the drawers and dialogs below, which therefore paint on top of it.
+    full-player := Rectangle {
+        visible: root.show-full-player;
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height - 92px;
+        background: Theme.window-bg;
+
+        if root.now-has-art : Image {
+            width: parent.width;
+            height: parent.height;
+            source: root.now-art-blurred;
+            image-fit: cover;
+            opacity: 0.48;
+        }
+        // Window colour rather than a fixed near-black — see the player bar.
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: Theme.window-bg.with-alpha(0.78);
+        }
+
+        IconButton {
+            x: 22px;
+            y: 22px + root.titlebar-inset;
+            icon: Icons.chevron-left;
+            icon-size: 20px;
+            width: 42px;
+            height: 42px;
+            clicked => { root.show-full-player = false; }
+        }
+
+        // The artwork is the only thing in the column, so it takes what the
+        // title block used to. Bounded by the *height* as well as the width:
+        // the art is square, so a column as wide as the window would be taller
+        // than it and the art would be cropped.
+        property <length> column-width: min(560px, parent.width - 160px, parent.height - 150px);
+
+        VerticalLayout {
+            x: (parent.width - self.width) / 2;
+            y: 70px;
+            width: full-player.column-width;
+            height: parent.height - 110px;
+            alignment: center;
+            spacing: 18px;
+
+            Rectangle {
+                width: parent.width;
+                height: self.width;
+                background: Theme.art-placeholder;
+                clip: true;
+                drop-shadow-color: #000000aa;
+                drop-shadow-blur: 40px;
+                if root.now-has-art : Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.now-art;
+                    image-fit: cover;
+                }
+                if !root.now-has-art : Image {
+                    source: Icons.music;
+                    colorize: Theme.text-muted;
+                    width: parent.width * 0.3;
+                    height: self.width;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+
+            // Nothing below the artwork: the player bar already carries the
+            // title, artist and heart, and repeating them here only competed
+            // with the one thing this canvas exists to show.
+        }
+
     }
 
     // ── Queue drawer ────────────────────────────────────────────────────────
@@ -1905,6 +2032,9 @@ export component AppWindow inherits Window {
                                             : (root.bass - root.bass-min) / (root.bass-max - root.bass-min);
                                         default-norm: root.bass-max == root.bass-min ? 0
                                             : (0.0 - root.bass-min) / (root.bass-max - root.bass-min);
+                                        // Cut and boost grow out of 0 dB.
+                                        origin-norm: root.bass-max == root.bass-min ? 0
+                                            : (0.0 - root.bass-min) / (root.bass-max - root.bass-min);
                                         changed(p) => {
                                             root.audio-set("bass", root.bass-min + round(p * (root.bass-max - root.bass-min)));
                                         }
@@ -1916,6 +2046,8 @@ export component AppWindow inherits Window {
                                             : (root.treble - root.treble-min) / (root.treble-max - root.treble-min);
                                         default-norm: root.treble-max == root.treble-min ? 0
                                             : (0.0 - root.treble-min) / (root.treble-max - root.treble-min);
+                                        origin-norm: root.treble-max == root.treble-min ? 0
+                                            : (0.0 - root.treble-min) / (root.treble-max - root.treble-min);
                                         changed(p) => {
                                             root.audio-set("treble", root.treble-min + round(p * (root.treble-max - root.treble-min)));
                                         }
@@ -1926,6 +2058,9 @@ export component AppWindow inherits Window {
                                             : root.balance < 0 ? (-root.balance) + "% L"
                                             : root.balance + "% R";
                                         norm: (root.balance + 100) / 200.0;
+                                        // L and R grow out of centre, not from
+                                        // hard left.
+                                        origin-norm: 0.5;
                                         changed(p) => { root.audio-set("balance", round(p * 200) - 100); }
                                     }
                                 }
@@ -1983,6 +2118,8 @@ export component AppWindow inherits Window {
                                         label: "Pre-amp";
                                         value-text: (root.rg-preamp / 10.0) + " dB";
                                         norm: (root.rg-preamp + 120) / 240.0;
+                                        // 0 dB sits at the middle of ±12 dB.
+                                        origin-norm: 0.5;
                                         changed(p) => { root.audio-set("rg_preamp", round(p * 48) * 5 - 120); }
                                     }
                                 }
@@ -2878,6 +3015,7 @@ export component AppWindow inherits Window {
                 HelpRow { keys: "up / down"; label: "Navigate search results"; }
                 HelpRow { keys: "enter"; label: "Play selection"; }
                 HelpRow { keys: "e"; label: "Audio settings (EQ, replaygain…)"; }
+                HelpRow { keys: "f"; label: "Full-screen player"; }
                 HelpRow { keys: "s"; label: "Cycle skin"; }
                 HelpRow { keys: "esc"; label: "Close dialog / go back"; }
                 HelpRow { keys: "?"; label: "Show this help"; }
