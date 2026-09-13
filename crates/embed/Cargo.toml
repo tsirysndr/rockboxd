@@ -28,6 +28,7 @@ daemon = [
     "dep:rockbox-cmaf",       "rockbox-cmaf/ffi",
     "dep:rockbox-hls",        "rockbox-hls/ffi",
     "dep:rockbox-cpal-sink",
+    "dep:rockbox-rocksky",
     "rockbox-server/fts5",
 ]
 
@@ -58,6 +59,7 @@ rockbox-upnp       = { path = "../upnp",       optional = true }
 rockbox-cmaf       = { path = "../cmaf",       optional = true }
 rockbox-hls        = { path = "../hls",        optional = true }
 rockbox-cpal-sink  = { path = "../cpal-sink",  optional = true }
+rockbox-rocksky    = { path = "../rocksky", optional = true }
 
 [build-dependencies]
 tonic-build = { version = "0.12", default-features = false, features = ["prost", "transport"] }

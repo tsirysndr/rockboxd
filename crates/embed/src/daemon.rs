@@ -274,6 +274,14 @@ pub unsafe extern "C" fn rb_daemon_start(
 
     spawn_library_scan(false);
 
+    // Rocksky remote-player bridge, so the embedded daemon shows up in the
+    // miniplayer device picker exactly like the standalone rockboxd does.
+    // register_rockbox is a no-op without a ~/.config/rockbox.org/token.
+    match rockbox_rocksky::register_rockbox() {
+        Ok(_) => tracing::info!("embed: rocksky remote-player bridge started"),
+        Err(e) => tracing::debug!("embed: rocksky remote player not started: {e}"),
+    }
+
     port as i32
 }
 

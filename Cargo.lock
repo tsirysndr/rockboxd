@@ -10816,6 +10816,7 @@ dependencies = [
  "rockbox-discovery",
  "rockbox-hls",
  "rockbox-library",
+ "rockbox-rocksky",
  "rockbox-server",
  "rockbox-settings",
  "rockbox-slim",
