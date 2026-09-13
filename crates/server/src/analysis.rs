@@ -37,10 +37,15 @@ async fn run(pool: Pool<Sqlite>) {
     loop {
         // One at a time, re-queried each round, so a scan that adds tracks
         // mid-pass extends the pass instead of being missed.
+        // Recently played first: the pass takes an hour on a big library,
+        // and the tracks the user is actually listening to are the ones whose
+        // waveform and key are being looked at right now.
         let next: Option<(String, String)> = sqlx::query_as(
-            "SELECT id, path FROM track \
-             WHERE (key IS NULL OR waveform IS NULL) \
-               AND is_remote = 0 AND path NOT LIKE 'http%' \
+            "SELECT t.id, t.path FROM track t \
+             LEFT JOIN track_stats s ON s.track_id = t.id \
+             WHERE (t.key IS NULL OR t.waveform IS NULL) \
+               AND t.is_remote = 0 AND t.path NOT LIKE 'http%' \
+             ORDER BY s.last_played DESC NULLS LAST, t.id \
              LIMIT 1",
         )
         .fetch_optional(&pool)

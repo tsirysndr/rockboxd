@@ -586,7 +586,8 @@ impl LibraryService for Library {
         &self,
         request: tonic::Request<GetTrackWaveformRequest>,
     ) -> Result<tonic::Response<GetTrackWaveformResponse>, tonic::Status> {
-        let id = request.into_inner().id;
+        let params = request.into_inner();
+        let id = params.id;
         let waveform: Option<Vec<u8>> =
             sqlx::query_scalar("SELECT waveform FROM track WHERE id = ?")
                 .bind(&id)
@@ -594,9 +595,60 @@ impl LibraryService for Library {
                 .await
                 .map_err(|e| tonic::Status::internal(e.to_string()))?
                 .flatten();
-        Ok(tonic::Response::new(GetTrackWaveformResponse {
-            waveform: waveform.unwrap_or_default(),
-        }))
+        if let Some(waveform) = waveform.filter(|w| !w.is_empty()) {
+            return Ok(tonic::Response::new(GetTrackWaveformResponse { waveform }));
+        }
+        if !params.analyze_if_missing {
+            return Ok(tonic::Response::new(GetTrackWaveformResponse {
+                waveform: Vec::new(),
+            }));
+        }
+
+        // Analyse on demand: the caller is looking at this track right now,
+        // and the background pass may be an hour away from it. Same write
+        // the pass performs, so the two never disagree about a track.
+        let Some(track) = repo::track::find(self.pool.clone(), &id)
+            .await
+            .map_err(|e| tonic::Status::internal(e.to_string()))?
+        else {
+            return Ok(tonic::Response::new(GetTrackWaveformResponse {
+                waveform: Vec::new(),
+            }));
+        };
+        let path = track.path.clone();
+        if track.is_remote || path.starts_with("http") {
+            return Ok(tonic::Response::new(GetTrackWaveformResponse {
+                waveform: Vec::new(),
+            }));
+        }
+        let extension = std::path::Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_string());
+        let analysed = tokio::task::spawn_blocking(move || {
+            let bytes = std::fs::read(&path)?;
+            rockbox_analysis::analyze(&bytes, extension.as_deref())
+        })
+        .await
+        .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        let (key, bpm, waveform) = match analysed {
+            Ok(a) => (a.key.unwrap_or_default(), a.bpm, a.waveform),
+            Err(e) => {
+                tracing::debug!("on-demand analysis failed for {id}: {e}");
+                (String::new(), None, Vec::new())
+            }
+        };
+        if let Err(e) = sqlx::query("UPDATE track SET key = ?, bpm = ?, waveform = ? WHERE id = ?")
+            .bind(&key)
+            .bind(bpm)
+            .bind(&waveform)
+            .bind(&id)
+            .execute(&self.pool)
+            .await
+        {
+            tracing::warn!("on-demand analysis write failed for {id}: {e}");
+        }
+        Ok(tonic::Response::new(GetTrackWaveformResponse { waveform }))
     }
 
     type StreamLibraryStream = Pin<

@@ -214,6 +214,10 @@ service LibraryService {
 
 message GetTrackWaveformRequest {
   string id = 1;
+  // Analyse the file right now when no waveform is stored yet, instead of
+  // waiting for the background pass to reach it. Costs a full decode
+  // (seconds), so callers should ask from a background task.
+  bool analyze_if_missing = 2;
 }
 
 message GetTrackWaveformResponse {

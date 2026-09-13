@@ -42,6 +42,7 @@ pub enum Cmd {
     PlayArtistShuffled(String),
     PlayAllAt(i32),
     PlayLikedAt(i32),
+    PlayLikedShuffled,
     QueueJump(i32),
     OpenAlbum(String),
     PlayAlbumShuffled(String),
@@ -479,18 +480,52 @@ fn resample_waveform(stored: &[u8], count: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Fetch a track's stored waveform and hand it to the seek bar. An empty
-/// response (not yet analysed) clears the bars, which draws the flat rail.
+/// Generation counter for waveform fetches: bumped per track change, so a
+/// retry loop for a superseded track stops instead of clobbering the bars.
+static WAVEFORM_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Fetch a track's stored waveform and hand it to the seek bar.
+///
+/// An empty response means the analysis pass has not reached the track yet —
+/// it prioritises recently played tracks, so the answer is usually "soon".
+/// Poll a few times rather than leaving the flat rail for the whole song;
+/// the loop aborts as soon as a newer track takes over.
 async fn fetch_waveform(channel: Channel, id: String, weak: Weak<AppWindow>) {
+    use std::sync::atomic::Ordering;
+    let generation = WAVEFORM_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     let mut lib = LibraryServiceClient::new(channel);
-    let waveform = match lib.get_track_waveform(GetTrackWaveformRequest { id }).await {
-        Ok(resp) => resp.into_inner().waveform,
-        Err(_) => Vec::new(),
-    };
-    let bars = resample_waveform(&waveform, WAVEFORM_BARS);
-    let _ = weak.upgrade_in_event_loop(move |app| {
-        app.set_waveform_bars(slint::ModelRc::new(slint::VecModel::from(bars)));
-    });
+    for attempt in 0..3 {
+        if WAVEFORM_GEN.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let waveform = match lib
+            .get_track_waveform(GetTrackWaveformRequest {
+                id: id.clone(),
+                // Generate on demand: the daemon analyses the file right then
+                // (a few seconds of decode) rather than leaving a flat rail
+                // until the background pass reaches it.
+                analyze_if_missing: true,
+            })
+            .await
+        {
+            Ok(resp) => resp.into_inner().waveform,
+            Err(_) => Vec::new(),
+        };
+        let done = !waveform.is_empty();
+        let bars = resample_waveform(&waveform, WAVEFORM_BARS);
+        if WAVEFORM_GEN.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let _ = weak.upgrade_in_event_loop(move |app| {
+            app.set_waveform_bars(slint::ModelRc::new(slint::VecModel::from(bars)));
+        });
+        if done || attempt == 2 {
+            return;
+        }
+        // A failure is transient (daemon busy, race with the background
+        // pass); one short retry, not a campaign.
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
 }
 
 fn filename_stem(path: &str) -> String {
@@ -1386,6 +1421,14 @@ async fn cmd_loop(
                         .play_liked_tracks(PlayLikedTracksRequest {
                             shuffle: None,
                             position: Some(pos),
+                        })
+                        .await?;
+                }
+                Cmd::PlayLikedShuffled => {
+                    playback
+                        .play_liked_tracks(PlayLikedTracksRequest {
+                            shuffle: Some(true),
+                            position: None,
                         })
                         .await?;
                 }

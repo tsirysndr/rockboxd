@@ -11190,6 +11190,7 @@ dependencies = [
  "owo-colors 5.0.0",
  "prost",
  "reqwest",
+ "rockbox-analysis",
  "rockbox-bluetooth",
  "rockbox-fts5",
  "rockbox-graphql",
