@@ -1151,6 +1151,7 @@ extern "C" {
         low_left: *mut c_uint,
         low_right: *mut c_uint,
     );
+    fn pcm_meter_read_bands(bands: *mut c_uint);
     fn pcm_fifo_set_path(path: *const c_char);
     fn pcm_airplay_set_host(host: *const c_char, port: c_ushort);
     fn pcm_airplay_add_receiver(host: *const c_char, port: c_ushort);

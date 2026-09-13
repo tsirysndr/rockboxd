@@ -553,7 +553,22 @@ pub struct Levels {
     /// tends to sit near the top.
     pub low_left: f32,
     pub low_right: f32,
+    /// A coarse spectrum: RMS per band, low to high, over the same buffer.
+    /// Bands come from a ladder of one-pole low-passes at log-spaced cutoffs
+    /// (the difference of two neighbours is a band-pass) — trivial per-sample
+    /// arithmetic, safe inside the audio callback. What a spectrum visualiser
+    /// draws; the two scalar pairs above stay for plain meters.
+    pub bands: [f32; SPECTRUM_BANDS],
 }
+
+/// How many spectrum bands [`Levels::bands`] carries.
+pub const SPECTRUM_BANDS: usize = 16;
+
+/// Ladder cutoffs, Hz — log-spaced ~28 Hz → 16 kHz, one per band edge.
+const BAND_CUTOFFS: [f32; SPECTRUM_BANDS] = [
+    40.0, 60.0, 90.0, 135.0, 200.0, 300.0, 450.0, 675.0, 1_000.0, 1_500.0, 2_250.0, 3_400.0,
+    5_000.0, 7_500.0, 11_000.0, 16_000.0,
+];
 
 /// A snapshot of the player's status.
 #[derive(Debug, Clone)]
@@ -827,6 +842,8 @@ struct Shared {
     level_r: AtomicU32,
     level_low_l: AtomicU32,
     level_low_r: AtomicU32,
+    /// One atomic per spectrum band; written by the callback, read anywhere.
+    level_bands: [AtomicU32; SPECTRUM_BANDS],
     meta: Mutex<Option<Metadata>>,
     /// Live mirror of the DSP-chain settings, updated by the engine as it
     /// applies each `Set*` command, so [`Player::dsp_settings`] can read the
@@ -873,6 +890,9 @@ impl Shared {
             right: f32::from_bits(self.level_r.load(Ordering::Relaxed)),
             low_left: f32::from_bits(self.level_low_l.load(Ordering::Relaxed)),
             low_right: f32::from_bits(self.level_low_r.load(Ordering::Relaxed)),
+            bands: std::array::from_fn(|i| {
+                f32::from_bits(self.level_bands[i].load(Ordering::Relaxed))
+            }),
         }
     }
 
@@ -886,6 +906,9 @@ impl Shared {
             .store(levels.low_left.to_bits(), Ordering::Relaxed);
         self.level_low_r
             .store(levels.low_right.to_bits(), Ordering::Relaxed);
+        for (slot, band) in self.level_bands.iter().zip(levels.bands) {
+            slot.store(band.to_bits(), Ordering::Relaxed);
+        }
     }
 }
 
@@ -1437,6 +1460,7 @@ fn make_shared(config: &PlayerConfig, rate: u32) -> Arc<Shared> {
         ring: Mutex::new(VecDeque::new()),
         level_l: AtomicU32::new(0),
         level_r: AtomicU32::new(0),
+        level_bands: std::array::from_fn(|_| AtomicU32::new(0)),
         level_low_l: AtomicU32::new(0),
         level_low_r: AtomicU32::new(0),
         meta: Mutex::new(None),
@@ -1512,6 +1536,7 @@ fn spawn_stream_writer(
             let mut cur_amp = 0.0f32;
             let mut meter = LevelMeter::default();
             let alpha = LevelMeter::alpha(rate);
+            let band_alphas = LevelMeter::band_alphas(rate);
             let mut next = Instant::now() + frame_dur;
 
             while !stop_thread.load(Ordering::Relaxed) {
@@ -1545,8 +1570,10 @@ fn spawn_stream_writer(
                         // meter shows is what leaves the output.
                         meter.push(
                             alpha,
+                            &band_alphas,
                             (lv as f32 / 32768.0).abs(),
                             (rv as f32 / 32768.0).abs(),
+                            (lv as f32 + rv as f32) / (2.0 * 32768.0),
                         );
                     }
                     drop(ring);
@@ -1600,25 +1627,63 @@ struct LevelMeter {
     sum_r: f32,
     sum_low_l: f32,
     sum_low_r: f32,
+    /// The spectrum ladder: one low-pass per cutoff over the mono mix. The
+    /// difference of two neighbouring stages is a band-pass, so `ladder[k] -
+    /// ladder[k+1]` is band k's signal without any real filter design.
+    ladder: [f32; SPECTRUM_BANDS],
+    sum_bands: [f32; SPECTRUM_BANDS],
     frames: u32,
 }
 
 impl LevelMeter {
-    /// `alpha` for a one-pole low-pass at roughly 200 Hz, for a given rate.
-    fn alpha(rate: u32) -> f32 {
-        let cutoff = 200.0;
+    /// `alpha` for a one-pole low-pass at `cutoff` Hz, for a given rate.
+    fn alpha_at(rate: u32, cutoff: f32) -> f32 {
         let rc = 1.0 / (std::f32::consts::TAU * cutoff);
         let dt = 1.0 / rate.max(1) as f32;
         dt / (rc + dt)
     }
 
-    fn push(&mut self, alpha: f32, left: f32, right: f32) {
+    /// `alpha` for the meters' 200 Hz bass band.
+    fn alpha(rate: u32) -> f32 {
+        Self::alpha_at(rate, 200.0)
+    }
+
+    /// One alpha per ladder stage, precomputed outside the callback.
+    fn band_alphas(rate: u32) -> [f32; SPECTRUM_BANDS] {
+        std::array::from_fn(|i| Self::alpha_at(rate, BAND_CUTOFFS[i]))
+    }
+
+    /// `left` / `right` are the rectified per-channel magnitudes the meters
+    /// have always eaten; `signed_mono` is the un-rectified mix, which is what
+    /// the band ladder must filter — a rectified signal has its spectrum
+    /// folded, and every band would just see the envelope.
+    fn push(
+        &mut self,
+        alpha: f32,
+        band_alphas: &[f32; SPECTRUM_BANDS],
+        left: f32,
+        right: f32,
+        signed_mono: f32,
+    ) {
         self.lp_l += alpha * (left - self.lp_l);
         self.lp_r += alpha * (right - self.lp_r);
         self.sum_l += left * left;
         self.sum_r += right * right;
         self.sum_low_l += self.lp_l * self.lp_l;
         self.sum_low_r += self.lp_r * self.lp_r;
+
+        let mono = signed_mono;
+        for k in 0..SPECTRUM_BANDS {
+            self.ladder[k] += band_alphas[k] * (mono - self.ladder[k]);
+        }
+        for k in 0..SPECTRUM_BANDS {
+            let band = if k + 1 < SPECTRUM_BANDS {
+                self.ladder[k + 1] - self.ladder[k]
+            } else {
+                mono - self.ladder[k]
+            };
+            self.sum_bands[k] += band * band;
+        }
         self.frames += 1;
     }
 
@@ -1634,11 +1699,15 @@ impl LevelMeter {
             // hovering near the floor.
             low_left: (rms(self.sum_low_l) * 3.0).clamp(0.0, 1.0),
             low_right: (rms(self.sum_low_r) * 3.0).clamp(0.0, 1.0),
+            // Narrow bands carry little of the total energy; the same
+            // reach-the-top scaling as the bass band, a little stronger.
+            bands: std::array::from_fn(|k| (rms(self.sum_bands[k]) * 4.0).clamp(0.0, 1.0)),
         };
         self.sum_l = 0.0;
         self.sum_r = 0.0;
         self.sum_low_l = 0.0;
         self.sum_low_r = 0.0;
+        self.sum_bands = [0.0; SPECTRUM_BANDS];
         self.frames = 0;
         levels
     }
@@ -1659,6 +1728,7 @@ fn build_stream(
     let mut cur_amp = 0.0f32;
     let mut meter = LevelMeter::default();
     let alpha = LevelMeter::alpha(rate);
+    let band_alphas = LevelMeter::band_alphas(rate);
 
     let err_fn = |e| eprintln!("rockbox-playback: output stream error: {e}");
     let stream = device
@@ -1701,8 +1771,10 @@ fn build_stream(
                     // meter shows is what leaves the device.
                     meter.push(
                         alpha,
+                        &band_alphas,
                         frame[0].abs(),
                         frame.get(1).copied().unwrap_or(0.0).abs(),
+                        (frame[0] + frame.get(1).copied().unwrap_or(frame[0])) * 0.5,
                     );
                 }
                 shared.set_levels(meter.take());
@@ -3584,9 +3656,46 @@ mod level_meter_tests {
     use super::*;
 
     fn drive(meter: &mut LevelMeter, alpha: f32, sample: f32, frames: usize) {
+        let band_alphas = LevelMeter::band_alphas(44_100);
         for _ in 0..frames {
-            meter.push(alpha, sample, sample);
+            meter.push(alpha, &band_alphas, sample, sample, sample);
         }
+    }
+
+    /// One second of a pure tone; returns the band index holding the peak.
+    fn dominant_band(hz: f32) -> usize {
+        let rate = 44_100u32;
+        let alpha = LevelMeter::alpha(rate);
+        let band_alphas = LevelMeter::band_alphas(rate);
+        let mut meter = LevelMeter::default();
+        for i in 0..rate {
+            let t = i as f32 / rate as f32;
+            let sample = (std::f32::consts::TAU * hz * t).sin() * 0.8;
+            meter.push(alpha, &band_alphas, sample.abs(), sample.abs(), sample);
+        }
+        let levels = meter.take();
+        levels
+            .bands
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(i, _)| i)
+            .unwrap()
+    }
+
+    /// The ladder is a spectrum, not a shape: a bass tone peaks in a low band,
+    /// a treble tone in a high one, and they must not land anywhere near each
+    /// other. Exact bins are not asserted — one-pole skirts are wide — only
+    /// the ordering that makes a visualiser honest.
+    #[test]
+    fn bands_separate_bass_from_treble() {
+        let low = dominant_band(60.0);
+        let mid = dominant_band(1_000.0);
+        let high = dominant_band(8_000.0);
+        assert!(low < mid, "60 Hz in band {low}, 1 kHz in band {mid}");
+        assert!(mid < high, "1 kHz in band {mid}, 8 kHz in band {high}");
+        assert!(low <= 2, "60 Hz should land at the bottom, got {low}");
+        assert!(high >= 10, "8 kHz should land near the top, got {high}");
     }
 
     /// Silence reads as silence, not as the last thing that played.
@@ -3619,9 +3728,10 @@ mod level_meter_tests {
     fn the_low_band_ignores_high_frequencies() {
         let mut meter = LevelMeter::default();
         let alpha = LevelMeter::alpha(44_100);
+        let band_alphas = LevelMeter::band_alphas(44_100);
         for i in 0..44_100 {
             let sample = if i % 2 == 0 { 0.9 } else { -0.9 };
-            meter.push(alpha, sample, sample);
+            meter.push(alpha, &band_alphas, sample, sample, sample);
         }
 
         let levels = meter.take();

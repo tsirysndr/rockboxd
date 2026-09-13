@@ -1618,6 +1618,16 @@ pub struct FilterArtistsResponse {
     pub artists: ::prost::alloc::vec::Vec<Artist>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetTrackWaveformRequest {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetTrackWaveformResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub waveform: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FilterTracksRequest {
     #[prost(string, tag = "1")]
     pub rules_json: ::prost::alloc::string::String,
@@ -2195,6 +2205,27 @@ pub mod library_service_client {
             ));
             self.inner.unary(req, path, codec).await
         }
+        /// The track's stored waveform peaks (400 bytes, one peak per bin), empty
+        /// until the analysis pass has reached it.
+        pub async fn get_track_waveform(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetTrackWaveformRequest>,
+        ) -> std::result::Result<tonic::Response<super::GetTrackWaveformResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.LibraryService/GetTrackWaveform",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "GetTrackWaveform",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -2310,6 +2341,12 @@ pub mod library_service_server {
             &self,
             request: tonic::Request<super::AnalyticsPageRequest>,
         ) -> std::result::Result<tonic::Response<super::PlayHistoryResponse>, tonic::Status>;
+        /// The track's stored waveform peaks (400 bytes, one peak per bin), empty
+        /// until the analysis pass has reached it.
+        async fn get_track_waveform(
+            &self,
+            request: tonic::Request<super::GetTrackWaveformRequest>,
+        ) -> std::result::Result<tonic::Response<super::GetTrackWaveformResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct LibraryServiceServer<T> {
@@ -3298,6 +3335,48 @@ pub mod library_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = RecentlyPlayedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/GetTrackWaveform" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetTrackWaveformSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService>
+                        tonic::server::UnaryService<super::GetTrackWaveformRequest>
+                        for GetTrackWaveformSvc<T>
+                    {
+                        type Response = super::GetTrackWaveformResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetTrackWaveformRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::get_track_waveform(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetTrackWaveformSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -4397,7 +4476,7 @@ pub struct StreamPlaylistRequest {}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StreamLevelsRequest {}
 /// Output levels for a meter, measured on the PCM leaving the device.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Levels {
     /// 0..1 RMS over one output buffer.
     #[prost(float, tag = "1")]
@@ -4410,6 +4489,9 @@ pub struct Levels {
     pub low_left: f32,
     #[prost(float, tag = "4")]
     pub low_right: f32,
+    /// Coarse spectrum, low band to high — what a bar visualiser draws.
+    #[prost(float, repeated, tag = "5")]
+    pub bands: ::prost::alloc::vec::Vec<f32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlaylistResponse {

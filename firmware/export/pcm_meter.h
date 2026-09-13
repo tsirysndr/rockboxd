@@ -71,4 +71,16 @@ void pcm_meter_reset(void);
 void pcm_meter_read(uint32_t *left, uint32_t *right,
                     uint32_t *low_left, uint32_t *low_right);
 
+/** How many spectrum bands pcm_meter_read_bands() fills. */
+#define PCM_METER_BANDS 16
+
+/**
+ * Read the per-band levels last published: RMS per band, low to high, at the
+ * same scale as pcm_meter_read(). The bands come from a ladder of one-pole
+ * low-passes at log-spaced cutoffs over the mono mix — the difference of two
+ * neighbouring stages is a band-pass — which is what a spectrum visualiser
+ * draws. Same lock-free single-word contract as pcm_meter_read().
+ */
+void pcm_meter_read_bands(uint32_t *bands);
+
 #endif /* PCM_METER_H */

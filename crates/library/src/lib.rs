@@ -145,6 +145,16 @@ pub async fn create_connection_pool() -> Result<Pool<Sqlite>, Error> {
         Err(_) => warn!("key/bpm columns already exist"),
     }
 
+    match pool
+        .execute(include_str!(
+            "../migrations/20260913000002_add_waveform.sql"
+        ))
+        .await
+    {
+        Ok(_) => {}
+        Err(_) => warn!("waveform column already exists"),
+    }
+
     // dedupe_genres modifies schema (DROP TABLE + RENAME) so it must run
     // synchronously before we return the pool. The skip guard makes it a
     // no-op O(1) check on every subsequent startup.
@@ -192,4 +202,126 @@ pub async fn create_connection_pool() -> Result<Pool<Sqlite>, Error> {
     });
 
     Ok(pool)
+}
+
+#[cfg(test)]
+mod analytics_tests {
+    use sqlx::{Executor, Row, SqlitePool};
+
+    /// The real schema + the analytics migration, on a fresh in-memory DB.
+    async fn db() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        pool.execute(include_str!(
+            "../migrations/20240923093823_create_tables.sql"
+        ))
+        .await
+        .unwrap();
+        pool.execute(include_str!(
+            "../migrations/20260425000000_add_playlist_tables.sql"
+        ))
+        .await
+        .unwrap();
+        pool.execute(include_str!(
+            "../migrations/20260913000000_add_play_history.sql"
+        ))
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn add_track(pool: &SqlitePool, id: &str, title: &str) {
+        sqlx::query(
+            "INSERT INTO track (id, path, title, artist, album, album_artist, bitrate, \
+             composer, disc_number, filesize, frequency, length, md5, artist_id, album_id, \
+             created_at, updated_at) \
+             VALUES (?, ?, ?, 'Artist', 'Album', 'Artist', 320, '', 1, 1000, 44100, 200000, \
+             ?, 'ar1', 'al1', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')",
+        )
+        .bind(id)
+        .bind(format!("/music/{id}.mp3"))
+        .bind(title)
+        .bind(format!("md5-{id}"))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn stat(pool: &SqlitePool, id: &str, plays: i64, skips: i64) {
+        sqlx::query(
+            "INSERT INTO track_stats (track_id, play_count, skip_count, last_played, last_skipped, updated_at) \
+             VALUES (?, ?, ?, 100, 100, 100)",
+        )
+        .bind(id)
+        .bind(plays)
+        .bind(skips)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// The views are the analytics contract every API reads; this pins their
+    /// semantics against the real migration SQL rather than a re-statement.
+    #[tokio::test]
+    async fn the_views_agree_on_who_was_played() {
+        let pool = db().await;
+        add_track(&pool, "a", "Played").await;
+        add_track(&pool, "b", "Skipped only").await;
+        add_track(&pool, "c", "Untouched").await;
+        stat(&pool, "a", 5, 0).await;
+        stat(&pool, "b", 0, 3).await;
+
+        let most: Vec<String> = sqlx::query("SELECT track_id FROM v_most_played")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        assert_eq!(most, vec!["a"], "only the played track charts");
+
+        let skipped: Vec<String> = sqlx::query("SELECT track_id FROM v_most_skipped")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        assert_eq!(skipped, vec!["b"]);
+
+        // A track skipped ten times has still never been *listened* to: the
+        // never-played view must include both the skipped and the untouched.
+        let mut never: Vec<String> = sqlx::query("SELECT track_id FROM v_never_played")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        never.sort();
+        assert_eq!(never, vec!["b", "c"]);
+    }
+
+    /// One row per listen: history is a log, not a counter.
+    #[tokio::test]
+    async fn recently_played_lists_every_listen() {
+        let pool = db().await;
+        add_track(&pool, "a", "On repeat").await;
+        for played_at in [100, 200, 300] {
+            sqlx::query(
+                "INSERT INTO play_history (track_id, played_at, ms_played, length_ms, skipped) \
+                 VALUES ('a', ?, 180000, 200000, 0)",
+            )
+            .bind(played_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let rows = sqlx::query("SELECT played_at FROM v_recently_played")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let times: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
+        assert_eq!(times, vec![300, 200, 100], "newest first, one per listen");
+    }
 }

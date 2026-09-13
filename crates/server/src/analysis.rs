@@ -64,21 +64,22 @@ async fn run(pool: Pool<Sqlite>) {
         })
         .await;
 
-        let (key, bpm) = match analysed {
-            Ok(Ok(a)) => (a.key.unwrap_or_default(), a.bpm),
+        let (key, bpm, waveform) = match analysed {
+            Ok(Ok(a)) => (a.key.unwrap_or_default(), a.bpm, Some(a.waveform)),
             Ok(Err(e)) => {
                 tracing::debug!("analysis failed for {id}: {e}");
-                (String::new(), None)
+                (String::new(), None, None)
             }
             Err(e) => {
                 tracing::warn!("analysis task panicked for {id}: {e}");
-                (String::new(), None)
+                (String::new(), None, None)
             }
         };
 
-        if let Err(e) = sqlx::query("UPDATE track SET key = ?, bpm = ? WHERE id = ?")
+        if let Err(e) = sqlx::query("UPDATE track SET key = ?, bpm = ?, waveform = ? WHERE id = ?")
             .bind(&key)
             .bind(bpm)
+            .bind(waveform)
             .bind(&id)
             .execute(&pool)
             .await

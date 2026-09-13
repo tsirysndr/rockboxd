@@ -207,6 +207,17 @@ service LibraryService {
   rpc NeverPlayed(AnalyticsPageRequest) returns (TrackStatListResponse);
   rpc RecentlyAdded(AnalyticsPageRequest) returns (TrackStatListResponse);
   rpc RecentlyPlayed(AnalyticsPageRequest) returns (PlayHistoryResponse);
+  // The track's stored waveform peaks (400 bytes, one peak per bin), empty
+  // until the analysis pass has reached it.
+  rpc GetTrackWaveform(GetTrackWaveformRequest) returns (GetTrackWaveformResponse);
+}
+
+message GetTrackWaveformRequest {
+  string id = 1;
+}
+
+message GetTrackWaveformResponse {
+  bytes waveform = 1;
 }
 
 message FilterTracksRequest {

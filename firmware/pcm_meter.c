@@ -43,10 +43,20 @@ static volatile uint32_t meter_left;
 static volatile uint32_t meter_right;
 static volatile uint32_t meter_low_left;
 static volatile uint32_t meter_low_right;
+static volatile uint32_t meter_bands[PCM_METER_BANDS];
 
 /* Low-pass state, in Q16. Private to the audio path. */
 static int32_t lp_left;
 static int32_t lp_right;
+
+/* The spectrum ladder: one low-pass per cutoff over the mono mix, in Q16.
+ * The difference of two neighbouring stages is a band-pass, so stage k+1
+ * minus stage k is band k without any real filter design. */
+static const uint16_t band_cutoff_hz[PCM_METER_BANDS] = {
+    40, 60, 90, 135, 200, 300, 450, 675, 1000, 1500,
+    2250, 3400, 5000, 7500, 11000, 16000,
+};
+static int32_t band_lp[PCM_METER_BANDS];
 
 /** Integer square root, so the RMS costs no libm on FPU-less targets. */
 static uint32_t meter_isqrt(uint64_t value)
@@ -96,8 +106,17 @@ void pcm_meter_feed(const void *addr, size_t size)
     if (alpha > 65536)
         alpha = 65536;
 
+    uint32_t band_alpha[PCM_METER_BANDS];
+    for (int k = 0; k < PCM_METER_BANDS; k++)
+    {
+        uint32_t a = (uint32_t)((2 * 31416ULL * band_cutoff_hz[k] * 65536ULL) /
+                                (10000ULL * sampr * METER_DECIMATE));
+        band_alpha[k] = a > 65536 ? 65536 : a;
+    }
+
     uint64_t sum_left = 0, sum_right = 0;
     uint64_t low_sum_left = 0, low_sum_right = 0;
+    uint64_t band_sum[PCM_METER_BANDS] = {0};
     size_t counted = 0;
 
     for (size_t i = 0; i < frames; i += METER_DECIMATE)
@@ -119,6 +138,23 @@ void pcm_meter_feed(const void *addr, size_t size)
         low_sum_left += (uint64_t)(low_left * low_left);
         low_sum_right += (uint64_t)(low_right * low_right);
 
+        /* Bands are mono — a spectrum reads as one surface — and filter the
+         * signed mix: a rectified signal has its spectrum folded, and every
+         * band would just see the envelope. */
+        int64_t mono = (left + right) / 2;
+        for (int k = 0; k < PCM_METER_BANDS; k++)
+        {
+            band_lp[k] += (int32_t)(((mono * 65536 - band_lp[k]) *
+                                     band_alpha[k]) / 65536);
+        }
+        for (int k = 0; k < PCM_METER_BANDS; k++)
+        {
+            int64_t band = (k + 1 < PCM_METER_BANDS)
+                ? (band_lp[k + 1] - band_lp[k]) / 65536
+                : mono - band_lp[k] / 65536;
+            band_sum[k] += (uint64_t)(band * band);
+        }
+
         counted++;
     }
 
@@ -129,6 +165,8 @@ void pcm_meter_feed(const void *addr, size_t size)
     meter_right = meter_isqrt(sum_right / counted);
     meter_low_left = meter_isqrt(low_sum_left / counted);
     meter_low_right = meter_isqrt(low_sum_right / counted);
+    for (int k = 0; k < PCM_METER_BANDS; k++)
+        meter_bands[k] = meter_isqrt(band_sum[k] / counted);
 }
 
 void pcm_meter_reset(void)
@@ -136,6 +174,11 @@ void pcm_meter_reset(void)
     meter_left = meter_right = 0;
     meter_low_left = meter_low_right = 0;
     lp_left = lp_right = 0;
+    for (int k = 0; k < PCM_METER_BANDS; k++)
+    {
+        meter_bands[k] = 0;
+        band_lp[k] = 0;
+    }
 }
 
 void pcm_meter_read(uint32_t *left, uint32_t *right,
@@ -149,4 +192,12 @@ void pcm_meter_read(uint32_t *left, uint32_t *right,
         *low_left = meter_low_left;
     if (low_right)
         *low_right = meter_low_right;
+}
+
+void pcm_meter_read_bands(uint32_t *bands)
+{
+    if (!bands)
+        return;
+    for (int k = 0; k < PCM_METER_BANDS; k++)
+        bands[k] = meter_bands[k];
 }

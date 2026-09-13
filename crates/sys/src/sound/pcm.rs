@@ -78,7 +78,12 @@ pub struct Levels {
     /// with the bass rather than with whatever is loudest.
     pub low_left: f32,
     pub low_right: f32,
+    /// Coarse spectrum, low band to high — `PCM_METER_BANDS` in the firmware.
+    pub bands: [f32; METER_BANDS],
 }
+
+/// Matches `PCM_METER_BANDS` in `firmware/export/pcm_meter.h`.
+pub const METER_BANDS: usize = 16;
 
 /// Read the levels the audio path last published. Zero while stopped, so a
 /// meter reads as stopped rather than stuck at its last value.
@@ -91,11 +96,19 @@ pub fn levels() -> Levels {
         crate::pcm_meter_read(&mut left, &mut right, &mut low_left, &mut low_right);
     }
 
+    let mut bands = [0u32; METER_BANDS];
+    unsafe {
+        crate::pcm_meter_read_bands(bands.as_mut_ptr());
+    }
+
     Levels {
         left: (left as f32 / SCALE).min(1.0),
         right: (right as f32 / SCALE).min(1.0),
         low_left: (low_left as f32 / SCALE).min(1.0),
         low_right: (low_right as f32 / SCALE).min(1.0),
+        // Narrow bands carry little of the total energy; scaled the same way
+        // the bass band is, a little stronger, to reach the top of a bar.
+        bands: bands.map(|b| (b as f32 * 4.0 / SCALE).min(1.0)),
     }
 }
 

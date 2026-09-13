@@ -14,11 +14,12 @@ use crate::{
         GetAlbumsRequest, GetAlbumsResponse, GetArtistRequest, GetArtistResponse,
         GetArtistsRequest, GetArtistsResponse, GetLikedAlbumsRequest, GetLikedAlbumsResponse,
         GetLikedTracksRequest, GetLikedTracksResponse, GetTrackRequest, GetTrackResponse,
-        GetTracksRequest, GetTracksResponse, LikeAlbumRequest, LikeAlbumResponse, LikeTrackRequest,
-        LikeTrackResponse, PlayHistoryEntry, PlayHistoryResponse, ScanLibraryRequest,
-        ScanLibraryResponse, SearchPlaylist, SearchRequest, SearchResponse, StreamLibraryRequest,
-        StreamLibraryResponse, TrackStat, TrackStatListResponse, UnlikeAlbumRequest,
-        UnlikeAlbumResponse, UnlikeTrackRequest, UnlikeTrackResponse,
+        GetTrackWaveformRequest, GetTrackWaveformResponse, GetTracksRequest, GetTracksResponse,
+        LikeAlbumRequest, LikeAlbumResponse, LikeTrackRequest, LikeTrackResponse, PlayHistoryEntry,
+        PlayHistoryResponse, ScanLibraryRequest, ScanLibraryResponse, SearchPlaylist,
+        SearchRequest, SearchResponse, StreamLibraryRequest, StreamLibraryResponse, TrackStat,
+        TrackStatListResponse, UnlikeAlbumRequest, UnlikeAlbumResponse, UnlikeTrackRequest,
+        UnlikeTrackResponse,
     },
     rockbox_url,
 };
@@ -578,6 +579,23 @@ impl LibraryService for Library {
                     skipped: r.get::<i64, _>(7) != 0,
                 })
                 .collect(),
+        }))
+    }
+
+    async fn get_track_waveform(
+        &self,
+        request: tonic::Request<GetTrackWaveformRequest>,
+    ) -> Result<tonic::Response<GetTrackWaveformResponse>, tonic::Status> {
+        let id = request.into_inner().id;
+        let waveform: Option<Vec<u8>> =
+            sqlx::query_scalar("SELECT waveform FROM track WHERE id = ?")
+                .bind(&id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| tonic::Status::internal(e.to_string()))?
+                .flatten();
+        Ok(tonic::Response::new(GetTrackWaveformResponse {
+            waveform: waveform.unwrap_or_default(),
         }))
     }
 
