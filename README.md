@@ -617,7 +617,7 @@ npm install -g @rockboxd/cli
 Installs the `rockbox` CLI and the `rockboxd` daemon. The postinstall step
 downloads the latest prebuilt binaries from GitHub releases (macOS
 arm64/x86_64, Linux x86_64/aarch64, FreeBSD x86_64). Pin a release with
-`ROCKBOX_VERSION=2026.09.10 npm install -g @rockboxd/cli`.
+`ROCKBOX_VERSION=2026.09.13 npm install -g @rockboxd/cli`.
 
 ### Universal (curl installer)
 

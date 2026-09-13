@@ -21,7 +21,7 @@ cd "$SCRIPT_DIR"
 
 APP_NAME="Rockbox"
 BUNDLE_ID="org.rockbox.desktop"
-# Release tags are dates (2026.09.10); CFBundleVersion wants a dotted number,
+# Release tags are dates (2026.09.13); CFBundleVersion wants a dotted number,
 # which that already is. Falls back to the crate version for local builds.
 VERSION="${VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)}"
 VERSION="${VERSION#v}"
