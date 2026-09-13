@@ -1116,6 +1116,12 @@ fn main() -> Result<(), slint::PlatformError> {
     }
     {
         let tx = tx.clone();
+        app.on_play_liked_shuffled(move || {
+            let _ = tx.send(rpc::Cmd::PlayLikedShuffled);
+        });
+    }
+    {
+        let tx = tx.clone();
         app.on_play_queue_at(move |i| {
             let _ = tx.send(rpc::Cmd::QueueJump(i));
         });

@@ -196,6 +196,7 @@ export component AppWindow inherits Window {
     callback open-artist(string);
     callback play-track-at(int);
     callback play-liked-at(int);
+    callback play-liked-shuffled();
     callback track-like(string);
     callback track-insert(string, int); // id, rockbox position (-2 next, -3 last)
     callback album-insert(string, int);
@@ -681,6 +682,32 @@ export component AppWindow inherits Window {
                 if root.current-tab == 3 : VerticalLayout {
                     x: 24px;
                     width: parent.width - 48px;
+                    // Play-all header: mirror of the artist/album detail
+                    // transport so the collection is one click to start.
+                    if root.liked.length > 0 : HorizontalLayout {
+                        padding-bottom: 12px;
+                        spacing: 10px;
+                        Text {
+                            text: root.liked.length == 1 ? "1 track"
+                                : root.liked.length + " tracks";
+                            color: Theme.text-muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        IconButton {
+                            icon: Icons.shuffle;
+                            icon-size: 18px;
+                            width: 44px;
+                            height: 44px;
+                            y: 0;
+                            clicked => { root.play-liked-shuffled(); }
+                        }
+                        PlayPauseButton {
+                            playing: false;
+                            clicked => { root.play-liked-at(0); }
+                        }
+                    }
                     TrackListHeader {}
                     ListView {
                         for t[i] in root.liked : TrackRow {
