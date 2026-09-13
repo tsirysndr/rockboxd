@@ -62,6 +62,12 @@ pub enum Cmd {
         name: String,
         description: String,
     },
+    /// Create a playlist named from the picker's query and put the pending
+    /// tracks straight into it — the picker's "Create new playlist" row.
+    PlaylistCreateAndAdd {
+        name: String,
+        track_ids: Vec<String>,
+    },
     PlaylistUpdate {
         id: String,
         name: String,
@@ -98,6 +104,35 @@ pub enum Cmd {
         grpc_port: u16,
     },
     DiscoverServers,
+    /// Refresh the Most Played tab from the daemon's analytics views.
+    LoadMostPlayed,
+    /// Refresh the Statistics tab: counters plus the per-view lists.
+    LoadStats,
+}
+
+/// One row of an analytics view, as the UI shows it.
+#[derive(Clone, Debug)]
+pub struct StatRowData {
+    pub track_id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    /// play count / skip count; 0 for date-based views.
+    pub count: i64,
+    /// Unix seconds (last played / last skipped), when the view carries one.
+    pub at: Option<i64>,
+}
+
+/// Everything the Statistics tab shows, fetched in one command.
+#[derive(Clone, Debug, Default)]
+pub struct StatsData {
+    pub total_tracks: i64,
+    pub total_plays: i64,
+    pub total_skips: i64,
+    pub never_played_count: i64,
+    pub most_skipped: Vec<StatRowData>,
+    pub recently_played: Vec<StatRowData>,
+    pub never_played: Vec<StatRowData>,
 }
 
 // ── Plain data handed to the UI thread ──────────────────────────────────────
@@ -349,6 +384,7 @@ async fn session(
         .await?
         .into_inner();
     let mut last_art: Option<String> = None;
+    let mut last_waveform_track = String::new();
     let mut sw = switch_rx();
     loop {
         let msg = tokio::select! {
@@ -356,6 +392,11 @@ async fn session(
             _ = sw.recv() => break,
         };
         let Some(msg) = msg else { break };
+        // The waveform is a property of the track, fetched once per change.
+        if !msg.id.is_empty() && msg.id != last_waveform_track {
+            last_waveform_track = msg.id.clone();
+            tokio::spawn(fetch_waveform(channel.clone(), msg.id.clone(), weak.clone()));
+        }
         let np = NowPlaying {
             id: msg.id.clone(),
             title: if msg.title.is_empty() {
@@ -385,6 +426,71 @@ async fn session(
         push_now_playing(weak, np);
     }
     Ok(())
+}
+
+/// How many bars the seek bar draws — a rectangle per bar in the scene graph,
+/// so far fewer than the 400 the daemon stores.
+const WAVEFORM_BARS: usize = 120;
+
+/// Spread the measured bands across the drawn bars: linear interpolation
+/// between band centres, with a light 3-tap smooth so neighbouring bars do
+/// not step.
+fn spread_bands(bands: &[f32], count: usize) -> Vec<f32> {
+    if bands.is_empty() || count == 0 {
+        return vec![0.0; count];
+    }
+    let raw: Vec<f32> = (0..count)
+        .map(|i| {
+            let pos = if count <= 1 {
+                0.0
+            } else {
+                i as f32 / (count - 1) as f32 * (bands.len() - 1) as f32
+            };
+            let lo = pos.floor() as usize;
+            let hi = (lo + 1).min(bands.len() - 1);
+            let t = pos - lo as f32;
+            bands[lo] * (1.0 - t) + bands[hi] * t
+        })
+        .collect();
+    (0..count)
+        .map(|i| {
+            let prev = raw[i.saturating_sub(1)];
+            let next = raw[(i + 1).min(count - 1)];
+            (prev * 0.25 + raw[i] * 0.5 + next * 0.25).clamp(0.0, 1.0)
+        })
+        .collect()
+}
+
+/// The stored waveform, resampled to the number of bars actually drawn.
+///
+/// Peak per output bar rather than an average: averaging smooths away the
+/// transients that make a waveform recognisable as a particular song.
+fn resample_waveform(stored: &[u8], count: usize) -> Vec<f32> {
+    if stored.is_empty() || count == 0 {
+        return Vec::new();
+    }
+    (0..count)
+        .map(|i| {
+            let start = i * stored.len() / count;
+            let end = (((i + 1) * stored.len() / count).max(start + 1)).min(stored.len());
+            let peak = stored[start..end].iter().copied().max().unwrap_or(0);
+            f32::from(peak) / 255.0
+        })
+        .collect()
+}
+
+/// Fetch a track's stored waveform and hand it to the seek bar. An empty
+/// response (not yet analysed) clears the bars, which draws the flat rail.
+async fn fetch_waveform(channel: Channel, id: String, weak: Weak<AppWindow>) {
+    let mut lib = LibraryServiceClient::new(channel);
+    let waveform = match lib.get_track_waveform(GetTrackWaveformRequest { id }).await {
+        Ok(resp) => resp.into_inner().waveform,
+        Err(_) => Vec::new(),
+    };
+    let bars = resample_waveform(&waveform, WAVEFORM_BARS);
+    let _ = weak.upgrade_in_event_loop(move |app| {
+        app.set_waveform_bars(slint::ModelRc::new(slint::VecModel::from(bars)));
+    });
 }
 
 fn filename_stem(path: &str) -> String {
@@ -624,10 +730,19 @@ async fn levels_loop(weak: Weak<AppWindow>) {
     // of a verse.
     const DECAY: f32 = 0.977;
 
+    /// How many bars the full player's spectrum draws.
+    const EQ_BARS: usize = 96;
+
     loop {
         let mut playback = PlaybackServiceClient::new(chan());
         let mut sw = switch_rx();
         let mut reference = FLOOR;
+        // Per-band references — each band rides its own decaying peak, the
+        // way a dB-scaled analyser normalises per column. One shared
+        // reference would let the bass bury the treble.
+        let mut band_refs: Vec<f32> = Vec::new();
+        let mut bars = vec![0.0f32; EQ_BARS];
+        let mut peaks = vec![0.0f32; EQ_BARS];
 
         if let Ok(resp) = playback.stream_levels(StreamLevelsRequest {}).await {
             let mut stream = resp.into_inner();
@@ -641,7 +756,44 @@ async fn levels_loop(weak: Weak<AppWindow>) {
                             let (left, right) =
                                 (scale(levels.low_left), scale(levels.low_right));
 
+                            // Spectrum bars: per-band auto-gain, spread over
+                            // the drawn bars, meter ballistics per bar, and a
+                            // peak cap that falls at a constant rate.
+                            band_refs.resize(levels.bands.len().max(band_refs.len()), FLOOR);
+                            let drive: Vec<f32> = levels
+                                .bands
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &v)| {
+                                    let v = if v.is_finite() { v.max(0.0) } else { 0.0 };
+                                    band_refs[i] = (band_refs[i] * DECAY).max(v).max(FLOOR);
+                                    (v / band_refs[i]).clamp(0.0, 1.0)
+                                })
+                                .collect();
+                            let targets = spread_bands(&drive, EQ_BARS);
+                            for i in 0..EQ_BARS {
+                                let target = targets.get(i).copied().unwrap_or(0.0);
+                                bars[i] = if target > bars[i] {
+                                    bars[i] + (target - bars[i]) * 0.8
+                                } else {
+                                    bars[i] + (target - bars[i]) * 0.25
+                                };
+                                peaks[i] = (peaks[i] - 0.025).max(bars[i]).clamp(0.0, 1.0);
+                            }
+                            let (bars_ui, peaks_ui) = (bars.clone(), peaks.clone());
+
                             let _ = weak.upgrade_in_event_loop(move |app| {
+                                // Only while the full player is shown: this
+                                // rebuilds two 96-row models per tick, and
+                                // nothing draws them otherwise.
+                                if app.get_show_full_player() {
+                                    app.set_eq_bars(slint::ModelRc::new(
+                                        slint::VecModel::from(bars_ui),
+                                    ));
+                                    app.set_eq_peaks(slint::ModelRc::new(
+                                        slint::VecModel::from(peaks_ui),
+                                    ));
+                                }
                                 // Fast attack, slow release: real meter
                                 // ballistics. An instant attack reads as
                                 // jitter and an instant release flickers
@@ -1301,6 +1453,18 @@ async fn cmd_loop(
                         open_playlist(&channel, &weak, p.id, true).await?;
                     }
                 }
+                Cmd::PlaylistCreateAndAdd { name, track_ids } => {
+                    let mut sp = SavedPlaylistServiceClient::new(channel.clone());
+                    sp.create_saved_playlist(CreateSavedPlaylistRequest {
+                        name,
+                        description: None,
+                        image: None,
+                        folder_id: None,
+                        track_ids,
+                    })
+                    .await?;
+                    load_playlists(&channel, &weak).await;
+                }
                 Cmd::PlaylistUpdate {
                     id,
                     name,
@@ -1421,6 +1585,86 @@ async fn cmd_loop(
                         app.set_status_text(display.into());
                     });
                 }
+                Cmd::LoadMostPlayed => {
+                    let mut lib = LibraryServiceClient::new(channel.clone());
+                    let resp = lib
+                        .most_played(AnalyticsPageRequest {
+                            limit: Some(200),
+                            offset: None,
+                        })
+                        .await?;
+                    let rows: Vec<StatRowData> = resp
+                        .into_inner()
+                        .stats
+                        .into_iter()
+                        .map(|s| StatRowData {
+                            track_id: s.track_id,
+                            title: s.title,
+                            artist: s.artist,
+                            album: s.album,
+                            count: s.count,
+                            at: s.at,
+                        })
+                        .collect();
+                    let _ = weak.upgrade_in_event_loop(move |app| {
+                        crate::ui_set_most_played(&app, rows);
+                    });
+                }
+                Cmd::LoadStats => {
+                    let mut lib = LibraryServiceClient::new(channel.clone());
+                    let to_rows = |stats: Vec<TrackStat>| -> Vec<StatRowData> {
+                        stats
+                            .into_iter()
+                            .map(|s| StatRowData {
+                                track_id: s.track_id,
+                                title: s.title,
+                                artist: s.artist,
+                                album: s.album,
+                                count: s.count,
+                                at: s.at,
+                            })
+                            .collect()
+                    };
+                    let page = |limit| AnalyticsPageRequest {
+                        limit: Some(limit),
+                        offset: None,
+                    };
+                    let most_played = lib.most_played(page(1000)).await?.into_inner().stats;
+                    let most_skipped = lib.most_skipped(page(20)).await?.into_inner().stats;
+                    let never = lib.never_played(page(20)).await?.into_inner().stats;
+                    let recent = lib.recently_played(page(50)).await?.into_inner().entries;
+                    let tracks = lib
+                        .get_tracks(GetTracksRequest {})
+                        .await?
+                        .into_inner()
+                        .tracks;
+
+                    let data = StatsData {
+                        total_tracks: tracks.len() as i64,
+                        // Totals summed from the views; the 1000-row cap makes
+                        // this a floor on a huge library, which the UI labels.
+                        total_plays: most_played.iter().map(|s| s.count).sum(),
+                        total_skips: most_skipped.iter().map(|s| s.count).sum(),
+                        never_played_count: tracks.len() as i64
+                            - most_played.len() as i64,
+                        most_skipped: to_rows(most_skipped),
+                        never_played: to_rows(never),
+                        recently_played: recent
+                            .into_iter()
+                            .map(|e| StatRowData {
+                                track_id: e.track_id,
+                                title: e.title,
+                                artist: e.artist,
+                                album: e.album,
+                                count: e.ms_played / 1000,
+                                at: Some(e.played_at),
+                            })
+                            .collect(),
+                    };
+                    let _ = weak.upgrade_in_event_loop(move |app| {
+                        crate::ui_set_stats(&app, data);
+                    });
+                }
                 Cmd::DiscoverServers => {
                     let weak2 = weak.clone();
                     tokio::spawn(async move {
@@ -1494,5 +1738,53 @@ async fn cmd_loop(
         if let Err(e) = res {
             tracing::warn!("command failed: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The seek bar's resampler keeps peaks: a single loud bin must survive
+    /// into whichever output bar covers it, because transients are what make
+    /// a waveform recognisable as a particular song.
+    #[test]
+    fn waveform_resampling_keeps_the_peak() {
+        let mut stored = [20u8; 400];
+        stored[200] = 250;
+        let bars = resample_waveform(&stored, WAVEFORM_BARS);
+        assert_eq!(bars.len(), WAVEFORM_BARS);
+        let max = bars.iter().cloned().fold(0.0f32, f32::max);
+        assert!((max - 250.0 / 255.0).abs() < 1e-6, "peak lost: {max}");
+    }
+
+    #[test]
+    fn waveform_resampling_handles_degenerate_input() {
+        assert!(resample_waveform(&[], 120).is_empty());
+        assert!(resample_waveform(&[100], 0).is_empty());
+        // Fewer bins than bars still yields one value per bar.
+        assert_eq!(resample_waveform(&[10, 200, 30], 120).len(), 120);
+    }
+
+    /// Spreading 16 bands over 96 bars must keep the spectrum's shape: a
+    /// low-heavy input stays low-heavy, and every bar stays in 0..1.
+    #[test]
+    fn spread_bands_keeps_shape_and_range() {
+        let mut bands = [0.0f32; 16];
+        bands[0] = 1.0;
+        bands[1] = 0.8;
+        let bars = spread_bands(&bands, 96);
+        assert_eq!(bars.len(), 96);
+        assert!(bars[0] > bars[95], "low-heavy input inverted");
+        assert!(bars.iter().all(|b| (0.0..=1.0).contains(b)));
+    }
+
+    #[test]
+    fn spread_bands_handles_degenerate_input() {
+        assert_eq!(spread_bands(&[], 96), vec![0.0; 96]);
+        assert!(spread_bands(&[0.5], 0).is_empty());
+        // One band paints every bar the same.
+        let flat = spread_bands(&[0.5], 96);
+        assert!(flat.iter().all(|b| (b - 0.5).abs() < 1e-6));
     }
 }
