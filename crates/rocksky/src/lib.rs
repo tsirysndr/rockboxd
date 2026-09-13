@@ -246,11 +246,25 @@ async fn track_stream_session(remote: &RemotePlayer, is_playing: &AtomicBool) ->
             elapsed_ms: track.elapsed,
             is_playing: is_playing.load(Ordering::Relaxed),
             sample_rate: (track.frequency > 0).then_some(track.frequency as u32),
+            // Format badge: for local files the extension is the codec for
+            // every format the firmware plays; a stream URL says nothing.
+            codec: codec_of(&track.path),
             ..Default::default()
         });
     }
 
     Err(anyhow!("current-track stream closed"))
+}
+
+/// Codec name for the format badge, from the file extension, lowercased.
+fn codec_of(path: &str) -> Option<String> {
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return None;
+    }
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
 }
 
 /// Forward the daemon's transport-status gRPC stream to the miniplayers,
