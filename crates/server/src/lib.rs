@@ -861,8 +861,18 @@ pub extern "C" fn start_broker() {
                     } else {
                         true
                     };
-
                     if track_changed {
+                        current_scrobble_track = Some(track.clone());
+                    }
+
+                    // Keyed on the stats id, NOT on current_scrobble_track:
+                    // that one resets whenever the current-track read flickers
+                    // to None for a tick (track transition, kernel-lock miss),
+                    // and coming back to the SAME track then looked like a
+                    // change — inserting a duplicate history row per flicker.
+                    let stats_track_changed =
+                        last_stats_track_id.as_deref() != Some(metadata.id.as_str());
+                    if stats_track_changed {
                         // Auto-record play or skip for the previous track (direct DB write,
                         // no HTTP roundtrip — avoids blocking the broker loop).
                         if let Some(prev_id) = last_stats_track_id.take() {
@@ -884,7 +894,6 @@ pub extern "C" fn start_broker() {
                                 ));
                             }
                         }
-                        current_scrobble_track = Some(track.clone());
                     }
 
                     // Update tracking state for the current track

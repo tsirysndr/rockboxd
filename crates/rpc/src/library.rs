@@ -556,8 +556,13 @@ impl LibraryService for Library {
     ) -> Result<tonic::Response<PlayHistoryResponse>, tonic::Status> {
         let page = request.into_inner();
         let rows = sqlx::query(
-            "SELECT track_id, title, artist, album, played_at, ms_played, length_ms, skipped \
-             FROM v_recently_played LIMIT ? OFFSET ?",
+            // One row per track — the latest listen. Restarting a track while
+            // trying it out writes several history rows, and a screen that
+            // repeats the same title five times reads as a bug, not a log.
+            "SELECT track_id, title, artist, album, MAX(played_at) AS played_at, \
+                    ms_played, length_ms, skipped \
+             FROM v_recently_played GROUP BY track_id \
+             ORDER BY played_at DESC LIMIT ? OFFSET ?",
         )
         .bind(page_limit(&page))
         .bind(page_offset(&page))
