@@ -13,6 +13,10 @@ export struct TrackItem {
     track-no: int, // metadata track number (falls back to index + 1)
     liked: bool,
     album-id: string,
+    /// The album's thumbnail, for context-menu headers. Default when the
+    /// album grid has not loaded it yet.
+    art: image,
+    has-art: bool,
 }
 
 /// One row of an analytics list (Most Played, Statistics sections).
@@ -118,6 +122,63 @@ export component CtxMenuItem inherits Rectangle {
         clicked => { root.clicked(); }
         mouse-cursor: pointer;
     }
+}
+
+/// What a context menu is about — mini art, title, artist — so a stray click
+/// cannot act on the wrong thing. Sits above the CtxMenuItems, separated by
+/// a hairline.
+export component CtxMenuHeader inherits VerticalLayout {
+    in property <image> art;
+    in property <bool> has-art: false;
+    in property <image> fallback-icon;
+    in property <string> title;
+    in property <string> subtitle;
+
+    HorizontalLayout {
+        padding: 4px;
+        spacing: 10px;
+        Rectangle {
+            width: 34px;
+            height: 34px;
+            y: (parent.height - self.height) / 2;
+            background: Theme.art-placeholder;
+            clip: true;
+            if root.has-art : Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.art;
+                image-fit: cover;
+            }
+            if !root.has-art : Image {
+                source: root.fallback-icon;
+                colorize: Theme.text-dim;
+                width: 15px;
+                height: 15px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.title;
+                color: Theme.text;
+                font-size: 12px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            if root.subtitle != "" : Text {
+                text: root.subtitle;
+                color: Theme.text-dim;
+                font-size: 10px;
+                overflow: elide;
+            }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.border; }
+    Rectangle { height: 4px; }
 }
 
 
@@ -557,6 +618,13 @@ export component AlbumCard inherits Rectangle {
 
             VerticalLayout {
                 padding: 6px;
+                CtxMenuHeader {
+                    art: root.album.art;
+                    has-art: root.album.has-art;
+                    fallback-icon: Icons.disc;
+                    title: root.album.title;
+                    subtitle: root.album.artist;
+                }
                 CtxMenuItem {
                     icon: Icons.play;
                     label: "Play";
@@ -785,6 +853,13 @@ export component TrackRow inherits Rectangle {
 
             VerticalLayout {
                 padding: 6px;
+                CtxMenuHeader {
+                    art: root.track.art;
+                    has-art: root.track.has-art;
+                    fallback-icon: Icons.music;
+                    title: root.track.title;
+                    subtitle: root.track.artist;
+                }
                 CtxMenuItem {
                     icon: Icons.play;
                     label: "Play next";

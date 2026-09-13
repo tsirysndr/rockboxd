@@ -39,7 +39,8 @@ async fn run(pool: Pool<Sqlite>) {
         // mid-pass extends the pass instead of being missed.
         let next: Option<(String, String)> = sqlx::query_as(
             "SELECT id, path FROM track \
-             WHERE key IS NULL AND is_remote = 0 AND path NOT LIKE 'http%' \
+             WHERE (key IS NULL OR waveform IS NULL) \
+               AND is_remote = 0 AND path NOT LIKE 'http%' \
              LIMIT 1",
         )
         .fetch_optional(&pool)
@@ -64,15 +65,18 @@ async fn run(pool: Pool<Sqlite>) {
         })
         .await;
 
+        // Failures store an empty key and an empty waveform — not NULL — so
+        // the selection above does not hand back the same broken file every
+        // boot for ever.
         let (key, bpm, waveform) = match analysed {
-            Ok(Ok(a)) => (a.key.unwrap_or_default(), a.bpm, Some(a.waveform)),
+            Ok(Ok(a)) => (a.key.unwrap_or_default(), a.bpm, a.waveform),
             Ok(Err(e)) => {
                 tracing::debug!("analysis failed for {id}: {e}");
-                (String::new(), None, None)
+                (String::new(), None, Vec::new())
             }
             Err(e) => {
                 tracing::warn!("analysis task panicked for {id}: {e}");
-                (String::new(), None, None)
+                (String::new(), None, Vec::new())
             }
         };
 

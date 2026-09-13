@@ -7,7 +7,7 @@ import {
     SearchButton, PaletteItem, PaletteRow, HelpRow,
     EqBand, Toggle, Dropdown, SettingRow, EqBandSlider, SectionHeader, Knob,
     DetailRow, BrowseItem, ServerItem, FormField, ServerRow, BrowseRow,
-    PlaylistItem, PlaylistRow, CtxMenuItem, LikeButton,
+    PlaylistItem, PlaylistRow, CtxMenuItem, CtxMenuHeader, LikeButton,
     StatItem, StatRow, StatCard
 } from "components.slint";
 import { Icons } from "icons.slint";
@@ -48,6 +48,8 @@ export component AppWindow inherits Window {
     /// from the firmware's per-band meter at 20 Hz.
     in-out property <[float]> eq-bars: [];
     in-out property <[float]> eq-peaks: [];
+    /// Whether the full player draws the spectrum strip — `v` toggles it.
+    in-out property <bool> show-equalizer: true;
     in-out property <bool> playing: false;
     in-out property <bool> stopped: true;
     in-out property <float> progress: 0; // 0..1
@@ -335,6 +337,10 @@ export component AppWindow inherits Window {
             }
             if (event.text == "s") {
                 root.cycle-skin();
+                return accept;
+            }
+            if (event.text == "v") {
+                root.show-equalizer = !root.show-equalizer;
                 return accept;
             }
             if (event.text == "f") {
@@ -1316,6 +1322,13 @@ export component AppWindow inherits Window {
                                                 drop-shadow-blur: 18px;
                                                 VerticalLayout {
                                                     padding: 6px;
+                                                    CtxMenuHeader {
+                                                        art: root.detail-album.art;
+                                                        has-art: root.detail-album.has-art;
+                                                        fallback-icon: Icons.disc;
+                                                        title: root.detail-album.title;
+                                                        subtitle: root.detail-album.artist;
+                                                    }
                                                     CtxMenuItem {
                                                         icon: Icons.shuffle;
                                                         label: "Shuffle play";
@@ -1422,14 +1435,13 @@ export component AppWindow inherits Window {
                 background: Theme.panel-bg;
                 // One width for both side columns, so the transport + seek
                 // column between them is genuinely centred. Responsive: the
-                // VFD goes first when the window narrows, then the panel
-                // buttons, leaving just the volume knob — the floor at each
-                // step is the natural width of what is still shown.
+                // VFD hides when the window narrows; the panel buttons and
+                // the volume knob stay whatever the size — they are controls,
+                // not decoration.
                 property <bool> show-vfd: root.width >= 1050px;
-                property <bool> show-panel-buttons: root.width >= 820px;
                 property <length> side-width: self.show-vfd
                     ? max(root.width * 0.24, 392px)
-                    : self.show-panel-buttons ? 168px : 96px;
+                    : 168px;
                 // Carries the artwork wash across the seam so the bar reads as
                 // the bottom edge of the canvas rather than a separate strip.
                 if root.show-full-player && root.now-has-art : Image {
@@ -1615,14 +1627,14 @@ export component AppWindow inherits Window {
                         x: parent.width - self.preferred-width;
                         height: parent.height;
                         spacing: 10px;
-                        if player.show-panel-buttons : IconButton {
+                        IconButton {
                             icon: Icons.equalizer;
                             icon-size: 16px;
                             accented: root.show-audio;
                             y: (parent.height - self.height) / 2;
                             clicked => { root.show-audio = !root.show-audio; }
                         }
-                        if player.show-panel-buttons : IconButton {
+                        IconButton {
                             icon: Icons.list-music;
                             icon-size: 16px;
                             accented: root.show-queue;
@@ -1747,6 +1759,7 @@ export component AppWindow inherits Window {
         // spectrum is the audio leaving the machine, not a property of the
         // track, so it spans the window while the artwork stays a column.
         Rectangle {
+            visible: root.show-equalizer;
             x: 0;
             y: parent.height - self.height;
             width: parent.width;
@@ -3363,6 +3376,7 @@ export component AppWindow inherits Window {
                 HelpRow { keys: "enter"; label: "Play selection"; }
                 HelpRow { keys: "e"; label: "Audio settings (EQ, replaygain…)"; }
                 HelpRow { keys: "f"; label: "Full-screen player"; }
+                HelpRow { keys: "v"; label: "Spectrum bars (in the full-screen player)"; }
                 HelpRow { keys: "s"; label: "Cycle skin"; }
                 HelpRow { keys: "esc"; label: "Close dialog / go back"; }
                 HelpRow { keys: "?"; label: "Show this help"; }
