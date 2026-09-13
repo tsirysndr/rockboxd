@@ -1371,6 +1371,9 @@ async fn cmd_loop(
                             position: Some(0),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayAlbumAt(id, pos) => {
                     playback
@@ -1380,6 +1383,9 @@ async fn cmd_loop(
                             position: Some(pos),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayArtist(id) => {
                     playback
@@ -1389,6 +1395,9 @@ async fn cmd_loop(
                             position: Some(0),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayArtistAt(id, pos) => {
                     playback
@@ -1398,6 +1407,9 @@ async fn cmd_loop(
                             position: Some(pos),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayArtistShuffled(id) => {
                     playback
@@ -1407,6 +1419,9 @@ async fn cmd_loop(
                             position: Some(0),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayAllAt(pos) => {
                     playback
@@ -1415,6 +1430,9 @@ async fn cmd_loop(
                             position: Some(pos),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayLikedAt(pos) => {
                     playback
@@ -1423,6 +1441,9 @@ async fn cmd_loop(
                             position: Some(pos),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayLikedShuffled => {
                     playback
@@ -1431,6 +1452,9 @@ async fn cmd_loop(
                             position: None,
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::QueueClear => {
                     playlist
@@ -1466,6 +1490,9 @@ async fn cmd_loop(
                             position: None,
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::SetShuffle(enabled) => {
                     let mut settings = SettingsServiceClient::new(channel.clone());
@@ -1565,6 +1592,9 @@ async fn cmd_loop(
                     let mut sp = SavedPlaylistServiceClient::new(channel.clone());
                     sp.play_saved_playlist(PlaySavedPlaylistRequest { playlist_id: id })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::InsertTracks { position, tracks } => {
                     playlist
@@ -1754,6 +1784,9 @@ async fn cmd_loop(
                             position: None,
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::PlayDirAt(path, position) => {
                     playback
@@ -1764,6 +1797,9 @@ async fn cmd_loop(
                             position: Some(position),
                         })
                         .await?;
+                    // Show the freshly loaded queue at once instead of
+                    // waiting for the daemon's playlist stream to rebuild.
+                    refresh_queue(&channel, &weak).await;
                 }
                 Cmd::SetRepeat(mode) => {
                     let mut settings = SettingsServiceClient::new(channel.clone());
