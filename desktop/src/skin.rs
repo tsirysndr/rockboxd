@@ -1,5 +1,5 @@
 //! Skin loading. A skin is a .toml file of design tokens (colors, radii,
-//! fonts). Five skins ship embedded in the binary; users can drop extra
+//! fonts). Ten skins ship embedded in the binary; users can drop extra
 //! .toml files in ~/.config/rockbox.org/skins/ and they show up in the
 //! sidebar switcher. The selected skin name persists across launches.
 
@@ -114,17 +114,31 @@ fn config_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".config").join("rockbox.org"))
 }
 
+/// The bundled skins, in cycle order.
+///
+/// A skin that fails to parse is dropped by `load_all` without a word, so it
+/// would simply go missing from the cycle — `every_builtin_skin_parses` below
+/// is what catches that at build time instead.
+const BUILTIN: [&str; 10] = [
+    include_str!("../skins/late-night.toml"),
+    include_str!("../skins/synthwave.toml"),
+    include_str!("../skins/neutron.toml"),
+    include_str!("../skins/lunar.toml"),
+    include_str!("../skins/nord.toml"),
+    include_str!("../skins/oceanic.toml"),
+    include_str!("../skins/tape.toml"),
+    include_str!("../skins/phosphor.toml"),
+    // The two light skins last, so cycling with `s` runs through the dark
+    // ones before changing the room.
+    include_str!("../skins/porcelain.toml"),
+    include_str!("../skins/parchment.toml"),
+];
+
 pub fn load_all() -> Vec<Skin> {
-    let mut skins: Vec<Skin> = [
-        include_str!("../skins/late-night.toml"),
-        include_str!("../skins/synthwave.toml"),
-        include_str!("../skins/neutron.toml"),
-        include_str!("../skins/lunar.toml"),
-        include_str!("../skins/porcelain.toml"),
-    ]
-    .iter()
-    .filter_map(|s| toml::from_str(s).ok())
-    .collect();
+    let mut skins: Vec<Skin> = BUILTIN
+        .iter()
+        .filter_map(|s| toml::from_str(s).ok())
+        .collect();
 
     if let Some(dir) = config_dir().map(|d| d.join("skins")) {
         if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -167,5 +181,60 @@ pub fn save_selection(name: &str) {
             let _ = std::fs::create_dir_all(parent);
         }
         let _ = std::fs::write(file, name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every bundled skin must parse, and the count must match the array.
+    ///
+    /// `load_all` filters failures out silently, so a skin with a missing or
+    /// misspelled colour key does not error — it disappears from the cycle,
+    /// and the saved selection then falls back to the first skin. That is a
+    /// confusing way to find out, hence this test.
+    #[test]
+    fn every_builtin_skin_parses() {
+        let parsed: Vec<Skin> = BUILTIN
+            .iter()
+            .filter_map(|s| toml::from_str::<Skin>(s).ok())
+            .collect();
+        assert_eq!(
+            parsed.len(),
+            BUILTIN.len(),
+            "a bundled skin failed to parse — it would vanish from the cycle"
+        );
+    }
+
+    /// Names are what the saved selection is matched against, so a duplicate
+    /// or empty one would make a skin unreachable.
+    #[test]
+    fn builtin_skin_names_are_unique_and_present() {
+        let names: Vec<String> = BUILTIN
+            .iter()
+            .filter_map(|s| toml::from_str::<Skin>(s).ok())
+            .map(|s| s.name)
+            .collect();
+        for name in &names {
+            assert!(!name.trim().is_empty(), "a skin has an empty name");
+        }
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "duplicate skin name: {names:?}");
+    }
+
+    /// The saved-selection lookup has to find every bundled skin by name.
+    #[test]
+    fn load_selection_finds_each_builtin_by_name() {
+        let skins: Vec<Skin> = BUILTIN
+            .iter()
+            .filter_map(|s| toml::from_str::<Skin>(s).ok())
+            .collect();
+        for (i, skin) in skins.iter().enumerate() {
+            let found = skins.iter().position(|s| s.name == skin.name);
+            assert_eq!(found, Some(i), "{} was not found by name", skin.name);
+        }
     }
 }

@@ -42,9 +42,11 @@ FL Studio / VST synth UIs (neon accents).
   Raycast-style picker; per-track remove; playlists appear in the `/` palette.
 - **Remote servers** — Subsonic/Navidrome and Jellyfin browsing/streaming via
   the daemon's `navidrome://` / `jellyfin://` browse schemes (Servers tab).
-- **Skins** — five bundled (`Synthwave` default, `Late Night`, `Neutron`,
-  `Lunar`, `Porcelain`); press `s` or click the SKIN entry in the sidebar to cycle. The
-  choice persists in `~/.config/rockbox.org/desktop-skin`.
+- **Skins** — ten bundled (`Synthwave` default, plus `Late Night`, `Neutron`,
+  `Lunar`, `Nord`, `Oceanic`, `Tape`, `Phosphor` and the two light ones,
+  `Porcelain` and `Parchment`); press `s` or click the SKIN entry in the
+  sidebar to cycle. The choice persists in
+  `~/.config/rockbox.org/desktop-skin`.
 
 ## Build
 
@@ -90,13 +92,18 @@ extra `.toml` files into `~/.config/rockbox.org/skins/` and they join the
 cycle; copy `skins/synthwave.toml` as a template. Malformed color values
 render loud magenta so they're easy to spot.
 
-| File                   | Vibe                                                  |
-| ---------------------- | ----------------------------------------------------- |
-| `skins/synthwave.toml` | Neon magenta/cyan on deep violet (Serum / synthwave)  |
-| `skins/late-night.toml`| Mixxx LateNight PaleMoon — teal VFD, burnt amber      |
-| `skins/neutron.toml`   | FL Studio graphite + signal orange, lime channel glow |
-| `skins/lunar.toml`     | Cambridge Audio lunar grey + warm lamp amber          |
-| `skins/porcelain.toml` | Light jetAudio silver deck, cool blue display         |
+| File                    | Vibe                                                  |
+| ----------------------- | ----------------------------------------------------- |
+| `skins/synthwave.toml`  | Neon magenta/cyan on deep violet (Serum / synthwave)  |
+| `skins/late-night.toml` | Mixxx LateNight PaleMoon — teal VFD, burnt amber      |
+| `skins/neutron.toml`    | FL Studio graphite + signal orange, lime channel glow |
+| `skins/lunar.toml`      | Cambridge Audio lunar grey + warm lamp amber          |
+| `skins/nord.toml`       | Nord polar slate, frost-blue display, aurora meters   |
+| `skins/oceanic.toml`    | Deep-water teal hull, aqua phosphor, coral peaks      |
+| `skins/tape.toml`       | Cassette deck — graphite, cream, burnt-orange VU      |
+| `skins/phosphor.toml`   | Green-CRT rack gear on black; squared-off corners     |
+| `skins/porcelain.toml`  | Light jetAudio silver deck, cool blue display         |
+| `skins/parchment.toml`  | Light, warm — paper and ochre instead of silver       |
 
 ## Architecture
 
