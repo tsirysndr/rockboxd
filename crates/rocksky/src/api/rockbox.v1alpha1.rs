@@ -566,6 +566,72 @@ pub struct FilterArtistsResponse {
     #[prost(message, repeated, tag = "1")]
     pub artists: ::prost::alloc::vec::Vec<Artist>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FilterTracksRequest {
+    #[prost(string, tag = "1")]
+    pub rules_json: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FilterTracksResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub tracks: ::prost::alloc::vec::Vec<Track>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AnalyticsPageRequest {
+    #[prost(int32, optional, tag = "1")]
+    pub limit: ::core::option::Option<i32>,
+    #[prost(int32, optional, tag = "2")]
+    pub offset: ::core::option::Option<i32>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackStat {
+    #[prost(string, tag = "1")]
+    pub track_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub title: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub artist: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub album: ::prost::alloc::string::String,
+    /// play_count for MostPlayed, skip_count for MostSkipped, 0 otherwise.
+    #[prost(int64, tag = "5")]
+    pub count: i64,
+    /// last_played / last_skipped, unix seconds; absent where meaningless.
+    #[prost(int64, optional, tag = "6")]
+    pub at: ::core::option::Option<i64>,
+    /// ISO timestamp for the added views.
+    #[prost(string, optional, tag = "7")]
+    pub created_at: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackStatListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub stats: ::prost::alloc::vec::Vec<TrackStat>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlayHistoryEntry {
+    #[prost(string, tag = "1")]
+    pub track_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub title: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub artist: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub album: ::prost::alloc::string::String,
+    #[prost(int64, tag = "5")]
+    pub played_at: i64,
+    #[prost(int64, tag = "6")]
+    pub ms_played: i64,
+    #[prost(int64, tag = "7")]
+    pub length_ms: i64,
+    #[prost(bool, tag = "8")]
+    pub skipped: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlayHistoryResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: ::prost::alloc::vec::Vec<PlayHistoryEntry>,
+}
 /// Generated client implementations.
 pub mod library_service_client {
     #![allow(
@@ -962,6 +1028,122 @@ pub mod library_service_client {
             ));
             self.inner.unary(req, path, codec).await
         }
+        /// rules_json is a JSON RuleCriteria; set its `rsql` field for expression
+        /// filters ("genre==rock;playcount>5") — same body FilterAlbums accepts.
+        pub async fn filter_tracks(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FilterTracksRequest>,
+        ) -> std::result::Result<tonic::Response<super::FilterTracksResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.LibraryService/FilterTracks",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "FilterTracks",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Listening analytics — projections of track_stats and the play_history log.
+        pub async fn most_played(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path =
+                http::uri::PathAndQuery::from_static("/rockbox.v1alpha1.LibraryService/MostPlayed");
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "MostPlayed",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn most_skipped(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.LibraryService/MostSkipped",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "MostSkipped",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn never_played(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.LibraryService/NeverPlayed",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "NeverPlayed",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn recently_added(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.LibraryService/RecentlyAdded",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "RecentlyAdded",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn recently_played(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::PlayHistoryResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/rockbox.v1alpha1.LibraryService/RecentlyPlayed",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new(
+                "rockbox.v1alpha1.LibraryService",
+                "RecentlyPlayed",
+            ));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -1050,6 +1232,33 @@ pub mod library_service_server {
             &self,
             request: tonic::Request<super::FilterArtistsRequest>,
         ) -> std::result::Result<tonic::Response<super::FilterArtistsResponse>, tonic::Status>;
+        /// rules_json is a JSON RuleCriteria; set its `rsql` field for expression
+        /// filters ("genre==rock;playcount>5") — same body FilterAlbums accepts.
+        async fn filter_tracks(
+            &self,
+            request: tonic::Request<super::FilterTracksRequest>,
+        ) -> std::result::Result<tonic::Response<super::FilterTracksResponse>, tonic::Status>;
+        /// Listening analytics — projections of track_stats and the play_history log.
+        async fn most_played(
+            &self,
+            request: tonic::Request<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>;
+        async fn most_skipped(
+            &self,
+            request: tonic::Request<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>;
+        async fn never_played(
+            &self,
+            request: tonic::Request<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>;
+        async fn recently_added(
+            &self,
+            request: tonic::Request<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::TrackStatListResponse>, tonic::Status>;
+        async fn recently_played(
+            &self,
+            request: tonic::Request<super::AnalyticsPageRequest>,
+        ) -> std::result::Result<tonic::Response<super::PlayHistoryResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct LibraryServiceServer<T> {
@@ -1792,6 +2001,252 @@ pub mod library_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = FilterArtistsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/FilterTracks" => {
+                    #[allow(non_camel_case_types)]
+                    struct FilterTracksSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService> tonic::server::UnaryService<super::FilterTracksRequest>
+                        for FilterTracksSvc<T>
+                    {
+                        type Response = super::FilterTracksResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FilterTracksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::filter_tracks(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = FilterTracksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/MostPlayed" => {
+                    #[allow(non_camel_case_types)]
+                    struct MostPlayedSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService> tonic::server::UnaryService<super::AnalyticsPageRequest>
+                        for MostPlayedSvc<T>
+                    {
+                        type Response = super::TrackStatListResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AnalyticsPageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::most_played(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = MostPlayedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/MostSkipped" => {
+                    #[allow(non_camel_case_types)]
+                    struct MostSkippedSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService> tonic::server::UnaryService<super::AnalyticsPageRequest>
+                        for MostSkippedSvc<T>
+                    {
+                        type Response = super::TrackStatListResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AnalyticsPageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::most_skipped(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = MostSkippedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/NeverPlayed" => {
+                    #[allow(non_camel_case_types)]
+                    struct NeverPlayedSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService> tonic::server::UnaryService<super::AnalyticsPageRequest>
+                        for NeverPlayedSvc<T>
+                    {
+                        type Response = super::TrackStatListResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AnalyticsPageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::never_played(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = NeverPlayedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/RecentlyAdded" => {
+                    #[allow(non_camel_case_types)]
+                    struct RecentlyAddedSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService> tonic::server::UnaryService<super::AnalyticsPageRequest>
+                        for RecentlyAddedSvc<T>
+                    {
+                        type Response = super::TrackStatListResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AnalyticsPageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::recently_added(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RecentlyAddedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/rockbox.v1alpha1.LibraryService/RecentlyPlayed" => {
+                    #[allow(non_camel_case_types)]
+                    struct RecentlyPlayedSvc<T: LibraryService>(pub Arc<T>);
+                    impl<T: LibraryService> tonic::server::UnaryService<super::AnalyticsPageRequest>
+                        for RecentlyPlayedSvc<T>
+                    {
+                        type Response = super::PlayHistoryResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AnalyticsPageRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as LibraryService>::recently_played(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RecentlyPlayedSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

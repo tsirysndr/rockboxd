@@ -141,6 +141,7 @@ fn criteria_to_rules(c: &ProtoRuleCriteria) -> RuleCriteria {
         limit: c.limit.map(|l| l as usize),
         sort_by,
         sort_order,
+        rsql: c.rsql.clone().filter(|e| !e.trim().is_empty()),
     }
 }
 
@@ -234,6 +235,7 @@ fn to_proto_criteria(p: &rockbox_playlists::rules::RuleCriteria) -> ProtoRuleCri
         limit: p.limit.map(|l| l as i32),
         sort_by,
         sort_order,
+        rsql: p.rsql.clone(),
     }
 }
 

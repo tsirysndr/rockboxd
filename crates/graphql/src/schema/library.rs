@@ -133,6 +133,116 @@ impl LibraryQuery {
         Ok(artists.into_iter().map(Into::into).collect())
     }
 
+    /// The matching tracks themselves. `rules` is a JSON RuleCriteria; set its
+    /// `rsql` field for expression filters (`genre==rock;playcount>5`).
+    async fn filter_tracks(&self, ctx: &Context<'_>, rules: String) -> Result<Vec<Track>, Error> {
+        let pool = ctx.data::<Pool<Sqlite>>()?;
+        let store = ctx.data::<PlaylistStore>()?;
+        let criteria: RuleCriteria = serde_json::from_str(&rules)?;
+        let tracks = resolver::resolve_tracks(store, pool, &criteria).await?;
+        Ok(tracks.into_iter().map(Into::into).collect())
+    }
+
+    // ── Listening analytics ─────────────────────────────────────────────────
+    // Projections of track_stats + play_history, via the SQL views the library
+    // migration defines, so every API reports the same numbers.
+
+    async fn most_played(
+        &self,
+        ctx: &Context<'_>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<TrackStatRow>, Error> {
+        stat_view(
+            ctx,
+            "SELECT track_id, title, artist, album, play_count, last_played \
+             FROM v_most_played LIMIT ? OFFSET ?",
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    async fn most_skipped(
+        &self,
+        ctx: &Context<'_>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<TrackStatRow>, Error> {
+        stat_view(
+            ctx,
+            "SELECT track_id, title, artist, album, skip_count, last_skipped \
+             FROM v_most_skipped LIMIT ? OFFSET ?",
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    async fn never_played(
+        &self,
+        ctx: &Context<'_>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<TrackStatRow>, Error> {
+        added_view(
+            ctx,
+            "SELECT track_id, title, artist, album, created_at \
+             FROM v_never_played LIMIT ? OFFSET ?",
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    async fn recently_added(
+        &self,
+        ctx: &Context<'_>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<TrackStatRow>, Error> {
+        added_view(
+            ctx,
+            "SELECT track_id, title, artist, album, created_at \
+             FROM v_recently_added LIMIT ? OFFSET ?",
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    /// The listen log, newest first — one entry per play, not per track.
+    async fn recently_played(
+        &self,
+        ctx: &Context<'_>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<PlayHistoryRow>, Error> {
+        use sqlx::Row;
+        let pool = ctx.data::<Pool<Sqlite>>()?;
+        let rows = sqlx::query(
+            "SELECT track_id, title, artist, album, played_at, ms_played, length_ms, skipped \
+             FROM v_recently_played LIMIT ? OFFSET ?",
+        )
+        .bind(clamp_limit(limit))
+        .bind(offset.unwrap_or(0).max(0))
+        .fetch_all(pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| PlayHistoryRow {
+                track_id: r.get(0),
+                title: r.get(1),
+                artist: r.get(2),
+                album: r.get(3),
+                played_at: r.get(4),
+                ms_played: r.get(5),
+                length_ms: r.get(6),
+                skipped: r.get::<i64, _>(7) != 0,
+            })
+            .collect())
+    }
+
     async fn liked_tracks(&self, ctx: &Context<'_>) -> Result<Vec<Track>, Error> {
         let pool = ctx.data::<Pool<Sqlite>>()?;
         let results = repo::favourites::all_tracks(pool.clone()).await?;
@@ -192,6 +302,92 @@ impl LibraryQuery {
             liked_albums: vec![],
         })
     }
+}
+
+/// One row of a count-bearing or added-date analytics view.
+#[derive(SimpleObject)]
+pub struct TrackStatRow {
+    pub track_id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    /// play_count / skip_count; 0 for the added views.
+    pub count: i64,
+    /// last_played / last_skipped, unix seconds.
+    pub at: Option<i64>,
+    /// ISO timestamp for the added views.
+    pub created_at: Option<String>,
+}
+
+/// One listen from the play_history log.
+#[derive(SimpleObject)]
+pub struct PlayHistoryRow {
+    pub track_id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub played_at: i64,
+    pub ms_played: i64,
+    pub length_ms: i64,
+    pub skipped: bool,
+}
+
+fn clamp_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(100).clamp(1, 1000)
+}
+
+async fn stat_view(
+    ctx: &Context<'_>,
+    sql: &str,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<TrackStatRow>, Error> {
+    use sqlx::Row;
+    let pool = ctx.data::<Pool<Sqlite>>()?;
+    let rows = sqlx::query(sql)
+        .bind(clamp_limit(limit))
+        .bind(offset.unwrap_or(0).max(0))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| TrackStatRow {
+            track_id: r.get(0),
+            title: r.get(1),
+            artist: r.get(2),
+            album: r.get(3),
+            count: r.get(4),
+            at: r.get(5),
+            created_at: None,
+        })
+        .collect())
+}
+
+async fn added_view(
+    ctx: &Context<'_>,
+    sql: &str,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<TrackStatRow>, Error> {
+    use sqlx::Row;
+    let pool = ctx.data::<Pool<Sqlite>>()?;
+    let rows = sqlx::query(sql)
+        .bind(clamp_limit(limit))
+        .bind(offset.unwrap_or(0).max(0))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| TrackStatRow {
+            track_id: r.get(0),
+            title: r.get(1),
+            artist: r.get(2),
+            album: r.get(3),
+            count: 0,
+            at: None,
+            created_at: r.get(4),
+        })
+        .collect())
 }
 
 #[derive(Default)]

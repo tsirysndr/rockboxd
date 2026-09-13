@@ -1,0 +1,10 @@
+[package]
+authors = ["Tsiry Sandratraina <tsiry.sndr@rocksky.app>"]
+description = "RSQL / FIQL filter parsing, compiled to SQLite WHERE clauses"
+edition = "2021"
+license = "MIT"
+name = "rockbox-rsql"
+version = "0.1.0"
+
+[dependencies]
+serde = {version = "1.0.145", features = ["derive"]}

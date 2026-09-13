@@ -11,6 +11,7 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 rockbox-library = { path = "../library" }
+rockbox-rsql = {path = "../rsql"}
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }

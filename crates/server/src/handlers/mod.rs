@@ -1,4 +1,5 @@
 pub mod albums;
+pub mod analytics;
 pub mod artists;
 #[cfg(target_os = "linux")]
 pub mod bluetooth;
@@ -9,6 +10,7 @@ pub mod dsp;
 pub mod genres;
 pub mod player;
 pub mod playlists;
+pub mod rsql;
 pub mod saved_playlists;
 pub mod search;
 pub mod settings;

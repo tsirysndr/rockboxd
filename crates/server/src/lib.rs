@@ -24,6 +24,7 @@ use std::{
 // event on the next tick even when index and amount haven't changed (e.g. shuffle).
 pub(crate) static PLAYLIST_DIRTY: AtomicBool = AtomicBool::new(false);
 
+pub mod analysis;
 pub mod cache;
 pub mod handlers;
 pub mod http;
@@ -240,6 +241,8 @@ async fn run_http_server() -> Result<(), Error> {
     scan::scan_snapcast_servers(devices.clone());
     scan::scan_squeezelite_clients(devices.clone());
     player_events::listen_for_playback_changes(player.clone(), pool.clone());
+    // Key/BPM backfill — one file a second until every local track has a key.
+    analysis::start(pool.clone());
 
     let state = web::Data::new(AppState {
         pool,
@@ -496,6 +499,40 @@ async fn run_http_server() -> Result<(), Error> {
             .route(
                 "/track-stats/{id}",
                 web::get().to(handlers::smart_playlists::get_track_stats),
+            )
+            // RSQL filters — QuerySpec body, full rows back
+            .route(
+                "/rsql/tracks",
+                web::post().to(handlers::rsql::filter_tracks),
+            )
+            .route(
+                "/rsql/albums",
+                web::post().to(handlers::rsql::filter_albums),
+            )
+            .route(
+                "/rsql/artists",
+                web::post().to(handlers::rsql::filter_artists),
+            )
+            // Analytics — read-only projections of track_stats + play_history
+            .route(
+                "/analytics/most-played",
+                web::get().to(handlers::analytics::most_played),
+            )
+            .route(
+                "/analytics/most-skipped",
+                web::get().to(handlers::analytics::most_skipped),
+            )
+            .route(
+                "/analytics/never-played",
+                web::get().to(handlers::analytics::never_played),
+            )
+            .route(
+                "/analytics/recently-added",
+                web::get().to(handlers::analytics::recently_added),
+            )
+            .route(
+                "/analytics/recently-played",
+                web::get().to(handlers::analytics::recently_played),
             )
             // Tracks — fixed route before parametric
             .route(
@@ -831,11 +868,15 @@ pub extern "C" fn start_broker() {
                         if let Some(prev_id) = last_stats_track_id.take() {
                             if last_stats_length > 10_000 && last_stats_elapsed > 2_000 {
                                 let ratio = last_stats_elapsed as f64 / last_stats_length as f64;
-                                if ratio >= 0.40 {
-                                    let _ = rt.block_on(playlist_store.record_play(&prev_id));
-                                } else {
-                                    let _ = rt.block_on(playlist_store.record_skip(&prev_id));
-                                }
+                                // The broker knows how much was heard, so the
+                                // history row records it — the "was it a skip"
+                                // rule can then be revisited over old data.
+                                let _ = rt.block_on(playlist_store.record_listen(
+                                    &prev_id,
+                                    ratio < 0.40,
+                                    last_stats_elapsed,
+                                    last_stats_length,
+                                ));
                             }
                         }
                         current_scrobble_track = Some(track.clone());

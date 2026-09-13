@@ -570,38 +570,74 @@ impl PlaylistStore {
     // ── Track stats ────────────────────────────────────────────────────────
 
     pub async fn record_play(&self, track_id: &str) -> Result<()> {
-        let now = Utc::now().timestamp();
-        sqlx::query(
-            "INSERT INTO track_stats (track_id, play_count, skip_count, last_played, last_skipped, updated_at)
-             VALUES (?, 1, 0, ?, NULL, ?)
-             ON CONFLICT(track_id) DO UPDATE SET
-               play_count = play_count + 1,
-               last_played = excluded.last_played,
-               updated_at = excluded.updated_at",
-        )
-        .bind(track_id)
-        .bind(now)
-        .bind(now)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        self.record_listen(track_id, false, 0, 0).await
     }
 
     pub async fn record_skip(&self, track_id: &str) -> Result<()> {
+        self.record_listen(track_id, true, 0, 0).await
+    }
+
+    /// One listen: bumps the `track_stats` counters and appends to the
+    /// `play_history` log. The counters are the fast path every smart-playlist
+    /// rule reads; the log is what makes "this week" answerable at all —
+    /// a single overwritten row cannot say *when*.
+    ///
+    /// `ms_played` / `length_ms` may be zero when the caller does not know
+    /// them (the counters-only callers above); the log keeps whatever was
+    /// known at the time.
+    pub async fn record_listen(
+        &self,
+        track_id: &str,
+        skipped: bool,
+        ms_played: u64,
+        length_ms: u64,
+    ) -> Result<()> {
         let now = Utc::now().timestamp();
-        sqlx::query(
-            "INSERT INTO track_stats (track_id, play_count, skip_count, last_played, last_skipped, updated_at)
-             VALUES (?, 0, 1, NULL, ?, ?)
-             ON CONFLICT(track_id) DO UPDATE SET
-               skip_count = skip_count + 1,
-               last_skipped = excluded.last_skipped,
-               updated_at = excluded.updated_at",
+        if skipped {
+            sqlx::query(
+                "INSERT INTO track_stats (track_id, play_count, skip_count, last_played, last_skipped, updated_at)
+                 VALUES (?, 0, 1, NULL, ?, ?)
+                 ON CONFLICT(track_id) DO UPDATE SET
+                   skip_count = skip_count + 1,
+                   last_skipped = excluded.last_skipped,
+                   updated_at = excluded.updated_at",
+            )
+            .bind(track_id)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO track_stats (track_id, play_count, skip_count, last_played, last_skipped, updated_at)
+                 VALUES (?, 1, 0, ?, NULL, ?)
+                 ON CONFLICT(track_id) DO UPDATE SET
+                   play_count = play_count + 1,
+                   last_played = excluded.last_played,
+                   updated_at = excluded.updated_at",
+            )
+            .bind(track_id)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+        }
+        // Best-effort append: history is an analytics record, and losing one
+        // row of it must never fail the play that produced it.
+        if let Err(e) = sqlx::query(
+            "INSERT INTO play_history (track_id, played_at, ms_played, length_ms, skipped)
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(track_id)
         .bind(now)
-        .bind(now)
+        .bind(ms_played as i64)
+        .bind(length_ms as i64)
+        .bind(skipped as i32)
         .execute(&self.pool)
-        .await?;
+        .await
+        {
+            tracing::warn!("play_history append failed for {track_id}: {e}");
+        }
         Ok(())
     }
 

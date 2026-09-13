@@ -18,6 +18,9 @@ message RuleCriteria {
   optional int32 limit = 3;
   optional string sort_by = 4;
   optional string sort_order = 5;
+  // RSQL expression; when set it replaces `conditions` (see the playlists
+  // crate's RuleCriteria).
+  optional string rsql = 6;
 }
 
 // ── Smart playlists ────────────────────────────────────────────────────────

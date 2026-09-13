@@ -123,6 +123,28 @@ pub async fn create_connection_pool() -> Result<Pool<Sqlite>, Error> {
     .await?;
     */
 
+    // Idempotent by construction (IF NOT EXISTS throughout), so it runs
+    // unconditionally.
+    match pool
+        .execute(include_str!(
+            "../migrations/20260913000000_add_play_history.sql"
+        ))
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => warn!("play_history migration: {}", e),
+    }
+
+    // Key/BPM columns for the audio analysis pass. Plain ALTERs, so they fail
+    // harmlessly once applied.
+    match pool
+        .execute(include_str!("../migrations/20260913000001_add_key_bpm.sql"))
+        .await
+    {
+        Ok(_) => {}
+        Err(_) => warn!("key/bpm columns already exist"),
+    }
+
     // dedupe_genres modifies schema (DROP TABLE + RENAME) so it must run
     // synchronously before we return the pool. The skip guard makes it a
     // no-op O(1) check on every subsequent startup.

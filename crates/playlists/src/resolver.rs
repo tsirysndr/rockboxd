@@ -53,13 +53,76 @@ pub async fn build_candidates(
     Ok((candidates, all_tracks))
 }
 
+/// The rsql sort key for a structured `SortField`, so an rsql playlist can
+/// still be sorted with the same dropdown the structured editor offers.
+fn rsql_sort_key(field: &crate::rules::SortField) -> Option<&'static str> {
+    use crate::rules::SortField::*;
+    Some(match field {
+        Random => rockbox_rsql::SORT_RANDOM,
+        PlayCount => "playcount",
+        SkipCount => "skipcount",
+        LastPlayed => "lastplayed",
+        DateAdded => "added",
+        Year => "year",
+        Title => "title",
+        Artist => "artist",
+        Album => "album",
+        DurationMs => "duration",
+    })
+}
+
+/// The matching track ids for an rsql expression, compiled and run as SQL.
+async fn rsql_track_ids(
+    pool: &Pool<Sqlite>,
+    criteria: &RuleCriteria,
+    expression: &str,
+) -> Result<Vec<String>> {
+    let spec = rockbox_rsql::QuerySpec {
+        filter: expression.to_string(),
+        sort_by: criteria
+            .sort_by
+            .as_ref()
+            .and_then(rsql_sort_key)
+            .map(String::from),
+        sort_order: match criteria.sort_order {
+            Some(crate::rules::SortOrder::Asc) => rockbox_rsql::SortOrder::Asc,
+            _ => rockbox_rsql::SortOrder::Desc,
+        },
+        limit: criteria.limit.map(|l| l as u32),
+    };
+    let query = rockbox_rsql::build(&spec, &rockbox_rsql::TRACKS)
+        .map_err(|e| anyhow::anyhow!("rsql: {e}"))?;
+    let mut q = sqlx::query_scalar::<_, String>(&query.sql);
+    for param in &query.params {
+        q = match param {
+            rockbox_rsql::Value::Text(s) => q.bind(s.clone()),
+            rockbox_rsql::Value::Integer(i) => q.bind(*i),
+        };
+    }
+    Ok(q.fetch_all(pool).await?)
+}
+
 /// Resolve a rule criteria over the library and return matching tracks
 /// (in the order produced by the rule resolver — i.e. honouring sort/limit).
+///
+/// An `rsql` expression, when present, replaces the structured conditions and
+/// runs as SQL; the structured path stays for every playlist created with the
+/// rule editor.
 pub async fn resolve_tracks(
     store: &PlaylistStore,
     pool: &Pool<Sqlite>,
     criteria: &RuleCriteria,
 ) -> Result<Vec<rockbox_library::entity::track::Track>> {
+    if let Some(expr) = criteria.rsql.as_deref().filter(|e| !e.trim().is_empty()) {
+        let ids = rsql_track_ids(pool, criteria, expr).await?;
+        let mut tracks = Vec::with_capacity(ids.len());
+        for id in &ids {
+            if let Some(t) = repo::track::find(pool.clone(), id).await? {
+                tracks.push(t);
+            }
+        }
+        return Ok(tracks);
+    }
     let (candidates, all_tracks) = build_candidates(store, pool).await?;
     let resolved = resolve(criteria, candidates);
     let track_map: HashMap<&str, &rockbox_library::entity::track::Track> =
@@ -77,6 +140,9 @@ pub async fn count_tracks(
     pool: &Pool<Sqlite>,
     criteria: &RuleCriteria,
 ) -> Result<i64> {
+    if let Some(expr) = criteria.rsql.as_deref().filter(|e| !e.trim().is_empty()) {
+        return Ok(rsql_track_ids(pool, criteria, expr).await?.len() as i64);
+    }
     let (candidates, _) = build_candidates(store, pool).await?;
     let resolved = resolve(criteria, candidates);
     Ok(resolved.len() as i64)

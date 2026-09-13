@@ -126,6 +126,16 @@ pub struct RuleCriteria {
     pub limit: Option<usize>,
     pub sort_by: Option<SortField>,
     pub sort_order: Option<SortOrder>,
+    /// An RSQL expression (`genre==rock;playcount>5;lastplayed=gt=30d`).
+    ///
+    /// When present and non-empty it *is* the filter — the structured
+    /// `conditions` above are ignored, and matching runs as SQL through the
+    /// rsql crate rather than through the in-memory resolver. `limit`,
+    /// `sort_by` and `sort_order` still apply. Optional and defaulted so
+    /// every stored playlist from before this field existed still
+    /// deserializes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rsql: Option<String>,
 }
 
 // ── Candidate track fed into the resolver ──────────────────────────────────

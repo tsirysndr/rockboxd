@@ -8,14 +8,16 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::{
     api::rockbox::v1alpha1::{
-        library_service_server::LibraryService, Album, Artist, FilterAlbumsRequest,
-        FilterAlbumsResponse, FilterArtistsRequest, FilterArtistsResponse, GetAlbumRequest,
-        GetAlbumResponse, GetAlbumsRequest, GetAlbumsResponse, GetArtistRequest, GetArtistResponse,
+        library_service_server::LibraryService, Album, AnalyticsPageRequest, Artist,
+        FilterAlbumsRequest, FilterAlbumsResponse, FilterArtistsRequest, FilterArtistsResponse,
+        FilterTracksRequest, FilterTracksResponse, GetAlbumRequest, GetAlbumResponse,
+        GetAlbumsRequest, GetAlbumsResponse, GetArtistRequest, GetArtistResponse,
         GetArtistsRequest, GetArtistsResponse, GetLikedAlbumsRequest, GetLikedAlbumsResponse,
         GetLikedTracksRequest, GetLikedTracksResponse, GetTrackRequest, GetTrackResponse,
         GetTracksRequest, GetTracksResponse, LikeAlbumRequest, LikeAlbumResponse, LikeTrackRequest,
-        LikeTrackResponse, ScanLibraryRequest, ScanLibraryResponse, SearchPlaylist, SearchRequest,
-        SearchResponse, StreamLibraryRequest, StreamLibraryResponse, UnlikeAlbumRequest,
+        LikeTrackResponse, PlayHistoryEntry, PlayHistoryResponse, ScanLibraryRequest,
+        ScanLibraryResponse, SearchPlaylist, SearchRequest, SearchResponse, StreamLibraryRequest,
+        StreamLibraryResponse, TrackStat, TrackStatListResponse, UnlikeAlbumRequest,
         UnlikeAlbumResponse, UnlikeTrackRequest, UnlikeTrackResponse,
     },
     rockbox_url,
@@ -35,6 +37,75 @@ impl Library {
             client,
             store,
         }
+    }
+}
+
+fn page_limit(page: &AnalyticsPageRequest) -> i64 {
+    i64::from(page.limit.unwrap_or(100)).clamp(1, 1000)
+}
+
+fn page_offset(page: &AnalyticsPageRequest) -> i64 {
+    i64::from(page.offset.unwrap_or(0)).max(0)
+}
+
+impl Library {
+    /// A count-bearing analytics view (most played / most skipped) as a
+    /// `TrackStatListResponse`.
+    async fn stat_view(
+        &self,
+        sql: &str,
+        page: AnalyticsPageRequest,
+    ) -> Result<tonic::Response<TrackStatListResponse>, tonic::Status> {
+        use sqlx::Row;
+        let rows = sqlx::query(sql)
+            .bind(page_limit(&page))
+            .bind(page_offset(&page))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        Ok(tonic::Response::new(TrackStatListResponse {
+            stats: rows
+                .into_iter()
+                .map(|r| TrackStat {
+                    track_id: r.get(0),
+                    title: r.get(1),
+                    artist: r.get(2),
+                    album: r.get(3),
+                    count: r.get(4),
+                    at: r.get(5),
+                    created_at: None,
+                })
+                .collect(),
+        }))
+    }
+
+    /// A created_at-bearing view (never played / recently added).
+    async fn added_view(
+        &self,
+        sql: &str,
+        page: AnalyticsPageRequest,
+    ) -> Result<tonic::Response<TrackStatListResponse>, tonic::Status> {
+        use sqlx::Row;
+        let rows = sqlx::query(sql)
+            .bind(page_limit(&page))
+            .bind(page_offset(&page))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        Ok(tonic::Response::new(TrackStatListResponse {
+            stats: rows
+                .into_iter()
+                .map(|r| TrackStat {
+                    track_id: r.get(0),
+                    title: r.get(1),
+                    artist: r.get(2),
+                    album: r.get(3),
+                    count: 0,
+                    at: None,
+                    created_at: r.get(4),
+                })
+                .collect(),
+        }))
     }
 }
 
@@ -412,6 +483,101 @@ impl LibraryService for Library {
             .map_err(|e| tonic::Status::internal(e.to_string()))?;
         Ok(tonic::Response::new(FilterArtistsResponse {
             artists: artists.into_iter().map(Into::into).collect(),
+        }))
+    }
+
+    async fn filter_tracks(
+        &self,
+        request: tonic::Request<FilterTracksRequest>,
+    ) -> Result<tonic::Response<FilterTracksResponse>, tonic::Status> {
+        let rules_json = request.into_inner().rules_json;
+        let criteria: RuleCriteria = serde_json::from_str(&rules_json)
+            .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+        let tracks = resolver::resolve_tracks(&self.store, &self.pool, &criteria)
+            .await
+            .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+        Ok(tonic::Response::new(FilterTracksResponse {
+            tracks: tracks.into_iter().map(Into::into).collect(),
+        }))
+    }
+
+    async fn most_played(
+        &self,
+        request: tonic::Request<AnalyticsPageRequest>,
+    ) -> Result<tonic::Response<TrackStatListResponse>, tonic::Status> {
+        self.stat_view(
+            "SELECT track_id, title, artist, album, play_count, last_played \
+             FROM v_most_played LIMIT ? OFFSET ?",
+            request.into_inner(),
+        )
+        .await
+    }
+
+    async fn most_skipped(
+        &self,
+        request: tonic::Request<AnalyticsPageRequest>,
+    ) -> Result<tonic::Response<TrackStatListResponse>, tonic::Status> {
+        self.stat_view(
+            "SELECT track_id, title, artist, album, skip_count, last_skipped \
+             FROM v_most_skipped LIMIT ? OFFSET ?",
+            request.into_inner(),
+        )
+        .await
+    }
+
+    async fn never_played(
+        &self,
+        request: tonic::Request<AnalyticsPageRequest>,
+    ) -> Result<tonic::Response<TrackStatListResponse>, tonic::Status> {
+        self.added_view(
+            "SELECT track_id, title, artist, album, created_at \
+             FROM v_never_played LIMIT ? OFFSET ?",
+            request.into_inner(),
+        )
+        .await
+    }
+
+    async fn recently_added(
+        &self,
+        request: tonic::Request<AnalyticsPageRequest>,
+    ) -> Result<tonic::Response<TrackStatListResponse>, tonic::Status> {
+        self.added_view(
+            "SELECT track_id, title, artist, album, created_at \
+             FROM v_recently_added LIMIT ? OFFSET ?",
+            request.into_inner(),
+        )
+        .await
+    }
+
+    async fn recently_played(
+        &self,
+        request: tonic::Request<AnalyticsPageRequest>,
+    ) -> Result<tonic::Response<PlayHistoryResponse>, tonic::Status> {
+        let page = request.into_inner();
+        let rows = sqlx::query(
+            "SELECT track_id, title, artist, album, played_at, ms_played, length_ms, skipped \
+             FROM v_recently_played LIMIT ? OFFSET ?",
+        )
+        .bind(page_limit(&page))
+        .bind(page_offset(&page))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| tonic::Status::internal(e.to_string()))?;
+        use sqlx::Row;
+        Ok(tonic::Response::new(PlayHistoryResponse {
+            entries: rows
+                .into_iter()
+                .map(|r| PlayHistoryEntry {
+                    track_id: r.get(0),
+                    title: r.get(1),
+                    artist: r.get(2),
+                    album: r.get(3),
+                    played_at: r.get(4),
+                    ms_played: r.get(5),
+                    length_ms: r.get(6),
+                    skipped: r.get::<i64, _>(7) != 0,
+                })
+                .collect(),
         }))
     }
 

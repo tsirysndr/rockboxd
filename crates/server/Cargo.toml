@@ -30,6 +30,8 @@ rockbox-discovery = {path = "../discovery"}
 rockbox-graphql = {path = "../graphql"}
 rockbox-library = {path = "../library"}
 rockbox-playlists = {path = "../playlists"}
+rockbox-rsql = {path = "../rsql"}
+rockbox-analysis = {path = "../analysis"}
 rockbox-navidrome = {path = "../navidrome", features = ["server"]}
 rockbox-jellyfin = {path = "../jellyfin", features = ["server"]}
 rockbox-rocksky = {path = "../rocksky"}
