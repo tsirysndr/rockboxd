@@ -53,6 +53,15 @@ sudo dnf install rockbox
 brew install tsirysndr/tap/rockbox
 ```
 
+### macOS desktop app (Homebrew cask)
+
+```sh
+brew install --cask tsirysndr/tap/rockbox
+```
+
+Installs `Rockbox.app` into `/Applications` — the native desktop client with
+the daemon embedded, so no separate `rockboxd` process is needed.
+
 ### Arch Linux
 
 ```sh
@@ -153,6 +162,11 @@ toolchain.
   <Accordion title="macOS (Homebrew)">
     ```sh
     brew uninstall rockbox
+    ```
+  </Accordion>
+  <Accordion title="macOS desktop app (Homebrew cask)">
+    ```sh
+    brew uninstall --cask rockbox
     ```
   </Accordion>
   <Accordion title="macOS .pkg">

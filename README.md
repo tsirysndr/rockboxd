@@ -599,6 +599,15 @@ paru -S rockboxd-bin
 brew install tsirysndr/tap/rockbox
 ```
 
+### macOS desktop app (Homebrew cask)
+
+```sh
+brew install --cask tsirysndr/tap/rockbox
+```
+
+Installs `Rockbox.app` into `/Applications` — the native desktop client with
+the daemon embedded, so no separate `rockboxd` process is needed.
+
 ### npm
 
 ```sh
