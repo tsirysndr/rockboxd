@@ -218,3 +218,71 @@ pub async fn filter_artists(
     }
     Ok(artists)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::{RuleCriteria, SortField};
+
+    /// Every structured sort field must map onto an rsql sort key, so an rsql
+    /// playlist can be sorted with the same dropdown the rule editor offers.
+    /// A field this misses would silently fall back to unsorted.
+    #[test]
+    fn every_sort_field_has_an_rsql_key() {
+        for field in [
+            SortField::Random,
+            SortField::PlayCount,
+            SortField::SkipCount,
+            SortField::LastPlayed,
+            SortField::DateAdded,
+            SortField::Year,
+            SortField::Title,
+            SortField::Artist,
+            SortField::Album,
+            SortField::DurationMs,
+        ] {
+            assert!(rsql_sort_key(&field).is_some(), "{field:?} unmapped");
+        }
+    }
+
+    /// The mapped keys must exist in the rsql TRACKS schema (except the
+    /// shuffle sentinel), or the built query would name an unknown field and
+    /// the playlist would 400 at resolve time.
+    #[test]
+    fn rsql_sort_keys_resolve_in_the_schema() {
+        for field in [
+            SortField::PlayCount,
+            SortField::SkipCount,
+            SortField::LastPlayed,
+            SortField::DateAdded,
+            SortField::Year,
+            SortField::Title,
+            SortField::Artist,
+            SortField::Album,
+            SortField::DurationMs,
+        ] {
+            let key = rsql_sort_key(&field).unwrap();
+            assert!(
+                rockbox_rsql::TRACKS.field(key).is_some(),
+                "{key} not in TRACKS schema"
+            );
+        }
+        assert_eq!(
+            rsql_sort_key(&SortField::Random),
+            Some(rockbox_rsql::SORT_RANDOM)
+        );
+    }
+
+    /// Rules JSON stored before the `rsql` field existed must still load —
+    /// every smart playlist in every existing library is in that shape.
+    #[test]
+    fn criteria_without_rsql_still_deserializes() {
+        let old = r#"{"match_type":"all","conditions":[],"limit":25,"sort_by":"play_count","sort_order":"DESC"}"#;
+        let criteria: RuleCriteria = serde_json::from_str(old).expect("pre-rsql JSON");
+        assert!(criteria.rsql.is_none());
+
+        let with = r#"{"rsql":"genre==rock;playcount>5"}"#;
+        let criteria: RuleCriteria = serde_json::from_str(with).expect("rsql-only JSON");
+        assert_eq!(criteria.rsql.as_deref(), Some("genre==rock;playcount>5"));
+    }
+}
