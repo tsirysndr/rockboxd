@@ -866,7 +866,12 @@ pub extern "C" fn start_broker() {
                         // Auto-record play or skip for the previous track (direct DB write,
                         // no HTTP roundtrip — avoids blocking the broker loop).
                         if let Some(prev_id) = last_stats_track_id.take() {
-                            if last_stats_length > 10_000 && last_stats_elapsed > 2_000 {
+                            // Every listen is recorded — the old gate ignored
+                            // tracks under ten seconds and listens under two,
+                            // which meant short tracks never charted at all.
+                            // Only a track that never actually produced audio
+                            // (elapsed 0) is silence, not a listen.
+                            if last_stats_length > 0 && last_stats_elapsed > 500 {
                                 let ratio = last_stats_elapsed as f64 / last_stats_length as f64;
                                 // The broker knows how much was heard, so the
                                 // history row records it — the "was it a skip"
