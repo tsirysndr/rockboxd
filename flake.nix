@@ -139,6 +139,8 @@
           ./flake.lock
           ./expo
           ./gpui
+          ./desktop
+          ./macos
           ./bindings
           ./doc
           ./docs
@@ -316,6 +318,13 @@
                 ''cargo build --release --features "${rustServerFeatures}" -p rockbox-server''
               else
                 ''cargo build --release -p rockbox-server''}
+          '' + lib.optionalString pkgs.stdenv.isLinux ''
+            # librockbox_embed.a — the embedded-daemon half of librockboxd.a
+            # (see the rockboxd derivation's `lib` output). Linux-only because
+            # the flake only packages the Slint desktop client on Linux; on
+            # macOS the app ships as a .dmg via desktop/package-macos.sh.
+            cargo build --release -p rockbox-embed
+          '' + ''
             runHook postBuild
           '';
 
@@ -324,6 +333,9 @@
             mkdir -p $out/lib
             cp target/release/librockbox_cli.a    $out/lib/
             cp target/release/librockbox_server.a $out/lib/
+          '' + lib.optionalString pkgs.stdenv.isLinux ''
+            cp target/release/librockbox_embed.a  $out/lib/
+          '' + ''
             runHook postInstall
           '';
         };
@@ -368,6 +380,14 @@
           pname   = "rockboxd";
           version = "0.1.0";
           src     = fwSrc;
+
+          # On Linux a second output carries the embeddable static library
+          # (librockboxd.a, ~`zig build lib`) so the Slint desktop client can
+          # link the in-process daemon without pulling the fat archive into
+          # the runtime closure of a plain `nix profile install` (which only
+          # realises $out). macOS is not packaged this way — the desktop app
+          # ships as a .dmg via desktop/package-macos.sh.
+          outputs = [ "out" ] ++ lib.optionals pkgs.stdenv.isLinux [ "lib" ];
 
           nativeBuildInputs = with pkgs; [
             zig
@@ -431,6 +451,8 @@
             mkdir -p target/release
             cp ${rockboxRustLibs}/lib/librockbox_cli.a    target/release/
             cp ${rockboxRustLibs}/lib/librockbox_server.a target/release/
+          '' + lib.optionalString pkgs.stdenv.isLinux ''
+            cp ${rockboxRustLibs}/lib/librockbox_embed.a  target/release/
           '';
 
           buildPhase = ''
@@ -438,6 +460,19 @@
             export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
             export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-cache"
             SKIP_CARGO=1 bash scripts/build-headless.sh
+          '' + lib.optionalString pkgs.stdenv.isLinux ''
+            # Embeddable static library (zig-out/lib/librockboxd.a). Reuses
+            # the firmware archives `build-headless.sh` just produced; the
+            # `zig build lib` step also runs scripts/flatten-archive.sh, which
+            # asserts rb_daemon_start survived the repack. -Dcpu=x86_64 keeps
+            # the archive portable (Zig's native target defaults to the build
+            # host's CPU features), mirroring build-headless.sh's own link.
+            ZIG_LIB_ARGS=""
+            if [ "$(uname -m)" = "x86_64" ]; then
+              ZIG_LIB_ARGS="-Dcpu=x86_64"
+            fi
+            (cd zig && zig build lib -Doptimize=ReleaseFast $ZIG_LIB_ARGS)
+          '' + ''
             runHook postBuild
           '';
 
@@ -445,6 +480,10 @@
             runHook preInstall
             mkdir -p $out/bin
             cp zig/zig-out/bin/rockboxd $out/bin/rockboxd
+          '' + lib.optionalString pkgs.stdenv.isLinux ''
+            mkdir -p $lib/lib
+            cp zig/zig-out/lib/librockboxd.a $lib/lib/
+          '' + ''
             runHook postInstall
           '';
 
@@ -529,6 +568,143 @@
           };
         };
 
+        # ── rockbox-desktop derivation (Linux only) ──────────────────────────
+        # The Slint desktop client (desktop/, cargo package "rockbox-desktop",
+        # its own lockfile — excluded from the root workspace like gpui/).
+        # desktop/build.rs links the embeddable daemon archive when it finds
+        # ../zig/zig-out/lib/librockboxd.a, so the app boots a full in-process
+        # rockboxd; we inject the rockboxd derivation's `lib` output there.
+        # macOS is deliberately not packaged here — it ships as a signed
+        # Rockbox.app/.dmg via desktop/package-macos.sh + the homebrew tap.
+        desktopSrc = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./desktop/Cargo.toml
+            ./desktop/Cargo.lock
+            ./desktop/build.rs
+            ./desktop/src
+            ./desktop/ui
+            ./desktop/skins      # include_str!'d into the binary (src/skin.rs)
+            ./desktop/assets     # icons + fonts referenced by the .slint UI
+            ./desktop/proto      # symlink → ../crates/rpc/proto
+            ./crates/rpc/proto
+            # One shared Rockbox icon (same file the .deb/.rpm staging uses).
+            ./macos/Rockbox/Assets.xcassets/AppIcon.appiconset/256.png
+          ];
+        };
+
+        # Separate vendor set: desktop/ has its own Cargo.lock (the workspace
+        # cargoDeps hash doesn't cover it).
+        #
+        # To obtain / update the hash (on a Linux host):
+        #   nix build .#rockbox-desktop 2>&1 | grep 'got:'
+        # then paste the printed hash below.
+        desktopCargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+          src = lib.fileset.toSource {
+            root = ./desktop;
+            fileset = lib.fileset.unions [
+              ./desktop/Cargo.toml
+              ./desktop/Cargo.lock
+            ];
+          };
+          hash = lib.fakeHash;
+        };
+
+        rockboxDesktop = pkgs.stdenv.mkDerivation {
+          pname   = "rockbox-desktop";
+          version = "0.1.0";
+          src     = desktopSrc;
+
+          # Build from desktop/ (own Cargo.lock); the ../crates/rpc/proto
+          # symlink target and ../zig/zig-out/lib (injected below) resolve
+          # against the sibling dirs of the unpacked source root.
+          sourceRoot = "source/desktop";
+
+          nativeBuildInputs = with pkgs; [
+            rustToolchain
+            pkg-config
+            protobuf    # protoc for tonic_build codegen (build.rs)
+            makeWrapper
+            rustPlatform.cargoSetupHook
+          ];
+
+          # Link-time deps: fontconfig + xkbcommon for Slint/winit, and the
+          # system libs librockboxd.a's Linux link contract requires
+          # (-lasound -lunwind -ldbus-1, see include/rockboxd.h / build.rs).
+          buildInputs = with pkgs; [
+            fontconfig fontconfig.dev
+            libxkbcommon libxkbcommon.dev
+            zlib zlib.dev
+          ] ++ linuxPkgs;
+
+          cargoDeps = desktopCargoDeps;
+
+          # Place librockboxd.a where desktop/build.rs probes for it
+          # ($CARGO_MANIFEST_DIR/../zig/zig-out/lib) — without it the build
+          # silently degrades to a remote-only client.
+          preBuild = ''
+            mkdir -p ../zig/zig-out/lib
+            cp ${rockboxd.lib}/lib/librockboxd.a ../zig/zig-out/lib/
+          '';
+
+          # --locked: the committed lock pins slint-build 1.17.1 (since
+          # yanked); a fresh resolution would fail, the locked graph vendors
+          # fine.
+          buildPhase = ''
+            runHook preBuild
+            cargo build --release --locked
+            runHook postBuild
+          '';
+
+          # Mirrors desktop/package-linux.sh: binary + .desktop entry + icon.
+          # The built-in skins are embedded in the binary; user skins load
+          # from ~/.config/rockbox.org/skins/ at runtime.
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/bin $out/share/applications $out/share/pixmaps
+            install -m 0755 target/release/rockbox-desktop $out/bin/rockbox-desktop
+            install -m 0644 ../macos/Rockbox/Assets.xcassets/AppIcon.appiconset/256.png \
+              $out/share/pixmaps/rockbox-desktop.png
+            cat > $out/share/applications/rockbox-desktop.desktop <<DESKTOP
+            [Desktop Entry]
+            Name=Rockbox
+            Comment=Modern audio player with multi-room support
+            Exec=rockbox-desktop
+            Icon=rockbox-desktop
+            Terminal=false
+            Type=Application
+            Categories=AudioVideo;Audio;Player;
+            DESKTOP
+            runHook postInstall
+          '';
+
+          # winit/Slint dlopen their windowing + GL stack at runtime (they are
+          # not DT_NEEDED, so no RPATH entry exists for them); typesense goes
+          # on PATH for the embedded daemon's search index, same as rockboxd.
+          postInstall = ''
+            wrapProgram $out/bin/rockbox-desktop \
+              --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath (with pkgs; [
+                libGL
+                wayland
+                libxkbcommon
+                fontconfig
+                libx11
+                libxcursor
+                libxi
+                libxrandr
+              ])} \
+              --prefix PATH : ${lib.makeBinPath [ pkgs.typesense ]}
+          '';
+
+          meta = with lib; {
+            description = "Rockbox desktop — skinnable Slint client with embedded rockboxd";
+            homepage    = "https://github.com/tsirysndr/rockboxd";
+            license     = licenses.lgpl21;
+            platforms   = [ "x86_64-linux" "aarch64-linux" ];
+            mainProgram = "rockbox-desktop";
+          };
+        };
+
       in
       {
         # ── packages ────────────────────────────────────────────────────────────
@@ -539,6 +715,10 @@
           rockbox-rustlibs = rockboxRustLibs;  # cached separately to speed rebuilds
           webui-assets   = webuiAssets;    # exposed separately to ease hash updates
           s3webui-assets = s3webuiAssets;  # exposed separately to ease hash updates
+        } // lib.optionalAttrs pkgs.stdenv.isLinux {
+          # Slint desktop client with the embedded daemon linked in.
+          # Linux-only: macOS ships as a .dmg (desktop/package-macos.sh).
+          rockbox-desktop = rockboxDesktop;
         };
 
         # ── nix develop ─────────────────────────────────────────────────────────
