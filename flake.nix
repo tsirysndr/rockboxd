@@ -45,6 +45,32 @@
         # crane wired to the pinned toolchain above (not nixpkgs' rustc).
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
+        # Dev-shell toolchain: same rustc 1.95 but with rust-analyzer and the
+        # cross-compilation targets used around the repo. Deliberately a
+        # SEPARATE toolchain from `rustToolchain` so adding dev targets never
+        # changes the crane build derivations (or busts their binary cache).
+        rustDevToolchain = pkgs.rust-bin.stable."1.95.0".default.override {
+          extensions = [ "rust-src" "rustfmt" "clippy" "rust-analyzer" ];
+          targets = [
+            # WASM browser core (bindings/wasm, scripts/build-wasm.sh)
+            "wasm32-unknown-emscripten"
+            # Android native module / embedded daemon
+            # (expo/modules/rockbox-rpc, cargo-ndk; NDK comes from outside —
+            # export ANDROID_NDK_HOME yourself)
+            "aarch64-linux-android"
+            "armv7-linux-androideabi"
+            "x86_64-linux-android"
+            # ARM Linux (scripts/build-armhf.sh, Raspberry Pi builds)
+            "aarch64-unknown-linux-gnu"
+            "arm-unknown-linux-gnueabihf"
+          ] ++ lib.optionals pkgs.stdenv.isDarwin [
+            # iOS xcframework (expo `bun run build:ios`)
+            "aarch64-apple-ios"
+            "aarch64-apple-ios-sim"
+            "x86_64-apple-ios"
+          ];
+        };
+
         # ── Zig 0.16.0 (fetched from upstream) ──────────────────────────────
         zigVersion = "0.16.0";
 
@@ -119,15 +145,31 @@
             "${pkgs.alsa-lib.dev}/lib/pkgconfig"
             "${pkgs.dbus.dev}/lib/pkgconfig"
             "${pkgs.libunwind.dev}/lib/pkgconfig"
+            # Slint desktop / GPUI clients
+            "${pkgs.fontconfig.dev}/lib/pkgconfig"
+            "${pkgs.libxkbcommon.dev}/lib/pkgconfig"
+            "${pkgs.wayland.dev}/lib/pkgconfig"
           ]
         );
 
+        # Runtime search path for running the daemon and the GUI clients
+        # straight from the shell: winit/Slint/GPUI dlopen their windowing +
+        # GL/Vulkan stack instead of linking it.
         ldLibDirs = lib.concatStringsSep ":" (
           [ "${pkgs.SDL2}/lib" "${pkgs.freetype}/lib" "${pkgs.zlib}/lib" ]
           ++ lib.optionals pkgs.stdenv.isLinux [
             "${pkgs.alsa-lib}/lib"
             "${pkgs.dbus}/lib"
             "${pkgs.libunwind}/lib"
+            "${pkgs.fontconfig.lib}/lib"
+            "${pkgs.libxkbcommon}/lib"
+            "${pkgs.wayland}/lib"
+            "${pkgs.libGL}/lib"
+            "${pkgs.vulkan-loader}/lib"
+            "${pkgs.libx11}/lib"
+            "${pkgs.libxcursor}/lib"
+            "${pkgs.libxi}/lib"
+            "${pkgs.libxrandr}/lib"
           ]
         );
 
@@ -756,7 +798,7 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             zig
-            rustToolchain
+            rustDevToolchain  # rustc 1.95 + rust-analyzer + cross targets
             gnumake
             gcc
             pkg-config
@@ -781,7 +823,29 @@
             jdk
             clojure
             babashka
-          ] ++ linuxPkgs ++ darwinPkgs;
+            # WASM browser core (bindings/wasm): emcc links the
+            # wasm32-unknown-emscripten staticlib.
+            emscripten
+            # Android native module (expo/modules/rockbox-rpc): drives cargo
+            # for the android targets; the NDK itself is unfree — install it
+            # via Android Studio / sdkmanager and export ANDROID_NDK_HOME.
+            cargo-ndk
+            # Slint LSP for editing desktop/ui/*.slint.
+            slint-lsp
+            # FIFO/stream debugging (rockboxd | ffplay …, ffprobe).
+            ffmpeg
+          ] ++ lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+            # GUI client dev (Slint desktop / GPUI): link + runtime stack.
+            fontconfig fontconfig.dev
+            libxkbcommon libxkbcommon.dev
+            wayland wayland.dev
+            libGL
+            vulkan-loader
+            libx11 libxcursor libxi libxrandr
+            # Multi-room / sink testing (macOS installs these via brew).
+            squeezelite
+            snapcast
+          ]) ++ linuxPkgs ++ darwinPkgs;
 
           shellHook = ''
             echo "Rockbox Daemon development environment"
@@ -797,6 +861,9 @@
             echo "  cd build-lib && make lib -j\$(nproc)"
             echo "  cargo build --release -p rockbox-cli -p rockbox-server"
             echo "  cd zig && zig build"
+            echo ""
+            echo "Extra rust targets: wasm32-emscripten, android, arm/aarch64 linux$([ "$(uname)" = Darwin ] && echo ", ios")"
+            echo "Tools: rust-analyzer, slint-lsp, cargo-ndk (needs ANDROID_NDK_HOME), emcc, bb"
 
             export PKG_CONFIG_PATH="${pkgConfigDirs}"
             export ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache"
