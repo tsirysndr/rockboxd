@@ -381,6 +381,13 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("src/lib.zig"),
                 .target = target,
                 .optimize = optimize,
+                // Consumers (GPUI, the Slint desktop app) link librockboxd.a
+                // into PIE executables, and every firmware archive is already
+                // compiled -fPIC (tools/configure). Without this the Zig
+                // compilation unit is the lone non-PIC member and the
+                // consumer's PIE link dies with "relocation R_X86_64_32S
+                // cannot be used against local symbol; recompile with -fPIC".
+                .pic = true,
                 .imports = &.{
                     .{ .name = "rockboxd", .module = mod },
                 },
