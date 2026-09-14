@@ -14,9 +14,15 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Cargo builds. crane vendors every crate as its own fixed-output fetch
+    # keyed on the checksum already recorded in Cargo.lock, so there is no
+    # cargoHash to keep in sync with the lockfile; it also compiles all
+    # dependencies in a separate `buildDepsOnly` derivation that only
+    # rebuilds when the manifests/lock change.
+    crane.url = "github:ipetkov/crane";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, crane }:
     # x86_64-darwin is intentionally omitted: nixpkgs 26.05 is the last
     # release to support it, and some dev-shell deps (e.g. babashka) already
     # drop it from meta.platforms, which breaks whole-flake evaluation
@@ -35,6 +41,9 @@
         rustToolchain = pkgs.rust-bin.stable."1.95.0".default.override {
           extensions = [ "rust-src" "rustfmt" "clippy" ];
         };
+
+        # crane wired to the pinned toolchain above (not nixpkgs' rustc).
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
         # ── Zig 0.16.0 (fetched from upstream) ──────────────────────────────
         zigVersion = "0.16.0";
@@ -253,35 +262,46 @@
           '';
         };
 
-        # ── Vendored Cargo sources ────────────────────────────────────────────
-        # fetchCargoVendor runs `cargo vendor` once and caches the result.
-        # Single hash covers the entire workspace including all transitive deps.
-        #
-        # To obtain / update the hash:
-        #   nix build .#rockboxd 2>&1 | grep 'got:'
-        # then paste the printed hash below.
-        cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-          src  = rustSrc;
-          hash = "sha256-TANKNkFeBKx/mt6FUkfVDvBHwytyWf1r2gL1xJ4FmCY=";
-        };
-
-        # ── Rust staticlibs (separately cached) ──────────────────────────────
-        # librockbox_cli.a + librockbox_server.a, built in their own derivation
-        # (src = rustSrc) so the ~5-min Rust compile is cached independently of
-        # the firmware/zig link and shared via the binary cache. rockboxd's
+        # ── Rust staticlibs (separately cached, built with crane) ────────────
+        # librockbox_cli.a + librockbox_server.a (+ librockbox_embed.a on
+        # Linux — the embedded-daemon half of librockboxd.a, see the rockboxd
+        # derivation's `lib` output), built in their own derivation
+        # (src = rustSrc) so the Rust compile is cached independently of the
+        # firmware/zig link and shared via the binary cache. rockboxd's
         # build-headless.sh consumes these with SKIP_CARGO=1. Features mirror
         # scripts/build-headless.sh: Linux and macOS both use the default
         # cpal-sink + Typesense (no fts5). fts5 is a BSD-only fallback there —
         # and the flake doesn't target the BSDs — so it never applies here.
+        #
+        # crane vendors each crate from the checksums in Cargo.lock (no
+        # cargoHash to maintain) and buildDepsOnly compiles every dependency
+        # against stubbed-out workspace sources, so crates/* edits reuse the
+        # compiled-deps layer instead of rebuilding the whole dep graph.
         rustCliFeatures    = "cpal-sink";
         rustServerFeatures = "";
-        rockboxRustLibs = pkgs.stdenv.mkDerivation {
+        rustlibsBuildCommand = ''
+          cargo build --release --locked --features "${rustCliFeatures}" -p rockbox-cli
+          ${if rustServerFeatures != "" then
+              ''cargo build --release --locked --features "${rustServerFeatures}" -p rockbox-server''
+            else
+              ''cargo build --release --locked -p rockbox-server''}
+        '' + lib.optionalString pkgs.stdenv.isLinux ''
+          cargo build --release --locked -p rockbox-embed
+        '';
+        # Explicit vendor dir for every workspace derivation. Without it,
+        # crane would derive one from whatever `src`/`dummySrc` it is given —
+        # and reading Cargo.lock out of the mkDummySrc DERIVATION would be an
+        # import-from-derivation (build at eval time), which breaks
+        # cross-system evaluation. From the plain rustSrc path it's pure.
+        workspaceVendor = craneLib.vendorCargoDeps { src = rustSrc; };
+
+        rustlibsCommonArgs = {
           pname   = "rockbox-rustlibs";
           version = "0.1.0";
           src     = rustSrc;
+          cargoVendorDir = workspaceVendor;
 
           nativeBuildInputs = with pkgs; [
-            rustToolchain
             gnumake
             gcc
             pkg-config
@@ -289,7 +309,6 @@
             perl
             python3
             protobuf   # protoc for tonic build.rs
-            rustPlatform.cargoSetupHook
           ] ++ darwinPkgs;
 
           # -sys crates' build scripts need these at compile time (alsa/dbus on
@@ -298,12 +317,33 @@
             zlib zlib.dev
           ] ++ linuxPkgs;
 
-          inherit cargoDeps;
-
           dontUseCmakeConfigure = true;
+        };
+        # crane's dummy source stubs every path crate, but the
+        # [patch.crates-io] hyper-rustls at vendor/ is compiled against by
+        # REGISTRY crates (reqwest) inside the deps-only layer — a stub there
+        # fails their build. Keep vendor/ as real source in the dummy tree.
+        workspaceDummySrc = craneLib.mkDummySrc {
+          src = rustSrc;
+          extraDummyScript = ''
+            rm -rf $out/vendor
+            cp -r --no-preserve=mode ${rustSrc}/vendor $out/vendor
+          '';
+        };
+
+        rockboxRustLibsDeps = craneLib.buildDepsOnly (rustlibsCommonArgs // {
+          pname   = "rockbox-rustlibs-deps";
+          dummySrc = workspaceDummySrc;
+          buildPhaseCargoCommand = rustlibsBuildCommand;
+          doCheck = false;
+        });
+        rockboxRustLibs = craneLib.mkCargoDerivation (rustlibsCommonArgs // {
+          cargoArtifacts = rockboxRustLibsDeps;
 
           # rockbox-server / rockbox-s3 embed the compiled web UIs via rust-embed
           # at compile time, so the dist/ dirs must exist before cargo runs.
+          # (Not needed in the deps-only stage: workspace sources are stubbed
+          # there, so the rust-embed macro never expands.)
           preBuild = ''
             mkdir -p webui/rockbox/dist
             cp -r ${webuiAssets}/. webui/rockbox/dist/
@@ -311,34 +351,16 @@
             cp -r ${s3webuiAssets}/. crates/s3/s3webui/dist/
           '';
 
-          buildPhase = ''
-            runHook preBuild
-            cargo build --release --features "${rustCliFeatures}" -p rockbox-cli
-            ${if rustServerFeatures != "" then
-                ''cargo build --release --features "${rustServerFeatures}" -p rockbox-server''
-              else
-                ''cargo build --release -p rockbox-server''}
-          '' + lib.optionalString pkgs.stdenv.isLinux ''
-            # librockbox_embed.a — the embedded-daemon half of librockboxd.a
-            # (see the rockboxd derivation's `lib` output). Linux-only because
-            # the flake only packages the Slint desktop client on Linux; on
-            # macOS the app ships as a .dmg via desktop/package-macos.sh.
-            cargo build --release -p rockbox-embed
-          '' + ''
-            runHook postBuild
-          '';
+          buildPhaseCargoCommand = rustlibsBuildCommand;
 
-          installPhase = ''
-            runHook preInstall
+          installPhaseCommand = ''
             mkdir -p $out/lib
             cp target/release/librockbox_cli.a    $out/lib/
             cp target/release/librockbox_server.a $out/lib/
           '' + lib.optionalString pkgs.stdenv.isLinux ''
             cp target/release/librockbox_embed.a  $out/lib/
-          '' + ''
-            runHook postInstall
           '';
-        };
+        });
 
         # ── Prebuilt V8 for the `deno` crate (v8 / rusty_v8 130.0.2) ──────────
         # cli/ (package `rockbox`) depends on the `v8` crate, whose build.rs
@@ -505,27 +527,27 @@
           };
         };
 
-        # ── rockbox CLI derivation ────────────────────────────────────────────
+        # ── rockbox CLI derivation (crane) ───────────────────────────────────
         # The `rockbox` gRPC client / CLI (cli/, cargo package "rockbox").
         # Pure Rust (tonic client, no C firmware linkage) — its build.rs only
         # runs tonic_build protoc codegen. Depends on the `deno` (deno/cli) and
         # `rmpc` (rmpc/) path crates, both git submodules carried into the
-        # source via inputs.self.submodules; their transitive registry deps are
-        # already covered by cargoDeps.
-        rockbox = pkgs.stdenv.mkDerivation {
+        # source via inputs.self.submodules; their registry deps come from the
+        # same Cargo.lock crane vendors for the whole workspace. Its deps-only
+        # layer is separate from rockbox-rustlibs' (different package set —
+        # this one compiles v8 and the rest of the deno graph).
+        rockboxCliCommonArgs = {
           pname   = "rockbox";
           version = "0.1.0";
           src     = rustSrc;
+          cargoVendorDir = workspaceVendor;
 
           nativeBuildInputs = with pkgs; [
-            rustToolchain
             pkg-config
             cmake
             perl
             python3
             protobuf   # protoc for tonic_build codegen
-            # Wires up offline Cargo registry from cargoDeps.
-            rustPlatform.cargoSetupHook
           ] ++ darwinPkgs;
 
           # Native libs pulled in by the deno extensions (libffi → deno_ffi,
@@ -535,28 +557,33 @@
             libffi libffi.dev
           ] ++ linuxPkgs;
 
-          inherit cargoDeps;
-
           # cmake is present for native deps that use it, but the workspace
           # root has no CMakeLists.txt — skip cmake's default configurePhase.
           dontUseCmakeConfigure = true;
 
           # Use the pre-fetched V8 static lib + bindings instead of letting the
           # v8 crate download them at build time (no network in the sandbox).
+          # Needed in the deps-only stage too: v8 is a registry dependency, so
+          # its build.rs runs there.
           RUSTY_V8_ARCHIVE          = rustyV8Archive;
           RUSTY_V8_SRC_BINDING_PATH = rustyV8Binding;
+        };
+        rockboxCliDeps = craneLib.buildDepsOnly (rockboxCliCommonArgs // {
+          pname = "rockbox-deps";
+          # Same real-vendor/ dummy tree as rockbox-rustlibs (reqwest is in
+          # this dependency graph too).
+          dummySrc = workspaceDummySrc;
+          buildPhaseCargoCommand = "cargo build --release --locked -p rockbox";
+          doCheck = false;
+        });
+        rockbox = craneLib.mkCargoDerivation (rockboxCliCommonArgs // {
+          cargoArtifacts = rockboxCliDeps;
 
-          buildPhase = ''
-            runHook preBuild
-            cargo build -p rockbox --release
-            runHook postBuild
-          '';
+          buildPhaseCargoCommand = "cargo build --release --locked -p rockbox";
 
-          installPhase = ''
-            runHook preInstall
+          installPhaseCommand = ''
             mkdir -p $out/bin
             cp target/release/rockbox $out/bin/rockbox
-            runHook postInstall
           '';
 
           meta = with lib; {
@@ -566,7 +593,7 @@
             platforms   = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
             mainProgram = "rockbox";
           };
-        };
+        });
 
         # ── rockbox-desktop derivation (Linux only) ──────────────────────────
         # The Slint desktop client (desktop/, cargo package "rockbox-desktop",
@@ -593,39 +620,27 @@
           ];
         };
 
-        # Separate vendor set: desktop/ has its own Cargo.lock (the workspace
-        # cargoDeps hash doesn't cover it).
-        #
-        # To obtain / update the hash (on a Linux host):
-        #   nix build .#rockbox-desktop 2>&1 | grep 'got:'
-        # then paste the printed hash below.
-        desktopCargoDeps = pkgs.rustPlatform.fetchCargoVendor {
-          src = lib.fileset.toSource {
-            root = ./desktop;
-            fileset = lib.fileset.unions [
-              ./desktop/Cargo.toml
-              ./desktop/Cargo.lock
-            ];
-          };
-          hash = "sha256-1k1aSYBzyDo202sQcfrScQZTXNHqM+p7mXR5GB+04Fc=";
+        # Manifest-only source for the desktop crate: crane derives the vendor
+        # set (checksums from desktop/Cargo.lock — no hash to maintain) and
+        # the deps-only layer from it. --locked matters: the committed lock
+        # pins slint-build 1.17.1 (since yanked); a fresh resolution would
+        # fail, while the locked graph vendors fine.
+        desktopManifests = lib.fileset.toSource {
+          root = ./desktop;
+          fileset = lib.fileset.unions [
+            ./desktop/Cargo.toml
+            ./desktop/Cargo.lock
+          ];
         };
 
-        rockboxDesktop = pkgs.stdenv.mkDerivation {
+        desktopCommonArgs = {
           pname   = "rockbox-desktop";
           version = "0.1.0";
-          src     = desktopSrc;
-
-          # Build from desktop/ (own Cargo.lock); the ../crates/rpc/proto
-          # symlink target and ../zig/zig-out/lib (injected below) resolve
-          # against the sibling dirs of the unpacked source root.
-          sourceRoot = "source/desktop";
 
           nativeBuildInputs = with pkgs; [
-            rustToolchain
             pkg-config
             protobuf    # protoc for tonic_build codegen (build.rs)
             makeWrapper
-            rustPlatform.cargoSetupHook
           ];
 
           # Link-time deps: fontconfig + xkbcommon for Slint/winit, and the
@@ -636,8 +651,29 @@
             libxkbcommon libxkbcommon.dev
             zlib zlib.dev
           ] ++ linuxPkgs;
+        };
 
-          cargoDeps = desktopCargoDeps;
+        # Dependency layer built from stubbed sources — build.rs is a stub
+        # there too, so neither protoc codegen nor librockboxd.a is involved.
+        desktopDeps = craneLib.buildDepsOnly (desktopCommonArgs // {
+          pname = "rockbox-desktop-deps";
+          src   = desktopManifests;
+          buildPhaseCargoCommand = "cargo build --release --locked";
+          doCheck = false;
+        });
+
+        rockboxDesktop = craneLib.mkCargoDerivation (desktopCommonArgs // {
+          src = desktopSrc;
+
+          # Build from desktop/ (own Cargo.lock); the ../crates/rpc/proto
+          # symlink target and ../zig/zig-out/lib (injected below) resolve
+          # against the sibling dirs of the unpacked source root.
+          sourceRoot = "source/desktop";
+
+          cargoArtifacts = desktopDeps;
+          # Explicit: the default would look for Cargo.lock at desktopSrc's
+          # root (the repo root), where there is none.
+          cargoVendorDir = craneLib.vendorCargoDeps { src = desktopManifests; };
 
           # Place librockboxd.a where desktop/build.rs probes for it
           # ($CARGO_MANIFEST_DIR/../zig/zig-out/lib) — without it the build
@@ -651,20 +687,12 @@
             cp ${rockboxd.lib}/lib/librockboxd.a ../zig/zig-out/lib/
           '';
 
-          # --locked: the committed lock pins slint-build 1.17.1 (since
-          # yanked); a fresh resolution would fail, the locked graph vendors
-          # fine.
-          buildPhase = ''
-            runHook preBuild
-            cargo build --release --locked
-            runHook postBuild
-          '';
+          buildPhaseCargoCommand = "cargo build --release --locked";
 
           # Mirrors desktop/package-linux.sh: binary + .desktop entry + icon.
           # The built-in skins are embedded in the binary; user skins load
           # from ~/.config/rockbox.org/skins/ at runtime.
-          installPhase = ''
-            runHook preInstall
+          installPhaseCommand = ''
             mkdir -p $out/bin $out/share/applications $out/share/pixmaps
             install -m 0755 target/release/rockbox-desktop $out/bin/rockbox-desktop
             install -m 0644 ../macos/Rockbox/Assets.xcassets/AppIcon.appiconset/256.png \
@@ -679,7 +707,6 @@
             Type=Application
             Categories=AudioVideo;Audio;Player;
             DESKTOP
-            runHook postInstall
           '';
 
           # winit/Slint dlopen their windowing + GL stack at runtime (they are
@@ -707,7 +734,7 @@
             platforms   = [ "x86_64-linux" "aarch64-linux" ];
             mainProgram = "rockbox-desktop";
           };
-        };
+        });
 
       in
       {
