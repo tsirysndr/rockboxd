@@ -47,5 +47,18 @@ jobs:
       - name: nix build .#rockbox-rustlibs
         run: nix build --print-build-logs ".#rockbox-rustlibs"
 
+      # Some attributes are platform-scoped (e.g. .#rockbox-desktop is
+      # Linux-only): probe the attribute first and skip — rather than fail —
+      # on runners whose system doesn't package it. Any other evaluation
+      # error still fails the job.
       - name: nix build ${{ inputs.target }}
-        run: nix build --print-build-logs "${{ inputs.target }}"
+        run: |
+          target="${{ inputs.target }}"
+          if out=$(nix eval --raw "${target}.drvPath" 2>&1); then
+            nix build --print-build-logs "$target"
+          elif grep -q "does not provide attribute" <<< "$out"; then
+            echo "==> $target is not packaged for this system — skipping."
+          else
+            echo "$out" >&2
+            exit 1
+          fi
