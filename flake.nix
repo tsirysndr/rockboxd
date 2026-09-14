@@ -643,6 +643,10 @@
           # ($CARGO_MANIFEST_DIR/../zig/zig-out/lib) — without it the build
           # silently degrades to a remote-only client.
           preBuild = ''
+            # unpackPhase only chmods the sourceRoot (source/desktop) u+w;
+            # the parent stays store-read-only, so open it up before adding
+            # the zig/ tree next to desktop/.
+            chmod u+w ..
             mkdir -p ../zig/zig-out/lib
             cp ${rockboxd.lib}/lib/librockboxd.a ../zig/zig-out/lib/
           '';
