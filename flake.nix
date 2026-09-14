@@ -607,7 +607,7 @@
               ./desktop/Cargo.lock
             ];
           };
-          hash = lib.fakeHash;
+          hash = "sha256-1k1aSYBzyDo202sQcfrScQZTXNHqM+p7mXR5GB+04Fc=";
         };
 
         rockboxDesktop = pkgs.stdenv.mkDerivation {
