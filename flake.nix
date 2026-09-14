@@ -819,6 +819,7 @@
             bun
             deno
             nodejs     # expo/metro tooling (npx, react-native CLI) needs node
+            mise       # per-project tool-version / task manager
             # tools/console — babashka runs bb.edn tasks, clojure runs the
             # deps.edn REPL aliases (clj -M:rebel / nREPL); both need a JDK.
             jdk
