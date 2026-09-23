@@ -26,6 +26,7 @@ pub(crate) static PLAYLIST_DIRTY: AtomicBool = AtomicBool::new(false);
 
 pub mod analysis;
 pub mod cache;
+pub mod fingerprint;
 pub mod handlers;
 pub mod http;
 pub mod kv;
@@ -243,6 +244,8 @@ async fn run_http_server() -> Result<(), Error> {
     player_events::listen_for_playback_changes(player.clone(), pool.clone());
     // Key/BPM backfill — one file a second until every local track has a key.
     analysis::start(pool.clone());
+    // Chromaprint fingerprints, and the AcoustID tag completion they unlock.
+    fingerprint::start(pool.clone());
 
     let state = web::Data::new(AppState {
         pool,

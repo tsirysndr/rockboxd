@@ -155,6 +155,30 @@ pub async fn create_connection_pool() -> Result<Pool<Sqlite>, Error> {
         Err(_) => warn!("waveform column already exists"),
     }
 
+    // Chromaprint fingerprint + AcoustID columns, written by the fingerprint
+    // pass (crates/server's fingerprint module). Plain ALTERs again, so this
+    // fails harmlessly once applied — which is why the indexes over those
+    // columns are a separate, idempotent script run unconditionally after it.
+    match pool
+        .execute(include_str!(
+            "../migrations/20260923000000_add_fingerprint.sql"
+        ))
+        .await
+    {
+        Ok(_) => {}
+        Err(_) => warn!("fingerprint columns already exist"),
+    }
+
+    match pool
+        .execute(include_str!(
+            "../migrations/20260923000001_add_fingerprint_indexes.sql"
+        ))
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => warn!("fingerprint indexes: {}", e),
+    }
+
     // dedupe_genres modifies schema (DROP TABLE + RENAME) so it must run
     // synchronously before we return the pool. The skip guard makes it a
     // no-op O(1) check on every subsequent startup.

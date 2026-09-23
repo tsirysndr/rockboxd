@@ -779,6 +779,32 @@ pub struct NewGlobalSettings {
     /// the local library. Absent → we fall back to Last.fm's name-only
     /// output.
     pub musicbrainz_user_agent: Option<String>,
+    /// Compute a Chromaprint acoustic fingerprint for every local track
+    /// (default: true). Fingerprints are stored in the library database and
+    /// are what makes two copies of the same recording — a FLAC and its MP3 —
+    /// recognisable as duplicates. Set to `false` to skip the pass entirely.
+    pub fingerprint_enabled: Option<bool>,
+    /// How many files the fingerprint pass decodes at once. Defaults to half
+    /// the machine's cores, capped at 4 — enough to use an idle machine,
+    /// few enough that playback never competes with it for disk or CPU.
+    pub fingerprint_concurrency: Option<u32>,
+    /// AcoustID API key. When set, fingerprints are looked up against
+    /// <https://acoustid.org> and the MusicBrainz recordings they resolve to
+    /// are used to fill in tags a file never had — what MusicBrainz Picard
+    /// does. Absent → fingerprints are still computed, but nothing is looked
+    /// up. Keys are free: <https://acoustid.org/new-application>. The
+    /// `ACOUSTID_API_KEY` environment variable overrides this.
+    pub acoustid_api_key: Option<String>,
+    /// Look fingerprints up against AcoustID (default: true when a key is
+    /// set). Set to `false` to keep fingerprinting locally while making no
+    /// network requests.
+    pub acoustid_enabled: Option<bool>,
+    /// Also write identified metadata into the audio files themselves, the way
+    /// Picard does (default: false). Only fields the file left empty are ever
+    /// written — an existing tag is never overwritten — but this does modify
+    /// the user's files, so it is opt-in. Off, identified metadata goes to the
+    /// library database only.
+    pub acoustid_write_tags: Option<bool>,
 }
 
 impl From<UserSettings> for NewGlobalSettings {
@@ -857,6 +883,11 @@ impl From<UserSettings> for NewGlobalSettings {
             s3_secret_key: None,
             lastfm_api_key: None,
             musicbrainz_user_agent: None,
+            fingerprint_enabled: None,
+            fingerprint_concurrency: None,
+            acoustid_api_key: None,
+            acoustid_enabled: None,
+            acoustid_write_tags: None,
         }
     }
 }

@@ -27,6 +27,7 @@ rockbox-chromecast = {path = "../chromecast"}
 rockbox-slim = {path = "../slim"}
 rockbox-upnp = {path = "../upnp"}
 rockbox-discovery = {path = "../discovery"}
+rockbox-fingerprint = {path = "../fingerprint"}
 rockbox-graphql = {path = "../graphql"}
 rockbox-library = {path = "../library"}
 rockbox-playlists = {path = "../playlists"}

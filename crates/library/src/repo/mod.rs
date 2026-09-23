@@ -3,6 +3,7 @@ pub mod album_tracks;
 pub mod artist;
 pub mod artist_tracks;
 pub mod favourites;
+pub mod fingerprint;
 pub mod folder;
 pub mod genre;
 pub(crate) mod name_filter;

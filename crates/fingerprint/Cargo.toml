@@ -1,0 +1,25 @@
+[package]
+authors = ["Tsiry Sandratraina <tsiry.sndr@rocksky.app>"]
+description = "Chromaprint acoustic fingerprints and AcoustID/MusicBrainz tag completion"
+edition = "2021"
+license = "MIT"
+name = "rockbox-fingerprint"
+version = "0.1.0"
+
+[dependencies]
+anyhow = "1.0.89"
+base64 = { workspace = true }
+lofty = "0.21.1"
+reqwest = { version = "0.12.5", features = [
+  "rustls-tls-native-roots",
+  "json",
+], default-features = false }
+# Pure-Rust port of Chromaprint: same algorithm (TEST2 / algorithm 2) and the
+# same compressed wire format fpcalc emits, with no C++ toolchain, no
+# libstdc++ to drag through the Android/iOS cross builds, and nothing to
+# dlopen — it links statically into librockboxd.a like every other rlib.
+rusty-chromaprint = "0.3.0"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3", "pcm", "aac", "alac", "isomp4", "vorbis", "ogg", "wav", "adpcm"] }
+tracing = { workspace = true }

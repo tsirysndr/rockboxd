@@ -44,6 +44,7 @@ crates/            Rust workspace
   settings/        load_settings() — reads settings.toml, applies sinks
   sys/             FFI bindings to the C firmware (unsafe extern "C")
   library/         Audio file scanning and SQLite library management
+  fingerprint/     Chromaprint fingerprints + AcoustID/MusicBrainz tag completion
   typesense/       Typesense client for fast music search
   netstream/       HTTP streaming (Range-request based fd multiplexing)
   chromecast/      Chromecast output
@@ -179,6 +180,13 @@ s3_host = "0.0.0.0"            # optional, default "0.0.0.0"
 s3_access_key = "AKIA..."
 s3_secret_key = "wJalrXUt..."
 # region is fixed to "us-east-1"; bucket is fixed to "music"
+
+# Acoustic fingerprinting (see "Acoustic fingerprinting" below)
+fingerprint_enabled = true     # optional, default true
+fingerprint_concurrency = 4    # optional, default min(cores/2, 4)
+acoustid_api_key = "..."       # optional; absent → fingerprints only, no lookups
+acoustid_enabled = true        # optional, default true when a key is set
+acoustid_write_tags = false    # optional, default false (DB only, files untouched)
 ```
 
 Run one or more squeezelite clients pointing at rockboxd for multi-room:
@@ -206,6 +214,86 @@ with the watcher and double-insert.
 to fall back to single-shot signing), bucket CRUD, presigned URLs.
 Single PUT cap is 2 GiB. Uploads are restricted to audio extensions
 (same allowlist as the watcher's `AUDIO_EXTENSIONS`).
+
+## Acoustic fingerprinting
+
+`crates/fingerprint/` computes a [Chromaprint](https://acoustid.org/chromaprint)
+fingerprint for every local track and — with an AcoustID key — trades it for a
+MusicBrainz recording to fill in tags a file never had, the way MusicBrainz
+Picard does.
+
+Chromaprint is **`rusty-chromaprint`, a pure-Rust port**, not the C++ library.
+Same algorithm (TEST2 / algorithm 2, `fpcalc`'s default) and same compressed
+wire format, but it links statically like every other rlib — no C++ toolchain,
+no libstdc++ to drag through the Android/iOS cross builds, nothing to `dlopen`.
+
+### The pass — `crates/server/src/fingerprint.rs`
+
+Started from `start_servers()` alongside `analysis::start`. Two stages run
+concurrently on one background thread, each throttled by what it contends for:
+
+| Stage       | Bound    | Concurrency                             | Throttle               |
+| ----------- | -------- | --------------------------------------- | ---------------------- |
+| Fingerprint | CPU/disk | `fingerprint_concurrency` (default ≤ 4) | 2 s between batches    |
+| Identify    | Network  | strictly 1                              | 400 ms between lookups |
+
+Both start 60 s after boot (the key/BPM pass starts at 30 s) and idle-poll at
+5 min afterwards, so files the watcher adds later are picked up without a
+restart. Decoding happens in `spawn_blocking` behind a `buffer_unordered`
+limit — never on the async runtime.
+
+Only the first **120 seconds** are decoded (what `fpcalc` uses, and therefore
+what the AcoustID index was built from); the rest of the file is counted for
+duration only, because AcoustID matches on fingerprint *and* full duration.
+
+### Storage — `track` columns
+
+| Column                     | Meaning                                                        |
+| -------------------------- | -------------------------------------------------------------- |
+| `fingerprint`              | Compressed Chromaprint, base64url — the string `fpcalc` prints |
+| `fingerprint_duration`     | Whole-track seconds as decoded                                 |
+| `acoustid`                 | AcoustID UUID — stable across encodings, so it is the dupe key |
+| `musicbrainz_recording_id` | MBID behind that AcoustID                                      |
+
+**NULL means "not attempted"** and drives the work queue; **`''` means
+"attempted, nothing came back"** (undecodable file, or a recording AcoustID has
+never seen) and stops the pass retrying the same dead end every boot. The two
+are deliberately distinguishable — do not collapse them.
+
+`repo::fingerprint::duplicate_groups()` returns every set of tracks sharing an
+AcoustID: a FLAC and its MP3, or the same track from an album and a compilation.
+
+### Tag completion
+
+**Fill, never overwrite.** `repo::fingerprint::fill_unknown()` only touches
+fields the file left unknown — empty, the scanner's `Unknown Artist` /
+`Unknown Album` / `Unknown Title` placeholder, or (for title) the file's own
+name, which is what the scanner writes for a completely untagged file.
+
+Filling an artist or album is **never just an `UPDATE track`**: the library
+reaches tracks through `artist` / `album` rows and the join tables, so the fill
+also re-links `artist_tracks` / `album_tracks` and sweeps the placeholder rows
+it emptied. A half-applied fill — right name on the track row, still joined to
+"Unknown Artist" — reads worse in every UI than no fill at all.
+
+`acoustid_write_tags = true` additionally writes the identified fields into the
+audio file via lofty, plus the MusicBrainz IDs. **Off by default**: rewriting
+the user's music files is opt-in, not a background side effect.
+
+### Verifying against `fpcalc`
+
+```sh
+cargo run -p rockbox-fingerprint --example fpcalc -- track.flac
+fpcalc track.flac   # brew install chromaprint
+```
+
+Fed audio already at 11025 Hz the two are **byte-identical**. At any other rate
+they differ slightly — rusty-chromaprint resamples with rubato, Chromaprint with
+ffmpeg's resampler. Measured on a full-length 44.1 kHz MP3: 0.95 % of bits
+differ, 76 % of sub-fingerprints are identical, and `similarity()` scores the
+pair 1.0. Well inside what AcoustID tolerates (it exists to match a FLAC against
+its own 128 kbps re-encode, which differ by far more), so lookups work normally
+— but expect the strings not to be equal, and don't chase it as a bug.
 
 ## PCM sink architecture
 

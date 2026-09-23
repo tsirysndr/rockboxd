@@ -994,6 +994,11 @@ pub mod api {
                     s3_secret_key: None,
                     lastfm_api_key: None,
                     musicbrainz_user_agent: None,
+                    fingerprint_enabled: None,
+                    fingerprint_concurrency: None,
+                    acoustid_api_key: None,
+                    acoustid_enabled: None,
+                    acoustid_write_tags: None,
                 }
             }
         }
