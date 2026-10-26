@@ -1,0 +1,44 @@
+name: Dagger module checks
+on:
+  push:
+    paths:
+      - '.dagger/**'
+      - '.github/**'
+      - 'dagger.toml'
+      - 'mise.toml'
+  pull_request:
+    paths:
+      - '.dagger/**'
+      - '.github/**'
+      - 'dagger.toml'
+      - 'mise.toml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install PureScript development tools
+        run: npm install --global purescript@0.15.16 spago@1.0.5
+      - name: Compile the module without an engine
+        working-directory: .dagger/ci
+        run: spago build -p rockbox-ci --pedantic-packages
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install PyYAML==6.0.3
+      - name: Check module and workflow contracts
+        run: |
+          python .dagger/check.py
+          python .dagger/test_adapter.py
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache: false
+      - name: Lint workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/*.yml

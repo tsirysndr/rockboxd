@@ -1,23 +1,19 @@
 name: release slint desktop app
-
-on:
+'on':
   release:
-    types: [published]
+    types:
+      - published
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to attach the archives to"
+        description: Existing tag to attach the archives to
         type: string
         required: true
-
 jobs:
   build:
     runs-on: ${{ matrix.os }}
-    # Skip SDK / language-binding releases — those tags publish libraries,
-    # not the desktop app.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (!startsWith(github.event.release.tag_name, 'clojure-v') &&
+    if: |-
+      github.event_name == 'workflow_dispatch' || (!startsWith(github.event.release.tag_name, 'clojure-v') &&
        !startsWith(github.event.release.tag_name, 'clojure-ffi-v') &&
        !startsWith(github.event.release.tag_name, 'bindings-v') &&
        !startsWith(github.event.release.tag_name, 'elixir-v') &&
@@ -25,7 +21,6 @@ jobs:
        !startsWith(github.event.release.tag_name, 'gleam-v'))
     permissions:
       contents: write
-
     strategy:
       fail-fast: false
       matrix:
@@ -36,12 +31,10 @@ jobs:
             target: linux-x86_64
           - os: ubuntu-24.04-arm
             target: linux-aarch64
-
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
-
+          submodules: recursive
       - name: Resolve version
         id: vars
         run: |
@@ -54,13 +47,23 @@ jobs:
           else
             echo "archive=rockbox-desktop-${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
-
+      - uses: ./.github/actions/setup-dagger
+        if: runner.os == 'Linux'
+      - name: Run desktop with Dagger
+        env:
+          CI_JOB: desktop
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          TAG: ${{ steps.vars.outputs.version }}
+          ARCHIVE: ${{ steps.vars.outputs.archive }}
+          TARGET: ${{ matrix.target }}
+        run: bash .dagger/ci.sh "$CI_JOB"
+        if: runner.os == 'Linux'
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-
+        if: runner.os != 'Linux'
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-
+        if: runner.os != 'Linux'
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -69,125 +72,69 @@ jobs:
             ~/.cargo/git
           key: slint-desktop-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: slint-desktop-${{ matrix.target }}-
-
-      # llvm@22 crashes in setSymbolInRelocationInfo on Mach-O — use llvm@21
+        if: runner.os != 'Linux'
       - name: Install macOS dependencies
-        if: runner.os == 'macOS'
+        if: runner.os != 'Linux' && (runner.os == 'macOS')
         run: |
           brew install llvm@21 cmake protobuf
           echo "/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin" >> $GITHUB_PATH
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libunwind-dev \
-            libasound2-dev \
-            libdbus-1-dev \
-            libfontconfig1-dev \
-            libxkbcommon-dev \
-            protobuf-compiler \
-            curl \
-            wget \
-            zip \
-            unzip \
-            cmake
-
       - name: Set Rust flags
         run: echo "RUSTFLAGS=-A warnings" >> $GITHUB_ENV
-
-      # The web UIs are embedded into rockbox-server, which librockboxd.a
-      # links for the in-process daemon.
+        if: runner.os != 'Linux'
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-
+        if: runner.os != 'Linux'
       - name: Build Web UI
         run: |
           cd webui/rockbox
           deno install
           deno run build
           rm -r node_modules
-
+        if: runner.os != 'Linux'
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
+        if: runner.os != 'Linux'
       - name: Install admin UI dependencies
         working-directory: crates/s3/s3webui
         run: bun install --frozen-lockfile
-
+        if: runner.os != 'Linux'
       - name: Build admin UI
         working-directory: crates/s3/s3webui
         run: |
           bun run build
           rm -r node_modules
-
-      # ── Embedded daemon: headless firmware → rockbox-embed → librockboxd.a ─
+        if: runner.os != 'Linux'
       - name: Build headless firmware
         run: bash scripts/build-headless.sh
-
+        if: runner.os != 'Linux'
       - name: Build rockbox-embed
-        # Drop the archive first so cargo always re-links it from the current
-        # deps, then assert the daemon entry point is exported — an embed-side
-        # break should fail here, not as an undefined symbol in the desktop
-        # link several minutes later.
-        run: |
-          rm -f target/release/librockbox_embed.a
-          cargo build --release --locked -p rockbox-embed
-          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
-            | grep rb_daemon_start \
-            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
-
+        run: "rm -f target/release/librockbox_embed.a\ncargo build --release --locked -p rockbox-embed\nnm --defined-only\
+          \ target/release/librockbox_embed.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT\
+          \ in librockbox_embed.a \u2014 abort\"; exit 1; }\n"
+        if: runner.os != 'Linux'
       - name: Build librockboxd.a
-        # Same staleness defence one layer up. zig/build.zig runs
-        # scripts/flatten-archive.sh (both macOS and Linux) which already
-        # asserts rb_daemon_start survived the repack; re-checking here keeps
-        # the failure visible even if a future build.zig drops that step.
-        run: |
-          rm -f zig/zig-out/lib/librockboxd.a
-          cd zig
-          zig build lib -Doptimize=ReleaseFast
-          cd ..
-          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
-            | grep rb_daemon_start \
-            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
-
-      # ── Slint desktop app (links librockboxd.a via desktop/build.rs) ──────
-      # --locked: the committed lock pins slint-build 1.17.1 (since yanked);
-      # a fresh resolution would fail, the locked graph still downloads fine.
+        run: "rm -f zig/zig-out/lib/librockboxd.a\ncd zig\nzig build lib -Doptimize=ReleaseFast\ncd ..\nnm --defined-only\
+          \ zig/zig-out/lib/librockboxd.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in\
+          \ librockboxd.a \u2014 abort\"; exit 1; }\n"
+        if: runner.os != 'Linux'
       - name: Build desktop app
         working-directory: desktop
         run: cargo build --release --locked
-
-      # Rockbox.app + Rockbox.dmg — icon from the shared appiconset, Info.plist
-      # with the Bonjour entries the embedded daemon needs on macOS 15+, ad-hoc
-      # signed. SKIP_BUILD: the binary was built in the previous step.
+        if: runner.os != 'Linux'
       - name: Package (macOS .app + .dmg)
         if: runner.os == 'macOS'
         env:
-          SKIP_BUILD: "1"
+          SKIP_BUILD: '1'
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           bash desktop/package-macos.sh
           mv desktop/dist/Rockbox.dmg "${{ steps.vars.outputs.archive }}"
-
-      - name: Package (Linux tarball)
-        if: runner.os == 'Linux'
-        run: |
-          STAGE=rockbox-desktop-${{ steps.vars.outputs.version }}-${{ matrix.target }}
-          mkdir -p "$STAGE"
-          cp desktop/target/release/rockbox-desktop "$STAGE/"
-          cp desktop/README.md "$STAGE/"
-          cp -r desktop/skins "$STAGE/skins"
-          tar -czf "${{ steps.vars.outputs.archive }}" "$STAGE"
-
       - name: Upload to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.vars.outputs.archive }}
           tag_name: ${{ steps.vars.outputs.version }}

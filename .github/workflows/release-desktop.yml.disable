@@ -1,15 +1,4 @@
 name: release desktop
-on:
-  push:
-    tags:
-      - "*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "The existing tag to publish"
-        type: "string"
-        required: true
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -18,35 +7,24 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Fluent CI and build webui
-        uses: fluentci-io/setup-fluentci@v5
-        with:
-          wasm: true
-          plugin: bun
-          args: |
-            run build:electron
-          working-directory: webui/rockbox
+      - uses: ./.github/actions/setup-dagger
+      - run: bash .dagger/ci.sh electron
+      - name: Checksum and publish Electron artifacts
         env:
-          GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: List files
-        run: ls -ltr release/*
-        working-directory: webui/rockbox
-      - name: Prepare release assets
-        run: |
-          shasum -a 256 rockbox_${{ env.RELEASE_VERSION }}.AppImage > rockbox_${{ env.RELEASE_VERSION }}.AppImage.sha256
-          shasum -a 256 rockbox_${{ env.RELEASE_VERSION }}.tar.gz > rockbox_${{ env.RELEASE_VERSION }}.tar.gz.sha256
-        working-directory: webui/rockbox/release/${{ env.RELEASE_VERSION }}
-        env:
-          RELEASE_VERSION: v${{ inputs.tag || github.ref_name }}
-      - name: Upload release assets
-        run: |
-          for ext in tar.gz AppImage tar.gz.sha256 AppImage.sha256; do
-            export FILE=rockbox_${{ env.RELEASE_VERSION }}.$ext
-            fluentci run --wasm github release_upload $TAG $FILE
-          done
-        env:
-          RELEASE_VERSION: v${{ inputs.tag || github.ref_name }}
           TAG: ${{ inputs.tag || github.ref_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: webui/rockbox/release/${{ env.RELEASE_VERSION }}
+        run: |
+          mapfile -t files < <(find webui/rockbox/release -type f \( -name '*.AppImage' -o -name '*.tar.gz' \))
+          [ "${#files[@]}" -gt 0 ]
+          for file in "${files[@]}"; do sha256sum "$file" > "$file.sha256"; done
+          gh release upload "$TAG" "${files[@]}" webui/rockbox/release/*/*.sha256 --clobber
+'on':
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to publish
+        type: string
+        required: true

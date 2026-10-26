@@ -1,105 +1,22 @@
 name: android-aarch64-check
-
-on:
+'on':
   push:
     branches:
-      - "**"
-  pull_request:
-
+      - '**'
+  pull_request: null
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -A warnings
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            protobuf-compiler cmake ninja-build
-
-      - name: Set up Android NDK
-        run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
-          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
-
-      - uses: denoland/setup-deno@v2
-
-      - name: Build Web UI
-        run: |
-          cd webui/rockbox
-          deno install
-          deno run build
-          deno clean
-          rm -rf node_modules
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install admin UI dependencies
-        working-directory: crates/s3/s3webui
-        run: bun install --frozen-lockfile
-
-      - name: Build admin UI
-        working-directory: crates/s3/s3webui
-        run: bun run build
-
-      - name: Add Android Rust target
-        run: rustup target add aarch64-linux-android
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      - name: Cache Cargo registry and git
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: android-aarch64-check-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: android-aarch64-check-cargo-
-
-      - name: Cache Cargo build artifacts
-        uses: actions/cache@v4
-        with:
-          path: target/
-          key: android-aarch64-check-target-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: android-aarch64-check-target-
-
-      #- name: Cache Android firmware build
-      #  uses: actions/cache@v4
-      #   with:
-      #     path: build-android-arm64/
-      #     key: android-aarch64-check-firmware-${{ hashFiles('firmware/**', 'apps/**', 'lib/**', 'tools/configure') }}
-      #     restore-keys: android-aarch64-check-firmware-
-
-      - name: Build Android firmware (C static libs)
-        run: |
-          mkdir -p build-android-arm64
-          rm -f build-android-arm64/make.dep
-          cd build-android-arm64
-          printf "205\n" | \
-            ANDROID_TARGET_ABI=arm64-v8a ANDROID_API_LEVEL=26 \
-            ARG_LCDWIDTH=320 ARG_LCDHEIGHT=480 \
-            ../tools/configure
-          make -j$(nproc) lib
-
-      - name: Build Rust cdylib (rockbox-expo, aarch64)
+          submodules: recursive
+      - uses: ./.github/actions/setup-dagger
+      - name: Run android-check with Dagger
         env:
-          FEATURES: embedded-daemon
-          PROFILE: release
-        run: bash expo/modules/rockbox-rpc/scripts/build-android.sh
-
-      - name: Show built .so
-        run: find expo/modules/rockbox-rpc/android/src/main/jniLibs -name '*.so' -exec ls -lh {} \;
+          CI_JOB: android-check
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+        run: bash .dagger/ci.sh "$CI_JOB"

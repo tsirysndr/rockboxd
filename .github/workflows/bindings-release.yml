@@ -1,37 +1,17 @@
 name: bindings-release
-
-# Build librockbox_ffi for macOS + Linux + FreeBSD/NetBSD, package the prebuilt
-# binary into the Ruby / Python / TypeScript bindings, and attach every
-# artifact to a GitHub Release. No registry tokens required — uploads use the
-# built-in GITHUB_TOKEN.
-#
-# Manually triggerable (workflow_dispatch, pick a tag) or on a `bindings-v*`
-# tag push. Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64 (native
-# runners); freebsd-x64, netbsd-x64 (vmactions VMs); android-arm64, android-x64
-# (NDK cross-compile, bundled into the Kotlin artifact). BSD and Android jobs
-# are continue-on-error and every packaging step skips a target whose artifact
-# is missing, so a flaky build never blocks the macOS/Linux release.
-
-on:
+'on':
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create / upload assets to"
+        description: Release tag to create / upload assets to
         required: true
-        default: "bindings-v0.2.0"
+        default: bindings-v0.2.0
   push:
     tags:
-      - "bindings-v*"
-
+      - bindings-v*
 permissions:
   contents: read
-
 jobs:
-  # 0. Single source of truth for the release version: derive it from the tag
-  # (`bindings-v0.2.0` -> `0.2.0`) so every packaged artifact — Ruby gem,
-  # Python wheel, npm tarball — carries the same version as the release. No
-  # manifest is trusted for the version; they are all stamped from this output
-  # before packaging, so the tag alone drives everything.
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -53,8 +33,6 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "release tag=${tag} -> package version=${version}"
-
-  # 1. Build the shared library on a native runner per target.
   build-lib:
     name: build-lib (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -78,18 +56,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
+      - uses: ./.github/actions/setup-dagger
+        if: runner.os == 'Linux'
+      - name: Run ffi with Dagger
+        env:
+          CI_JOB: ffi
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          LIBFILE: ${{ matrix.libfile }}
+        run: bash .dagger/ci.sh "$CI_JOB"
+        if: runner.os == 'Linux'
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Install Linux audio deps
-        if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config
-
+        if: runner.os != 'Linux'
       - name: Build librockbox_ffi
         run: cargo build --release -p rockbox-ffi
-
+        if: runner.os != 'Linux'
       - name: Stage binaries
         run: |
           mkdir -p out
@@ -97,14 +77,12 @@ jobs:
           # RockboxFFI product bundles it). Both fall out of the one build.
           cp "target/release/${{ matrix.libfile }}" "out/${{ matrix.libfile }}"
           cp "target/release/librockbox_ffi.a" "out/librockbox_ffi.a"
-
+        if: runner.os != 'Linux'
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-${{ matrix.target }}
           path: out/
           if-no-files-found: error
-
-  # 1b. FreeBSD amd64 — built inside a VM (no native GitHub runner).
   build-lib-freebsd:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -128,8 +106,6 @@ jobs:
           name: librockbox_ffi-freebsd-x64
           path: out/
           if-no-files-found: error
-
-  # 1c. NetBSD amd64 — built inside a VM (no native GitHub runner).
   build-lib-netbsd:
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -152,70 +128,41 @@ jobs:
           name: librockbox_ffi-netbsd-x64
           path: out/
           if-no-files-found: error
-
-  # 1d. iOS static archives — device + simulator, cross-compiled on a macOS
-  # runner. Only the static lib is produced/used: an iOS app links it in (it
-  # can't dlopen an arbitrary library), so these feed the xcframework only and
-  # are not wired into the dlopen Ruby / Python / npm bindings.
   build-lib-ios:
     name: build-lib-ios (${{ matrix.target }})
     runs-on: macos-latest
-    # Deployment floor for both the Rust codegen and the cc-compiled C objects
-    # (rustc + cc both honour *_DEPLOYMENT_TARGET). Without it the build picks
-    # the host SDK's version, pinning the xcframework to a bleeding-edge iOS.
-    # Matches Package.swift's .iOS(.v14).
     env:
-      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+      IPHONEOS_DEPLOYMENT_TARGET: '14.0'
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Device (arm64) — plain triple, no bindgen override needed.
           - target: aarch64-apple-ios
-            bindgen: ""
-          # Simulator slices. coreaudio-sys runs bindgen, and libclang rejects
-          # the `-sim` triple ("version 'sim' … is invalid"), so hand it an
-          # explicit `-simulator` target. The x86_64 slice gets the matching
-          # arch so its objects are tagged IOSSIMULATOR, not IOS.
+            bindgen: ''
           - target: aarch64-apple-ios-sim
-            bindgen: "--target=arm64-apple-ios14.0-simulator"
+            bindgen: --target=arm64-apple-ios14.0-simulator
           - target: x86_64-apple-ios
-            bindgen: "--target=x86_64-apple-ios14.0-simulator"
+            bindgen: --target=x86_64-apple-ios14.0-simulator
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
-
-      # staticlib only: the cdylib crate-type doesn't link for iOS (a shared
-      # library must resolve every symbol up front, and some codec objects
-      # aren't reachable that way) — and an iOS app links the .a anyway, so the
-      # cdylib is never needed. --crate-type overrides Cargo.toml's list.
       - name: Build librockbox_ffi.a
         env:
           BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.bindgen }}
         run: cargo rustc --release -p rockbox-ffi --target ${{ matrix.target }} --crate-type staticlib
-
       - name: Stage archive
         run: |
           mkdir -p out
           cp "target/${{ matrix.target }}/release/librockbox_ffi.a" out/librockbox_ffi.a
-
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-ios-${{ matrix.target }}
           path: out/
           if-no-files-found: error
-
-  # 1e. Android shared libraries — cross-compiled with the NDK via cargo-ndk.
-  # The Kotlin artifact bundles these so an Android app depending on it gets
-  # arm64-v8a + x86_64 slices packaged into its APK. cpal selects its Oboe
-  # backend on `target_os = "android"`, so the NDK clang/libc++ toolchain (and
-  # libclang for oboe-sys' bindgen) is required. continue-on-error mirrors the
-  # BSD jobs: a flaky Android cross-build never blocks the macOS/Linux release.
   build-lib-android:
     name: build-lib-android (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -234,281 +181,110 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Install oboe-sys build deps (libclang for bindgen)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: ${{ matrix.rust }}
-
-      # GitHub's ubuntu runners ship an NDK under $ANDROID_NDK_LATEST_HOME;
-      # cargo-ndk reads ANDROID_NDK_HOME to locate the toolchain.
-      - name: Point cargo-ndk at the runner's NDK
-        run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      # --platform 26 matches the rest of the repo's Android builds (min API 26,
-      # which AAudio/Oboe needs). cargo-ndk writes jniout/<abi>/librockbox_ffi.so.
-      - name: Build librockbox_ffi.so (${{ matrix.abi }})
-        run: |
-          cargo ndk -t ${{ matrix.abi }} --platform 26 -o jniout \
-            build --release -p rockbox-ffi
-
-      - name: Stage binary
-        run: |
-          mkdir -p out
-          cp "jniout/${{ matrix.abi }}/librockbox_ffi.so" out/librockbox_ffi.so
-
+      - uses: ./.github/actions/setup-dagger
+      - name: Run android-ffi with Dagger
+        env:
+          CI_JOB: android-ffi
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          ABI: ${{ matrix.abi }}
+          RUST_TARGET: ${{ matrix.rust }}
+        run: bash .dagger/ci.sh "$CI_JOB"
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-${{ matrix.target }}
           path: out/
           if-no-files-found: error
-
-  # 2a. Ruby platform gems (packaging is host-independent — build all on one runner).
   ruby:
-    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd]
+    needs:
+      - version
+      - build-lib
+      - build-lib-freebsd
+      - build-lib-netbsd
     runs-on: ubuntu-latest
     env:
       BINDING_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-
+          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Stamp gem version from release tag
-        working-directory: bindings/ruby
-        run: |
-          set -euxo pipefail
-          # gem build reads RockboxFFI::VERSION from version.rb; keep it in lock-
-          # step with the -o filename (BINDING_VERSION) so the gem's internal
-          # version matches its filename and the release tag.
-          printf 'module RockboxFFI\n  VERSION = "%s"\nend\n' "$BINDING_VERSION" \
-            > lib/rockbox_ffi/version.rb
-
-      - name: Build platform gems
-        working-directory: bindings/ruby
-        run: |
-          set -euxo pipefail
-          declare -A PLAT=(
-            [darwin-arm64]=arm64-darwin
-            [darwin-x64]=x86_64-darwin
-            [linux-x64]=x86_64-linux
-            [linux-arm64]=aarch64-linux
-            [freebsd-x64]=x86_64-freebsd
-            [netbsd-x64]=x86_64-netbsd
-          )
-          declare -A LIB=(
-            [darwin-arm64]=librockbox_ffi.dylib
-            [darwin-x64]=librockbox_ffi.dylib
-            [linux-x64]=librockbox_ffi.so
-            [linux-arm64]=librockbox_ffi.so
-            [freebsd-x64]=librockbox_ffi.so
-            [netbsd-x64]=librockbox_ffi.so
-          )
-          mkdir -p pkg
-          for target in "${!PLAT[@]}"; do
-            src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
-            if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
-            rm -rf vendor && mkdir vendor
-            cp "$src" vendor/
-            ROCKBOX_GEM_PLATFORM="${PLAT[$target]}" gem build rockbox_ffi.gemspec -o "pkg/rockbox_ffi-${BINDING_VERSION}-${PLAT[$target]}.gem"
-          done
-          rm -rf vendor
-          # source gem (fallback for unlisted platforms / repo checkouts)
-          gem build rockbox_ffi.gemspec -o "pkg/rockbox_ffi-${BINDING_VERSION}.gem"
-          ls -l pkg
-
+      - uses: ./.github/actions/setup-dagger
+      - name: Run package-ruby with Dagger
+        env:
+          CI_JOB: package-ruby
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          BINDING_VERSION: ${{ needs.version.outputs.version }}
+        run: bash .dagger/ci.sh "$CI_JOB"
       - uses: actions/upload-artifact@v4
         with:
           name: ruby-gems
           path: bindings/ruby/pkg/*.gem
-
-  # 2b. Python wheels. Every target just re-tags the pure wheel with its
-  # platform tag — libasound is a documented system dependency that is
-  # deliberately NOT vendored (a bundled libasound can't reliably dlopen the
-  # host's ALSA plugins cross-arch anyway), so auditwheel added nothing beyond
-  # the manylinux tag. BSD wheels are best-effort — pip falls back to the
-  # sdist when the tag does not match.
   python:
-    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd]
+    needs:
+      - version
+      - build-lib
+      - build-lib-freebsd
+      - build-lib-netbsd
     runs-on: ubuntu-latest
     env:
       BINDING_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
+          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Stamp wheel version from release tag
-        working-directory: bindings/python
-        run: |
-          set -euxo pipefail
-          # Pin the first (project) `version = "..."` in pyproject.toml to the tag.
-          sed -i "0,/^version = .*/s//version = \"${BINDING_VERSION}\"/" pyproject.toml
-          grep -m1 '^version = ' pyproject.toml
-
-      - name: Install build tooling
-        run: pip install build wheel
-
-      - name: Build wheels
-        working-directory: bindings/python
-        run: |
-          set -euxo pipefail
-          declare -A LIB=(
-            [darwin-arm64]=librockbox_ffi.dylib
-            [darwin-x64]=librockbox_ffi.dylib
-            [linux-x64]=librockbox_ffi.so
-            [linux-arm64]=librockbox_ffi.so
-            [freebsd-x64]=librockbox_ffi.so
-            [netbsd-x64]=librockbox_ffi.so
-          )
-          declare -A TAG=(
-            [darwin-arm64]=macosx_11_0_arm64
-            [darwin-x64]=macosx_10_12_x86_64
-            # Both Linux runners are ubuntu-24.04 (glibc 2.39); tag one manylinux
-            # level below so the wheels also install on glibc 2.38 hosts.
-            # libasound is a system dependency, not vendored (see note above).
-            [linux-x64]=manylinux_2_38_x86_64
-            [linux-arm64]=manylinux_2_38_aarch64
-            [freebsd-x64]=freebsd_13_amd64
-            [netbsd-x64]=netbsd_10_amd64
-          )
-          mkdir -p wheelhouse
-          python -m build --sdist --outdir wheelhouse
-          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64; do
-            src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
-            if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
-            rm -rf src/rockbox_ffi/_lib dist && mkdir -p src/rockbox_ffi/_lib
-            cp "$src" src/rockbox_ffi/_lib/
-            python -m build --wheel --outdir dist
-            python -m wheel tags --platform-tag "${TAG[$target]}" --remove dist/*.whl
-            cp dist/*.whl wheelhouse/
-          done
-          rm -rf src/rockbox_ffi/_lib
-          ls -l wheelhouse
-
+      - uses: ./.github/actions/setup-dagger
+      - name: Run package-python with Dagger
+        env:
+          CI_JOB: package-python
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          BINDING_VERSION: ${{ needs.version.outputs.version }}
+        run: bash .dagger/ci.sh "$CI_JOB"
       - uses: actions/upload-artifact@v4
         with:
           name: python-wheels
           path: bindings/python/wheelhouse/*
-
-  # 2c. npm: pack the main package + per-platform binary packages into tarballs.
   npm:
-    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd]
+    needs:
+      - version
+      - build-lib
+      - build-lib-freebsd
+      - build-lib-netbsd
     runs-on: ubuntu-latest
     env:
       BINDING_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          submodules: recursive
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Stamp npm versions from release tag
-        working-directory: bindings/typescript
-        run: |
-          set -euxo pipefail
-          # Bump the main package, every per-platform package, and the main
-          # package's optionalDependencies (which must pin the exact per-platform
-          # version) all to the tag — otherwise `npm install rockbox-ffi` pulls a
-          # stale prebuilt-binary package.
-          node -e '
-            const fs = require("fs");
-            const v = process.env.BINDING_VERSION;
-            const main = "package.json";
-            const m = JSON.parse(fs.readFileSync(main, "utf8"));
-            m.version = v;
-            for (const k of Object.keys(m.optionalDependencies || {})) {
-              m.optionalDependencies[k] = v;
-            }
-            fs.writeFileSync(main, JSON.stringify(m, null, 2) + "\n");
-            for (const d of fs.readdirSync("npm", { withFileTypes: true })) {
-              if (!d.isDirectory()) continue;
-              const p = `npm/${d.name}/package.json`;
-              if (!fs.existsSync(p)) continue;
-              const j = JSON.parse(fs.readFileSync(p, "utf8"));
-              j.version = v;
-              fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
-            }
-            console.log("stamped npm packages to", v);
-          '
-
-      - name: Build dist, stage binaries, pack tarballs
-        working-directory: bindings/typescript
-        run: |
-          set -euxo pipefail
-          bun install
-          bun run build
-          declare -A LIB=(
-            [darwin-arm64]=librockbox_ffi.dylib
-            [darwin-x64]=librockbox_ffi.dylib
-            [linux-x64]=librockbox_ffi.so
-            [linux-arm64]=librockbox_ffi.so
-            [freebsd-x64]=librockbox_ffi.so
-            [netbsd-x64]=librockbox_ffi.so
-          )
-          dest="$GITHUB_WORKSPACE/bindings/typescript/tarballs"
-          mkdir -p "$dest"
-          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 freebsd-x64 netbsd-x64; do
-            src="$GITHUB_WORKSPACE/artifacts/librockbox_ffi-${target}/${LIB[$target]}"
-            if [ ! -f "$src" ]; then echo "skip ${target}: no artifact"; continue; fi
-            cp "$src" "npm/${target}/${LIB[$target]}"
-            (cd "npm/${target}" && npm pack --pack-destination "$dest")
-          done
-          npm pack --pack-destination "$dest"
-          ls -l "$dest"
-
+      - uses: ./.github/actions/setup-dagger
+      - name: Run package-npm with Dagger
+        env:
+          CI_JOB: package-npm
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          BINDING_VERSION: ${{ needs.version.outputs.version }}
+        run: bash .dagger/ci.sh "$CI_JOB"
       - uses: actions/upload-artifact@v4
         with:
           name: npm-tarballs
           path: bindings/typescript/tarballs/*.tgz
-
-  # 2d. Swift: bundle the static archive into distributable, reproducible
-  # artifacts. Unlike the dlopen bindings, the Swift `RockboxFFI` product
-  # statically links librockbox_ffi.a, so consumers get a self-contained
-  # binary. Two deliverables:
-  #   * RockboxFFI.xcframework.zip — static lib + header for macOS (universal),
-  #     iOS (arm64 device), and the iOS simulator (arm64+x86_64 universal); the
-  #     canonical Swift binary distributable (drop in as a binaryTarget).
-  #   * rockbox-ffi-swift-macos.tar.gz — the SwiftPM package source with the
-  #     universal macOS archive vendored under Libs/, so `swift build` works
-  #     turnkey off the monorepo (Package.swift falls back to Libs/…). macOS
-  #     only; iOS consumers use the xcframework.
-  # Both are packed deterministically (sorted entries, fixed timestamps,
-  # numeric owners, gzip -n) for reproducibility.
   swift:
-    needs: [build-lib, build-lib-ios]
+    needs:
+      - build-lib
+      - build-lib-ios
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Build universal macOS static archive
         run: |
           set -euxo pipefail
@@ -523,29 +299,14 @@ jobs:
           fi
           lipo -create "${slices[@]}" -output universal/librockbox_ffi.a
           lipo -info universal/librockbox_ffi.a
-
       - name: Build iOS static archives (device + universal simulator)
-        run: |
-          set -euxo pipefail
-          device="artifacts/librockbox_ffi-ios-aarch64-apple-ios/librockbox_ffi.a"
-          simarm="artifacts/librockbox_ffi-ios-aarch64-apple-ios-sim/librockbox_ffi.a"
-          simx64="artifacts/librockbox_ffi-ios-x86_64-apple-ios/librockbox_ffi.a"
-          mkdir -p ios
-          # Device slice (arm64) — copied straight through.
-          if [ -f "$device" ]; then
-            cp "$device" ios/librockbox_ffi-device.a
-            lipo -info ios/librockbox_ffi-device.a
-          fi
-          # Simulator slice — the two arches share the ios-simulator platform,
-          # so they must be lipo'd into one fat archive (one xcframework slice).
-          simslices=()
-          [ -f "$simarm" ] && simslices+=("$simarm")
-          [ -f "$simx64" ] && simslices+=("$simx64")
-          if [ "${#simslices[@]}" -gt 0 ]; then
-            lipo -create "${simslices[@]}" -output ios/librockbox_ffi-sim.a
-            lipo -info ios/librockbox_ffi-sim.a
-          fi
-
+        run: "set -euxo pipefail\ndevice=\"artifacts/librockbox_ffi-ios-aarch64-apple-ios/librockbox_ffi.a\"\nsimarm=\"artifacts/librockbox_ffi-ios-aarch64-apple-ios-sim/librockbox_ffi.a\"\
+          \nsimx64=\"artifacts/librockbox_ffi-ios-x86_64-apple-ios/librockbox_ffi.a\"\nmkdir -p ios\n# Device slice (arm64)\
+          \ \u2014 copied straight through.\nif [ -f \"$device\" ]; then\n  cp \"$device\" ios/librockbox_ffi-device.a\n \
+          \ lipo -info ios/librockbox_ffi-device.a\nfi\n# Simulator slice \u2014 the two arches share the ios-simulator platform,\n\
+          # so they must be lipo'd into one fat archive (one xcframework slice).\nsimslices=()\n[ -f \"$simarm\" ] && simslices+=(\"\
+          $simarm\")\n[ -f \"$simx64\" ] && simslices+=(\"$simx64\")\nif [ \"${#simslices[@]}\" -gt 0 ]; then\n  lipo -create\
+          \ \"${simslices[@]}\" -output ios/librockbox_ffi-sim.a\n  lipo -info ios/librockbox_ffi-sim.a\nfi\n"
       - name: Assemble RockboxFFI.xcframework
         run: |
           set -euxo pipefail
@@ -560,19 +321,10 @@ jobs:
           rm -rf RockboxFFI.xcframework
           xcodebuild -create-xcframework "${args[@]}" -output RockboxFFI.xcframework
           echo "=== xcframework slices ===" && ls RockboxFFI.xcframework
-
       - name: Stage vendored SwiftPM package
-        run: |
-          set -euxo pipefail
-          pkg="rockbox-ffi-swift-macos"
-          rm -rf "$pkg"
-          mkdir -p "$pkg"
-          # SwiftPM sources only — never the local .build cache.
-          cp -R bindings/swift/Package.swift bindings/swift/README.md \
-                bindings/swift/Sources "$pkg/"
-          mkdir -p "$pkg/Libs"
-          cp universal/librockbox_ffi.a "$pkg/Libs/librockbox_ffi.a"
-
+        run: "set -euxo pipefail\npkg=\"rockbox-ffi-swift-macos\"\nrm -rf \"$pkg\"\nmkdir -p \"$pkg\"\n# SwiftPM sources only\
+          \ \u2014 never the local .build cache.\ncp -R bindings/swift/Package.swift bindings/swift/README.md \\\n      bindings/swift/Sources\
+          \ \"$pkg/\"\nmkdir -p \"$pkg/Libs\"\ncp universal/librockbox_ffi.a \"$pkg/Libs/librockbox_ffi.a\"\n"
       - name: Pack deterministically
         env:
           TZ: UTC
@@ -597,15 +349,21 @@ jobs:
           tar --uid 0 --gid 0 --numeric-owner -cf - -T pkg.list \
             | gzip -n > swift-dist/rockbox-ffi-swift-macos.tar.gz
           ls -l swift-dist
-
       - uses: actions/upload-artifact@v4
         with:
           name: swift-dist
           path: swift-dist/*
-
-  # 3. Collect every artifact and attach it to the GitHub Release.
   release:
-    needs: [version, build-lib, build-lib-freebsd, build-lib-netbsd, build-lib-android, ruby, python, npm, swift]
+    needs:
+      - version
+      - build-lib
+      - build-lib-freebsd
+      - build-lib-netbsd
+      - build-lib-android
+      - ruby
+      - python
+      - npm
+      - swift
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -613,7 +371,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Collect release assets
         run: |
           set -euxo pipefail
@@ -633,7 +390,6 @@ jobs:
             done
           done
           ls -l release
-
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:

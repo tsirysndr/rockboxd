@@ -144,7 +144,7 @@ jobs:
         run: mv gpui/dist/Rockbox.dmg "${{ steps.vars.outputs.dmg }}"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.vars.outputs.dmg }}
           tag_name: ${{ steps.vars.outputs.version }}

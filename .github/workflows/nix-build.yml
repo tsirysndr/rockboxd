@@ -1,16 +1,12 @@
 name: nix-build
-
-# Manually-triggered Nix build of the flake on Linux and macOS.
-# Uses the Determinate Systems Nix installer for a fast, cached install.
-on:
+'on':
   workflow_dispatch:
     inputs:
       target:
-        description: "Flake attribute to build (e.g. .#rockboxd, .#webui-assets, .#s3webui-assets)"
+        description: Flake attribute to build (e.g. .#rockboxd, .#webui-assets, .#s3webui-assets)
         type: string
         required: false
-        default: ".#rockboxd"
-
+        default: .#rockboxd
 jobs:
   build:
     name: nix build (${{ matrix.os }})
@@ -25,40 +21,54 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
         with:
           extra-conf: |
             experimental-features = nix-command flakes
-
       - name: Setup Cachix
         uses: cachix/cachix-action@v17
         with:
           name: rockbox
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: ./.github/actions/setup-dagger
+        if: runner.os == 'Linux'
       - name: nix flake show
         run: nix flake show
-
-      # Build the Rust staticlibs first so the (slow) cargo compile is pushed
-      # to Cachix on its own — even if the downstream zig link later fails —
-      # and reused by the main target instead of rebuilt.
+        if: runner.os != 'Linux'
       - name: nix build .#rockbox-rustlibs
         run: nix build --print-build-logs ".#rockbox-rustlibs"
-
-      # Some attributes are platform-scoped (e.g. .#rockbox-desktop is
-      # Linux-only): probe the attribute first and skip — rather than fail —
-      # on runners whose system doesn't package it. Any other evaluation
-      # error still fails the job.
+        if: runner.os != 'Linux'
       - name: nix build ${{ inputs.target }}
+        run: "target=\"${{ inputs.target }}\"\nif out=$(nix eval --raw \"${target}.drvPath\" 2>&1); then\n  nix build --print-build-logs\
+          \ \"$target\"\nelif grep -q \"does not provide attribute\" <<< \"$out\"; then\n  echo \"==> $target is not packaged\
+          \ for this system \u2014 skipping.\"\nelse\n  echo \"$out\" >&2\n  exit 1\nfi\n"
+        if: runner.os != 'Linux'
+      - name: Rust static libraries with Dagger
+        if: runner.os == 'Linux'
+        env:
+          FLAKE_TARGET: .#rockbox-rustlibs
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
-          target="${{ inputs.target }}"
-          if out=$(nix eval --raw "${target}.drvPath" 2>&1); then
-            nix build --print-build-logs "$target"
-          elif grep -q "does not provide attribute" <<< "$out"; then
-            echo "==> $target is not packaged for this system — skipping."
-          else
-            echo "$out" >&2
-            exit 1
+          dagger api call -m .dagger/ci nix-build --source . --target "$FLAKE_TARGET" export --path artifacts/nix-rustlibs
+          if [ -s artifacts/nix-rustlibs/store-paths ]; then
+            mapfile -t paths < artifacts/nix-rustlibs/store-paths
+            nix copy --from "file://$PWD/artifacts/nix-rustlibs/store" "${paths[@]}"
+            if [ -n "$CACHIX_AUTH_TOKEN" ]; then
+              printf '%s\n' "${paths[@]}" | cachix push rockbox
+            fi
+          fi
+      - name: Requested flake attribute with Dagger
+        if: runner.os == 'Linux'
+        env:
+          FLAKE_TARGET: ${{ inputs.target }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          dagger api call -m .dagger/ci nix-build --source . --target "$FLAKE_TARGET" export --path artifacts/nix-target
+          if [ -s artifacts/nix-target/store-paths ]; then
+            mapfile -t paths < artifacts/nix-target/store-paths
+            nix copy --from "file://$PWD/artifacts/nix-target/store" "${paths[@]}"
+            if [ -n "$CACHIX_AUTH_TOKEN" ]; then
+              printf '%s\n' "${paths[@]}" | cachix push rockbox
+            fi
           fi

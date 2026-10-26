@@ -164,7 +164,7 @@ jobs:
 
       - name: Upload to GitHub Release (aarch64)
         if: matrix.arch == 'aarch64'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             rockbox_${{ steps.vars.outputs.version }}_${{ matrix.arch }}-darwin.tar.gz
@@ -175,7 +175,7 @@ jobs:
 
       - name: Upload to GitHub Release (x86_64)
         if: matrix.arch == 'x86_64'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             rockbox_${{ steps.vars.outputs.version }}_${{ matrix.arch }}-darwin.tar.gz

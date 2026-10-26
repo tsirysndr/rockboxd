@@ -1,34 +1,36 @@
 name: release
-on:
-  push:
-    tags:
-      - "*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "The existing tag to publish"
-        type: "string"
-        required: true
-
 jobs:
   publish:
     strategy:
       matrix:
-        os: [ubuntu-22.04, ubuntu-22.04-arm]
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
-      - name: Build and upload release
-        uses: fluentci-io/setup-fluentci@v5
-        with:
-          wasm: true
-          plugin: .
-          args: |
-            build
-            release
+          submodules: recursive
+      - uses: ./.github/actions/setup-dagger
+      - name: Build SDL release with Dagger
         env:
-          GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+        run: bash .dagger/ci.sh legacy-release
+      - name: Upload release archives
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" ./*.tar.gz ./*.tar.gz.sha256 --clobber
+    permissions:
+      contents: write
+'on':
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to publish
+        type: string
+        required: true

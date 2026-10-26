@@ -225,7 +225,7 @@ jobs:
           ls -lh rockbox_${VERSION}_x86_64-${OS}.tar.gz*
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             rockbox_${{ steps.vars.outputs.version }}_x86_64-${{ matrix.os }}.tar.gz

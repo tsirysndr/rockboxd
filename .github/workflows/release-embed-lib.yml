@@ -1,40 +1,26 @@
 name: release embed lib
-
-# Builds librockboxd.a (headless/cpal fat static archive) for macOS and Linux
-# and uploads each platform archive to the GitHub release.
-#
-# Contents of each archive:
-#   lib/librockboxd.a   — fat static archive (firmware + codecs + Rust servers)
-#   include/rockboxd.h  — public C/Swift/Rust FFI header
-#
-# Consumers link with:
-#   macOS: -framework CoreAudio -framework AudioUnit -framework AudioToolbox
-#          -framework CoreFoundation -framework Security
-#   Linux: -lasound -lunwind -ldbus-1
-
-on:
+'on':
   push:
     tags-ignore:
-      - "clojure-v*"
-      - "clojure-ffi-v*"
-      - "bindings-v*"
-      - "erlang-v*"
-      - "gleam-v*"
+      - clojure-v*
+      - clojure-ffi-v*
+      - bindings-v*
+      - erlang-v*
+      - gleam-v*
   release:
-    types: [published]
+    types:
+      - published
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to attach the library to"
+        description: Existing tag to attach the library to
         type: string
         required: true
-
 jobs:
   build:
     name: build (${{ matrix.arch }}-${{ matrix.os_label }})
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (!startsWith(github.event.release.tag_name, 'clojure-v') &&
+    if: |-
+      github.event_name == 'workflow_dispatch' || (!startsWith(github.event.release.tag_name, 'clojure-v') &&
        !startsWith(github.event.release.tag_name, 'clojure-ffi-v') &&
        !startsWith(github.event.release.tag_name, 'bindings-v') &&
        !startsWith(github.event.release.tag_name, 'elixir-v') &&
@@ -42,7 +28,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
-
     strategy:
       fail-fast: false
       matrix:
@@ -53,28 +38,47 @@ jobs:
           - runner: macos-15-intel
             arch: x86_64
             os_label: darwin
-            zig_cpu: "-Dcpu=x86_64"
-            rust_flags: "-C target-cpu=x86-64 -A warnings"
+            zig_cpu: -Dcpu=x86_64
+            rust_flags: -C target-cpu=x86-64 -A warnings
           - runner: ubuntu-latest
             arch: x86_64
             os_label: linux
-            zig_cpu: "-Dcpu=x86_64"
-            rust_flags: "-C target-cpu=x86-64 -A warnings"
+            zig_cpu: -Dcpu=x86_64
+            rust_flags: -C target-cpu=x86-64 -A warnings
           - runner: ubuntu-24.04-arm
             arch: aarch64
             os_label: linux
-
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
-
+          submodules: recursive
+      - name: Resolve version
+        id: vars
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}"
+          ARCH="${{ matrix.arch }}"
+          OS="${{ matrix.os_label }}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "archive=librockboxd_${VERSION}_${ARCH}-${OS}.tar.gz" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-dagger
+        if: runner.os == 'Linux'
+      - name: Run embed with Dagger
+        env:
+          CI_JOB: embed
+          PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
+          TAG: ${{ steps.vars.outputs.version }}
+          ARCHIVE: ${{ steps.vars.outputs.archive }}
+          ARCH: ${{ matrix.arch }}
+          ZIG_CPU: ${{ matrix.zig_cpu }}
+          RUSTFLAGS: ${{ matrix.rust_flags || '-A warnings' }}
+        run: bash .dagger/ci.sh "$CI_JOB"
+        if: runner.os == 'Linux'
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
-
+        if: runner.os != 'Linux'
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-
+        if: runner.os != 'Linux'
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -85,109 +89,61 @@ jobs:
             target
           key: embed-lib-${{ matrix.runner }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: embed-lib-${{ matrix.runner }}-${{ matrix.arch }}-
-
-      # ── macOS dependencies ────────────────────────────────────────────────
+        if: runner.os != 'Linux'
       - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          # llvm@22 crashes in setSymbolInRelocationInfo on Mach-O — use llvm@21
-          brew install llvm@21 cmake protobuf
-          echo "/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin" >> $GITHUB_PATH
-
-      # ── Linux dependencies ────────────────────────────────────────────────
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libunwind-dev \
-            libasound2-dev \
-            libdbus-1-dev \
-            protobuf-compiler \
-            cmake
-
-      # ── Rust flags ────────────────────────────────────────────────────────
+        if: runner.os != 'Linux' && (runner.os == 'macOS')
+        run: "# llvm@22 crashes in setSymbolInRelocationInfo on Mach-O \u2014 use llvm@21\nbrew install llvm@21 cmake protobuf\n\
+          echo \"/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin\" >> $GITHUB_PATH\n"
       - name: Set Rust flags
         run: |
           FLAGS="${{ matrix.rust_flags || '-A warnings' }}"
           echo "RUSTFLAGS=$FLAGS" >> $GITHUB_ENV
-
+        if: runner.os != 'Linux'
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-
+        if: runner.os != 'Linux'
       - name: Build Web UI
         run: |
           cd webui/rockbox
           deno install
           deno run build
-
+        if: runner.os != 'Linux'
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
+        if: runner.os != 'Linux'
       - name: Install admin UI dependencies
         working-directory: crates/s3/s3webui
         run: bun install --frozen-lockfile
-
+        if: runner.os != 'Linux'
       - name: Build admin UI
         working-directory: crates/s3/s3webui
         run: bun run build
-
-      # ── Step 1-2: Headless firmware + rockbox-server ──────────────────────
-      # build-headless.sh configures build-headless/, builds firmware .a files,
-      # extracts codec objects, and builds librockbox_cli.a + librockbox_server.a
+        if: runner.os != 'Linux'
       - name: Build headless firmware
         run: bash scripts/build-headless.sh
-
-      # ── Step 3: rockbox-embed Rust crate ──────────────────────────────────
+        if: runner.os != 'Linux'
       - name: Build rockbox-embed
-        # Remove the cached static archive so cargo always re-links it from the
-        # current target/release/deps. The cache key only hashes Cargo.lock and
-        # `restore-keys` falls back to any prior embed-lib-${{ matrix.runner }}-
-        # ${{ matrix.arch }}- cache, so a crates/embed-only change can otherwise
-        # restore a stale .a missing newer exports (e.g. rb_daemon_start).
-        # Mirrors the release-gpui / linux-x86_64-build force-relink step.
-        run: |
-          rm -f target/release/librockbox_embed.a
-          cargo build --release -p rockbox-embed
-          echo "--- verify rb_daemon_start is present ---"
-          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
-            | grep rb_daemon_start \
-            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
-
-      # ── Step 4: Zig lib step ──────────────────────────────────────────────
+        run: "rm -f target/release/librockbox_embed.a\ncargo build --release -p rockbox-embed\necho \"--- verify rb_daemon_start\
+          \ is present ---\"\nnm --defined-only target/release/librockbox_embed.a 2>/dev/null \\\n  | grep rb_daemon_start\
+          \ \\\n  || { echo \"rb_daemon_start NOT in librockbox_embed.a \u2014 abort\"; exit 1; }\n"
+        if: runner.os != 'Linux'
       - name: Build librockboxd.a
-        run: |
-          rm -f zig/zig-out/lib/librockboxd.a
-          cd zig
-          zig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}
-          cd ..
-          echo "--- verify rb_daemon_start survived into librockboxd.a ---"
-          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
-            | grep rb_daemon_start \
-            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
-
+        run: "rm -f zig/zig-out/lib/librockboxd.a\ncd zig\nzig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}\ncd\
+          \ ..\necho \"--- verify rb_daemon_start survived into librockboxd.a ---\"\nnm --defined-only zig/zig-out/lib/librockboxd.a\
+          \ 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in librockboxd.a \u2014 abort\"\
+          ; exit 1; }\n"
+        if: runner.os != 'Linux'
       - name: Clean build artifacts
         run: |
           cp zig/zig-out/lib/librockboxd.a /tmp/librockboxd.a
           rm -rf target build-lib build-headless zig/.zig-cache
           mkdir -p zig/zig-out/lib
           mv /tmp/librockboxd.a zig/zig-out/lib/librockboxd.a
-
-      # ── Package ───────────────────────────────────────────────────────────
-      - name: Resolve version
-        id: vars
-        run: |
-          VERSION="${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}"
-          ARCH="${{ matrix.arch }}"
-          OS="${{ matrix.os_label }}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "archive=librockboxd_${VERSION}_${ARCH}-${OS}.tar.gz" >> "$GITHUB_OUTPUT"
-
+        if: runner.os != 'Linux'
       - name: Package archive
         run: |
           mkdir -p dist/lib dist/include
@@ -202,9 +158,9 @@ jobs:
           fi
           echo "Archive contents:"
           tar -tzf "$ARCHIVE"
-
+        if: runner.os != 'Linux'
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ steps.vars.outputs.archive }}
