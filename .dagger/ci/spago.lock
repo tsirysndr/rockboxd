@@ -33,12 +33,18 @@
         "core": {
           "dependencies": [
             "aff",
+            "argonaut-core",
+            "arrays",
             "dagger-sdk",
             "effect",
+            "either",
             "exceptions",
             "foldable-traversable",
+            "foreign-object",
+            "integers",
             "maybe",
-            "prelude"
+            "prelude",
+            "strings"
           ]
         },
         "test": {

@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"build":"spago build"}}
+{"private":true,"type":"module","scripts":{"build":"spago build -p rockbox-ci --pedantic-packages","test":"npm run build && node --test checks/*.test.mjs"}}

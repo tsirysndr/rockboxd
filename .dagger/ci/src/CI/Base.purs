@@ -11,11 +11,12 @@ import Effect.Aff (Aff, throwError)
 import Effect.Exception (error)
 
 -- Keep generated CI code, host caches, and secrets out of build inputs.
+-- Never use **/target: firmware/target is part of Rockbox's source tree.
 sourceTree :: Client -> Directory -> Directory
 sourceTree client source = Query.directory client
   # Directory.withDirectoryWith "." source
       (Directory.defaultWithDirectoryOpts
-        { exclude = Just [ ".git", ".devbox", ".github", "target", "**/target", "**/.zig-cache", "**/zig-out", ".dagger/**/.spago", ".dagger/**/output", ".dagger/sdk", ".dagger/ci/dagger-sdk", "build-headless", "build-lib", "build-armhf", "build-android-arm64", "**/node_modules", "**/.env", "**/.env.*", "artifacts", "release-source", "dist/build", "dist/rpmbuild", "result" ] })
+        { exclude = Just [ ".git", ".dagger", ".devbox", ".github", "target", "build", "tools/bmp2rb", "tools/codepages", "tools/convbdf", "tools/mkboot", "tools/rdf2binary", "tools/uclpack", "tools/scramble", "desktop/target", "desktop-gpui/target", "bindings/**/target", "**/.zig-cache", "**/zig-out", "build-headless", "build-lib", "build-armhf", "build-android-arm64", "**/node_modules", "**/.env", "**/.env.*", "artifacts", "release-source", "dist/build", "dist/rpmbuild", "result" ] })
 
 platform :: String -> Aff Platform
 platform value = case value of
@@ -26,6 +27,3 @@ platform value = case value of
 container :: Client -> Platform -> String -> Container
 container client arch image = Query.containerWith (Query.defaultContainerOpts { platform = Just arch }) client
   # Container.from image
-
-shell :: String -> Container -> Container
-shell script = Container.withExec [ "bash", "-euo", "pipefail", "-c", script ]

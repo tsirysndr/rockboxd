@@ -19,7 +19,7 @@ main = Module.runModule
             in { source, platform })
           (\client input -> Runner.run
             (if input.platform == "linux/arm64" then LinuxArm64Check else LinuxX64Check)
-            client input [] Nothing Nothing)
+            client input Runner.defaults Nothing Nothing)
       , Module.function "linuxRelease" "Package a Linux release for amd64 or arm64, with checksums."
           (ado
             source <- Module.argument "source"
@@ -29,75 +29,75 @@ main = Module.runModule
           (\client input -> Runner.run
             (if input.platform == "linux/arm64" then LinuxArm64Release else LinuxX64Release)
             client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
       , Module.function "sdlBuild" "Build and install SDL firmware, CLI, daemon, codecs and assets."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
-          (\client input -> Runner.run Sdl client input [] Nothing Nothing)
-      , Module.function "linuxArmhfRelease" "Run linux-armhf-release; return only its artifacts and success report."
+          (\client input -> Runner.run Sdl client input Runner.defaults Nothing Nothing)
+      , Module.function "linuxArmhfRelease" "Run linux-armhf-release and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run LinuxArmhfRelease client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "build" "Run linux-release; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "build" "Run linux-release and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run Build client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "embed" "Run embed; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "embed" "Run embed and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run Embed client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "desktop" "Run desktop; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "desktop" "Run desktop and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run Desktop client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "goTest" "Run go-test; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "goTest" "Run go-test and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run GoTest client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "ffi" "Run ffi; return only its artifacts and success report."
+            Runner.defaults Nothing Nothing)
+      , Module.function "ffi" "Run ffi and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run Ffi client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "nif" "Run nif; return only its artifacts and success report."
+            Runner.defaults Nothing Nothing)
+      , Module.function "nif" "Run nif and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run Nif client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "androidCheck" "Run android-check; return only its artifacts and success report."
+            Runner.defaults Nothing Nothing)
+      , Module.function "androidCheck" "Run android-check and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             androidSdk <- Module.argument "androidSdk"
             in { source, platform, androidSdk })
           (\client input -> Runner.run AndroidCheck client { source: input.source, platform: input.platform }
-            [  ] Nothing (Just input.androidSdk))
-      , Module.function "androidApk" "Run android-apk; return only its artifacts and success report."
+            Runner.defaults Nothing (Just input.androidSdk))
+      , Module.function "androidApk" "Run android-apk and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
@@ -106,8 +106,8 @@ main = Module.runModule
             androidSdk <- Module.argument "androidSdk"
             in { source, platform, features, architectures, androidSdk })
           (\client input -> Runner.run AndroidApk client { source: input.source, platform: input.platform }
-            [ { name: "FEATURES", value: input.features }, { name: "ARCHITECTURES", value: input.architectures } ] Nothing (Just input.androidSdk))
-      , Module.function "androidRelease" "Run android-release; return only its artifacts and success report."
+            (Runner.defaults { features = input.features, architectures = input.architectures }) Nothing (Just input.androidSdk))
+      , Module.function "androidRelease" "Run android-release and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
@@ -115,8 +115,8 @@ main = Module.runModule
             androidSdk <- Module.argument "androidSdk"
             in { source, platform, tag, androidSdk })
           (\client input -> Runner.run AndroidRelease client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing (Just input.androidSdk))
-      , Module.function "androidFfi" "Run android-ffi; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing (Just input.androidSdk))
+      , Module.function "androidFfi" "Run android-ffi and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
@@ -124,8 +124,8 @@ main = Module.runModule
             androidSdk <- Module.argument "androidSdk"
             in { source, platform, abi, androidSdk })
           (\client input -> Runner.run AndroidFfi client { source: input.source, platform: input.platform }
-            [ { name: "ABI", value: input.abi } ] Nothing (Just input.androidSdk))
-      , Module.function "ruby" "Run package-ruby; return only its artifacts and success report."
+            (Runner.defaults { abi = input.abi }) Nothing (Just input.androidSdk))
+      , Module.function "ruby" "Run package-ruby and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
@@ -133,8 +133,8 @@ main = Module.runModule
             version <- Module.argument "version"
             in { source, platform, artifacts, version })
           (\client input -> Runner.run Ruby client { source: input.source, platform: input.platform }
-            [ { name: "BINDING_VERSION", value: input.version } ] (Just input.artifacts) Nothing)
-      , Module.function "python" "Run package-python; return only its artifacts and success report."
+            (Runner.defaults { version = input.version }) (Just input.artifacts) Nothing)
+      , Module.function "python" "Run package-python and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
@@ -142,8 +142,8 @@ main = Module.runModule
             version <- Module.argument "version"
             in { source, platform, artifacts, version })
           (\client input -> Runner.run Python client { source: input.source, platform: input.platform }
-            [ { name: "BINDING_VERSION", value: input.version } ] (Just input.artifacts) Nothing)
-      , Module.function "npm" "Run package-npm; return only its artifacts and success report."
+            (Runner.defaults { version = input.version }) (Just input.artifacts) Nothing)
+      , Module.function "npm" "Run package-npm and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
@@ -151,60 +151,60 @@ main = Module.runModule
             version <- Module.argument "version"
             in { source, platform, artifacts, version })
           (\client input -> Runner.run Npm client { source: input.source, platform: input.platform }
-            [ { name: "BINDING_VERSION", value: input.version } ] (Just input.artifacts) Nothing)
-      , Module.function "format" "Run format; return only its artifacts and success report."
+            (Runner.defaults { version = input.version }) (Just input.artifacts) Nothing)
+      , Module.function "format" "Run format and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run Format client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "webTest" "Run web-test; return only its artifacts and success report."
+            Runner.defaults Nothing Nothing)
+      , Module.function "webTest" "Run web-test and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run WebTest client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "deb" "Run deb; return only its artifacts and success report."
+            Runner.defaults Nothing Nothing)
+      , Module.function "deb" "Run deb and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run Deb client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "rpm" "Run rpm; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "rpm" "Run rpm and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run Rpm client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "release" "Run legacy-release; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "release" "Run legacy-release and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             tag <- Module.defaultArgument "tag" "latest"
             in { source, platform, tag })
           (\client input -> Runner.run Release client { source: input.source, platform: input.platform }
-            [ { name: "TAG", value: input.tag } ] Nothing Nothing)
-      , Module.function "electron" "Run electron; return only its artifacts and success report."
+            (Runner.defaults { tag = input.tag }) Nothing Nothing)
+      , Module.function "electron" "Run electron and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run Electron client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "storybook" "Run storybook; return only its artifacts and success report."
+            Runner.defaults Nothing Nothing)
+      , Module.function "storybook" "Run storybook and return its artifacts."
           (ado
             source <- Module.argument "source"
             platform <- Module.defaultArgument "platform" "linux/amd64"
             in { source, platform })
           (\client input -> Runner.run Storybook client { source: input.source, platform: input.platform }
-            [  ] Nothing Nothing)
-      , Module.function "image" "Build a multi-platform OCI image archive from the project's Dockerfile."
+            Runner.defaults Nothing Nothing)
+      , Module.function "image" "Build a multi-platform OCI image archive with typed Dagger operations."
           (ado
             source <- Module.argument "source"
             tag <- Module.defaultArgument "tag" "latest"

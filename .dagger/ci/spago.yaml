@@ -1,6 +1,12 @@
 package:
   name: rockbox-ci
   dependencies:
+    - arrays
+    - strings
+    - integers
+    - argonaut-core
+    - foreign-object
+    - either
     - aff
     - dagger-sdk
     - effect

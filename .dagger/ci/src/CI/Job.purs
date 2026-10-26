@@ -1,6 +1,9 @@
 module CI.Job where
 
--- Closed set: callers cannot select arbitrary shell scripts or toolchain images.
+import CI.Toolchain (Toolchain)
+import CI.Toolchain as T
+
+-- A closed set of typed pipelines.
 data Job
   = Sdl
   | LinuxX64Check
@@ -58,31 +61,31 @@ name = case _ of
   Electron -> "electron"
   Storybook -> "storybook"
 
-toolchain :: Job -> String
+toolchain :: Job -> Toolchain
 toolchain = case _ of
-  Sdl -> "full"
-  LinuxX64Check -> "full"
-  LinuxArm64Check -> "full"
-  LinuxX64Release -> "full"
-  LinuxArm64Release -> "full"
-  LinuxArmhfRelease -> "cross"
-  Build -> "full"
-  Embed -> "full"
-  Desktop -> "full"
-  GoTest -> "go"
-  Ffi -> "rust"
-  Nif -> "erlang"
-  AndroidCheck -> "android"
-  AndroidApk -> "android"
-  AndroidRelease -> "android"
-  AndroidFfi -> "android"
-  Ruby -> "ruby"
-  Python -> "python"
-  Npm -> "npm"
-  Format -> "rust"
-  WebTest -> "web"
-  Deb -> "packages"
-  Rpm -> "packages"
-  Release -> "full"
-  Electron -> "web"
-  Storybook -> "web"
+  Sdl -> T.Full
+  LinuxX64Check -> T.Full
+  LinuxArm64Check -> T.Full
+  LinuxX64Release -> T.Full
+  LinuxArm64Release -> T.Full
+  LinuxArmhfRelease -> T.Cross
+  Build -> T.Full
+  Embed -> T.Full
+  Desktop -> T.Full
+  GoTest -> T.Go
+  Ffi -> T.Rust
+  Nif -> T.Erlang
+  AndroidCheck -> T.Android
+  AndroidApk -> T.Android
+  AndroidRelease -> T.Android
+  AndroidFfi -> T.Android
+  Ruby -> T.Ruby
+  Python -> T.Python
+  Npm -> T.Npm
+  Format -> T.Rust
+  WebTest -> T.Web
+  Deb -> T.Packages
+  Rpm -> T.Packages
+  Release -> T.Full
+  Electron -> T.Web
+  Storybook -> T.Web

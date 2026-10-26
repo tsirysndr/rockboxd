@@ -1,6 +1,6 @@
 name = "rockbox-ci"
 engineVersion = "v1.0.0-beta.21"
-include = ["src/**", "dagger-sdk/**", "spago.yaml", "spago.lock", "package.json", "scripts/**"]
+include = ["src/**", "dagger-sdk/**", "spago.yaml", "spago.lock", "package.json"]
 
 [runtime]
 source = "../sdk/purescript"
