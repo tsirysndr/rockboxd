@@ -15,4 +15,4 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup-dagger
       - name: Run format with Dagger
-        run: bash .dagger/ci.sh format
+        run: dagger api call -m .dagger/ci format --source . export --path .

@@ -23,10 +23,10 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run linux-armhf-release with Dagger
         env:
-          CI_JOB: linux-armhf-release
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci linux-armhf-release --source . --platform "$PLATFORM" --tag "$TAG" export --path
+          .
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:

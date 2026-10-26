@@ -27,11 +27,11 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run android-apk with Dagger
         env:
-          CI_JOB: android-apk
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           FEATURES: ${{ inputs.features }}
           ARCHITECTURES: ${{ inputs.architectures }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci android-apk --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
+          --features "$FEATURES" --architectures "$ARCHITECTURES" export --path .
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

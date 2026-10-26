@@ -16,7 +16,7 @@ jobs:
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: bash .dagger/ci.sh legacy-release
+        run: dagger api call -m .dagger/ci release --source . --platform "$PLATFORM" --tag "$TAG" export --path .
       - name: Upload release archives
         env:
           TAG: ${{ inputs.tag || github.ref_name }}

@@ -7,7 +7,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-dagger
-      - run: bash .dagger/ci.sh storybook
+      - run: dagger api call -m .dagger/ci storybook --source . export --path .
       - uses: actions/setup-node@v4
         with:
           node-version: 22

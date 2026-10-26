@@ -27,7 +27,9 @@ jobs:
         run: npm install --global purescript@0.15.16 spago@1.0.5
       - name: Compile the module without an engine
         working-directory: .dagger/ci
-        run: spago build -p rockbox-ci --pedantic-packages
+        run: |
+          spago build -p rockbox-ci --pedantic-packages
+          node --test checks/*.test.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -35,7 +37,6 @@ jobs:
       - name: Check module and workflow contracts
         run: |
           python .dagger/check.py
-          python .dagger/test_adapter.py
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.2'

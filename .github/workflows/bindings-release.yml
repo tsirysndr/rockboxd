@@ -60,10 +60,8 @@ jobs:
         if: runner.os == 'Linux'
       - name: Run ffi with Dagger
         env:
-          CI_JOB: ffi
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-          LIBFILE: ${{ matrix.libfile }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci ffi --source . --platform "$PLATFORM" export --path .
         if: runner.os == 'Linux'
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         if: runner.os != 'Linux'
@@ -184,11 +182,10 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run android-ffi with Dagger
         env:
-          CI_JOB: android-ffi
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           ABI: ${{ matrix.abi }}
-          RUST_TARGET: ${{ matrix.rust }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci android-ffi --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
+          --abi "$ABI" export --path .
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-${{ matrix.target }}
@@ -213,10 +210,10 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run package-ruby with Dagger
         env:
-          CI_JOB: package-ruby
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci ruby --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
+          export --path .
       - uses: actions/upload-artifact@v4
         with:
           name: ruby-gems
@@ -240,10 +237,10 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run package-python with Dagger
         env:
-          CI_JOB: package-python
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci python --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
+          export --path .
       - uses: actions/upload-artifact@v4
         with:
           name: python-wheels
@@ -267,10 +264,10 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run package-npm with Dagger
         env:
-          CI_JOB: package-npm
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci npm --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
+          export --path .
       - uses: actions/upload-artifact@v4
         with:
           name: npm-tarballs

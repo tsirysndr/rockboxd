@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-dagger
-      - run: bash .dagger/ci.sh electron
+      - run: dagger api call -m .dagger/ci electron --source . export --path .
       - name: Checksum and publish Electron artifacts
         env:
           TAG: ${{ inputs.tag || github.ref_name }}

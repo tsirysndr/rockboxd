@@ -51,12 +51,9 @@ jobs:
         if: runner.os == 'Linux'
       - name: Run desktop with Dagger
         env:
-          CI_JOB: desktop
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-          ARCHIVE: ${{ steps.vars.outputs.archive }}
-          TARGET: ${{ matrix.target }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci desktop --source . --platform "$PLATFORM" --tag "$TAG" export --path .
         if: runner.os == 'Linux'
       - uses: mlugg/setup-zig@v2
         with:

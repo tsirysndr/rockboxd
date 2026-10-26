@@ -14,9 +14,8 @@ jobs:
       - uses: ./.github/actions/setup-dagger
       - name: Run linux-aarch64-check with Dagger
         env:
-          CI_JOB: linux-aarch64-check
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: bash .dagger/ci.sh "$CI_JOB"
+        run: dagger api call -m .dagger/ci linux-check --source . --platform "$PLATFORM" export --path .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
