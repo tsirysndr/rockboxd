@@ -1,8 +1,0 @@
-
-[package]
-authors = ["Tsiry Sandratraina <tsiry.sndr@fluentci.io>"]
-description = "CI/CD for Rockbox"
-license = "MIT"
-name = "rockbox"
-version = "0.1.0"
-keywords = ["rockbox","zig","rust"]

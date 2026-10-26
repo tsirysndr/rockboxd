@@ -362,3 +362,11 @@ zig-out
 .claude
 
 result
+
+# Dagger module development and exported artifacts
+.dagger/**/.spago/
+.dagger/**/output/
+.dagger/**/node_modules/
+.dagger-results/
+artifacts/
+rockbox-image.tar

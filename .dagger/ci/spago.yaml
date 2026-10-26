@@ -1,0 +1,13 @@
+package:
+  name: rockbox-ci
+  dependencies:
+    - aff
+    - dagger-sdk
+    - effect
+    - exceptions
+    - foldable-traversable
+    - maybe
+    - prelude
+workspace:
+  packageSet:
+    registry: 77.8.0
