@@ -948,13 +948,18 @@ The Mintlify source lives in [`mintlify/`](./mintlify/). Topics covered:
 
 ## CI and release builds
 
-Portable builds, tests and packaging run through the [PureScript Dagger module](.dagger/README.md).
-The root mise configuration pins Dagger **1.0.0-beta.21**. Start with
-`mise install` and `.dagger/run linux-x86_64-check`; results go to `artifacts/`.
-Clone with recursive submodules first.
+Builds, tests and packaging are [PureScript Dagger graphs](.dagger/README.md),
+with typed arguments and artifact values. CI calls build tools directly;
+it does not wrap shell scripts. The root mise configuration pins Dagger
+**1.0.0-beta.21**. Clone with recursive submodules, then:
 
-The module vendors my **personal, experimental, unofficial PureScript SDK**;
-it is not an official Dagger SDK. No FluentCI installation or credentials are
-needed. Native macOS/iOS/BSD builds and publishing remain in GitHub Actions.
-The [CI guide](.dagger/README.md) lists every job, Android and release examples,
-and checks you can run without starting Dagger.
+```sh
+mise install
+mise exec -- dagger api call -m .dagger/ci linux-check --source . export --path artifacts
+```
+
+This uses my **personal, experimental, unofficial PureScript SDK**, not an
+official Dagger SDK. No FluentCI installation or credentials are needed.
+Native macOS/iOS/BSD builds and publishing remain in GitHub Actions.
+See the [CI guide](.dagger/README.md) for functions, Android/release examples,
+and graph tests that run without starting Dagger.
