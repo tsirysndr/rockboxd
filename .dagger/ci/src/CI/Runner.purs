@@ -6,6 +6,7 @@ import CI.Base as Base
 import CI.Bindings as Bindings
 import CI.Build as Build
 import CI.Firmware as Firmware
+import CI.Format as Format
 import CI.Graph as G
 import CI.Job (Job(..))
 import CI.Job as Job
@@ -101,7 +102,7 @@ execute job client arch options ctr = case job of
   Ruby -> Bindings.ruby options.version ctr >>= \built -> G.globFiles client built "/src" [ "bindings/ruby/pkg/*.gem" ]
   Python -> Bindings.python options.version ctr >>= \built -> G.globFiles client built "/src" [ "bindings/python/wheelhouse/*" ]
   Npm -> Bindings.npm options.version ctr >>= \built -> G.globFiles client built "/src" [ "bindings/typescript/tarballs/*.tgz" ]
-  Format -> G.report client "format" (G.exec [ "cargo", "fmt", "--all", "--check" ] ctr)
+  Format -> Format.check client ctr
   WebTest -> G.report client "web-test" (ctr # G.at "/src/webui/rockbox" [ "bun", "install" ] # G.at "/src/webui/rockbox" [ "bun", "run", "test", "--run" ])
   Sdl -> do
     let built = Legacy.sdl ctr

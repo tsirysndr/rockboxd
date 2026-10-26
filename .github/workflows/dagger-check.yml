@@ -25,6 +25,9 @@ jobs:
           node-version: '22'
       - name: Install PureScript development tools
         run: npm install --global purescript@0.15.16 spago@1.0.5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
       - name: Compile the module without an engine
         working-directory: .dagger/ci
         run: |

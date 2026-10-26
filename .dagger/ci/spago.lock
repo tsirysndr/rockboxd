@@ -33,6 +33,7 @@
         "core": {
           "dependencies": [
             "aff",
+            "argonaut-codecs",
             "argonaut-core",
             "arrays",
             "dagger-sdk",

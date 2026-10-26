@@ -34,6 +34,13 @@ Most functions accept `--source .` and optional `--platform linux/amd64` or
 want. Tests return a success report only after their final graph node succeeds.
 Inputs are typed module arguments, not a bag of shell environment variables.
 
+`format` reads Cargo metadata and checks every Rockbox workspace package with
+explicit `--package` arguments. It excludes packages inside the `deno/` and
+`rmpc/` submodules, including generated protobuf code. Cargo automatically
+includes some path dependencies as workspace members, so neither `--all` nor
+an unqualified `cargo fmt` provides that boundary. Formatting differences in
+Rockbox-owned packages still fail the check.
+
 | Function | Output / purpose |
 | --- | --- |
 | `linux-check` | Headless daemon + CLI binaries |
@@ -113,6 +120,7 @@ wrappers. Existing standalone developer scripts remain independently usable.
 ## Develop and check without an engine
 
 ```sh
+rustup component add rustfmt
 npm install --global purescript@0.15.16 spago@1.0.5
 cd .dagger/ci
 spago build -p rockbox-ci --pedantic-packages
@@ -124,7 +132,8 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/w
 ```
 
 The graph tests inspect the actual compiled PureScript functions with network
-access disabled. They verify direct command arguments, artifact paths, source
+access disabled. A Cargo fixture also reproduces submodule auto-enrollment and
+checks that owned formatting errors still fail. Tests verify direct command arguments, artifact paths, source
 filtering and input validation. In particular, they preserve **all of
 `firmware/target`**, which is source code, while excluding the specific Cargo
 build-output directories. This prevents the missing `filesystem-app.h` and
@@ -142,6 +151,7 @@ and actionlint. These checks do not replace end-to-end container builds.
 | `CI.Base` / `CI.Graph` | Source filtering, argv execution, file operations and artifacts |
 | `CI.Build` / `CI.Firmware` | Linux builds, codec handling, embedded archives and packages |
 | `CI.Android` / `CI.Bindings` | Android builds and binding packages |
+| `CI.Format` | Cargo metadata selection and formatting checks |
 | `CI.Legacy` | SDL releases and their package formats |
 | `CI.Image` / `CI.Nix` | OCI images and Nix builds |
 

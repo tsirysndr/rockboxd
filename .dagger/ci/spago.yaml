@@ -4,6 +4,7 @@ package:
     - arrays
     - strings
     - integers
+    - argonaut-codecs
     - argonaut-core
     - foreign-object
     - either
