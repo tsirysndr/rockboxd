@@ -1248,12 +1248,12 @@ extern "C" {
 
     // File
     fn open_utf8();
-    fn open();
+    fn open(path: *const c_char, flags: c_int, ...) -> c_int;
     fn creat();
-    fn close();
-    fn read();
+    fn close(fd: c_int) -> c_int;
+    fn read(fd: c_int, buf: *mut c_void, count: usize) -> isize;
     fn lseek();
-    fn write();
+    fn write(fd: c_int, buf: *const c_void, count: usize) -> isize;
     fn remove();
     fn rename();
     fn ftruncate();
