@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install PureScript development tools
         run: npm install --global purescript@0.15.16 spago@1.0.5
       - uses: actions-rust-lang/setup-rust-toolchain@v1

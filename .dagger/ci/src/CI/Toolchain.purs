@@ -28,7 +28,7 @@ prepare client platform arch _source family =
   let
     base = if family == Cross then crossBase client platform else Base.container client platform (image family)
     fromImage name = Base.container client platform name
-    node = fromImage "node:22-bookworm-slim"
+    node = fromImage "node:24-bookworm-slim"
     rust = fromImage "rust:bookworm"
     bun = fromImage "oven/bun:1.4.3"
     deno = fromImage "ghcr.io/denoland/deno:2.9.7"
