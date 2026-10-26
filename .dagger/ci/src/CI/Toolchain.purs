@@ -32,9 +32,10 @@ prepare client platform arch _source family =
     rust = fromImage "rust:bookworm"
     bun = fromImage "oven/bun:1.4.3"
     deno = fromImage "ghcr.io/denoland/deno:2.9.7"
+    -- Deno enables libffi-sys/system, including in host build scripts.
     baseTools = base
       # C.withEnvVariable "DEBIAN_FRONTEND" "noninteractive"
-      # apt [ "build-essential", "ca-certificates", "git", "pkg-config", "xz-utils", "unzip", "zip", "cmake", "perl", "python3", "file", "binutils", "curl" ]
+      # apt [ "build-essential", "ca-certificates", "git", "pkg-config", "xz-utils", "unzip", "zip", "cmake", "perl", "python3", "file", "binutils", "curl", "libffi-dev" ]
       # C.withDirectory "/usr/local" (C.directory "/usr/local" node)
       # C.withEnvVariable "PATH" "/usr/local/cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     withRust = case family of
