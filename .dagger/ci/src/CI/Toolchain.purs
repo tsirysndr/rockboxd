@@ -31,7 +31,7 @@ prepare client platform arch _source family =
     node = fromImage "node:22-bookworm-slim"
     rust = fromImage "rust:bookworm"
     bun = fromImage "oven/bun:1.4.3"
-    deno = fromImage "denoland/deno:2"
+    deno = fromImage "ghcr.io/denoland/deno:2.9.7"
     baseTools = base
       # C.withEnvVariable "DEBIAN_FRONTEND" "noninteractive"
       # apt [ "build-essential", "ca-certificates", "git", "pkg-config", "xz-utils", "unzip", "zip", "cmake", "perl", "python3", "file", "binutils", "curl" ]
