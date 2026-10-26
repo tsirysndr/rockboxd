@@ -100,7 +100,7 @@ func (m *PurescriptSdk) prepare(ctx context.Context, modSource *dagger.ModuleSou
 	if err != nil {
 		return nil, "", fmt.Errorf("module source path: %w", err)
 	}
-	ctr := dag.Container().From("node:22-bookworm-slim").
+	ctr := dag.Container().From("node:24-bookworm-slim").
 		WithExec([]string{"sh", "-c", "apt-get update && apt-get install -y --no-install-recommends ca-certificates git libtinfo6 && rm -rf /var/lib/apt/lists/*"}).
 		WithExec([]string{"npm", "install", "--global", "purescript@0.15.16", "spago@1.0.5"})
 	workdir := path.Join("/src", subpath)

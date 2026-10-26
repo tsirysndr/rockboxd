@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+
 const sessions = new WeakMap();
 const namePattern = /^[_A-Za-z][_0-9A-Za-z]*$/;
 function validType(value) {
@@ -20,7 +22,7 @@ export const connectWith = config => () => {
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535)
     throw new Error("Dagger session port must be an integer between 1 and 65535");
   if (typeof config.token !== "string" || !config.token) throw new Error("Dagger session token is required");
-  if (!Number.isInteger(config.timeoutMs) || config.timeoutMs <= 0) throw new Error("Dagger request timeout must be a positive integer");
+  if (!Number.isInteger(config.timeoutMs) || config.timeoutMs < 0) throw new Error("Dagger request timeout must be a non-negative integer");
   const session = Object.freeze({});
   sessions.set(session, { ...config });
   return session;
@@ -29,7 +31,7 @@ export const connect = () => {
   const port = process.env.DAGGER_SESSION_PORT, token = process.env.DAGGER_SESSION_TOKEN;
   if (!port || !token) throw new Error("No Dagger session. Run your program with `dagger api with-session` (DAGGER_SESSION_PORT and DAGGER_SESSION_TOKEN are required).");
   if (!/^\d+$/.test(port)) throw new Error("Invalid DAGGER_SESSION_PORT");
-  return connectWith({ port: Number(port), token, timeoutMs: 300000 })();
+  return connectWith({ port: Number(port), token, timeoutMs: 0 })();
 };
 // User values always travel as GraphQL variables, including enums and input objects.
 export function buildQuery(steps) {
@@ -68,15 +70,35 @@ function request(session, document, project, onError, onSuccess) {
   let cancelled = false;
   const config = sessions.get(session);
   if (!config) { onError(new Error("Invalid Dagger session"))(); return () => {}; }
-  const timer = setTimeout(() => controller.abort(new Error("Dagger request timed out")), config.timeoutMs);
+  const timer = config.timeoutMs > 0
+    ? setTimeout(() => controller.abort(new Error("Dagger request timed out")), config.timeoutMs)
+    : undefined;
   (async () => {
-    const response = await fetch(`http://127.0.0.1:${config.port}/query`, {
-      method: "POST", redirect: "error",
-      headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${config.token}:`).toString("base64")}` },
-      body: JSON.stringify(document), signal: controller.signal,
+    // GraphQL evaluation may run an entire build. node:http has no implicit
+    // fetch/Undici headers deadline; cancellation and explicit deadlines use
+    // the same AbortSignal for both the request and response body.
+    const body = await new Promise((resolve, reject) => {
+      const req = httpRequest({
+        hostname: "127.0.0.1", port: config.port, path: "/query", method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${config.token}:`).toString("base64")}` },
+        signal: controller.signal,
+      }, response => {
+        const chunks = [];
+        response.on("error", reject);
+        response.on("data", chunk => chunks.push(chunk));
+        response.on("end", () => {
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(`Dagger HTTP error ${response.statusCode}`));
+            return;
+          }
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+          catch (error) { reject(error); }
+        });
+      });
+      req.on("error", error => reject(controller.signal.reason ?? error));
+      req.end(JSON.stringify(document));
     });
-    if (!response.ok) throw new Error(`Dagger HTTP error ${response.status}`);
-    const body = await response.json();
+    if (!Object.hasOwn(body, "data") && !body.errors?.length) throw new Error("Dagger response has no data");
     if (body.errors?.length) {
       const error = new Error(body.errors.map(e => e.message).join("\n"));
       error.name = body.errors.some(e => e.extensions?._type === "EXEC_ERROR") ? "DaggerExecError" : "DaggerGraphQLError";

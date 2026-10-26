@@ -34,6 +34,16 @@ Most functions accept `--source .` and optional `--platform linux/amd64` or
 want. Tests return a success report only after their final graph node succeeds.
 Inputs are typed module arguments, not a bag of shell environment variables.
 
+Source directory exclusions are declared on module arguments so the CLI filters
+host files before upload, then applied again inside the graph. Native Android
+checks upload only the SDK's `ndk/` subtree; APK builds omit emulator images,
+sources, extras, and docs while retaining Android build tools.
+
+The PureScript client uses Node's HTTP transport without a default request
+deadline, allowing a GraphQL request to evaluate a long build. Explicit positive
+`timeoutMs` values still impose a deadline, and cancellation aborts the request.
+Both the module runtime and build toolchain use Node 24.
+
 `format` reads Cargo metadata and checks every Rockbox workspace package with
 explicit `--package` arguments. It excludes packages inside the `deno/` and
 `rmpc/` submodules, including generated protobuf code. Cargo automatically

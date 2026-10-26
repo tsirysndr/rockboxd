@@ -2,7 +2,7 @@
 -- | handlers. Applicative arguments compose naturally with `ado` notation.
 module Dagger.Module.Definition
   ( Arguments, ArgumentDefinition, ModuleFunction, ObjectDefinition
-  , argument, defaultArgument, function, method, constructor, stateful
+  , argument, directoryArgument, defaultArgument, function, method, constructor, stateful
   , object_, objectName, objectFunctions, functionDefinition, invokeObject
   ) where
 
@@ -14,6 +14,7 @@ import Data.Array (find, any)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..), fromMaybe)
 import Dagger (Client)
+import Dagger.Types (Directory)
 import Dagger.Internal.Runtime (Session, sessionOf)
 import Dagger.Module.Value (class DaggerValue, ValueType, decodeJSON, decodeValue, encodeValue, valueType)
 import Effect.Aff (Aff, throwError)
@@ -22,7 +23,7 @@ import Foreign.Object as Object
 import Type.Proxy (Proxy(..))
 
 type ArgumentDefinition =
-  { name :: String, valueType :: ValueType, defaultValue :: Maybe Json }
+  { name :: String, valueType :: ValueType, defaultValue :: Maybe Json, ignore :: Maybe (Array String) }
 
 newtype Arguments a = Arguments
   { definitions :: Array ArgumentDefinition
@@ -42,14 +43,18 @@ instance applicativeArguments :: Applicative Arguments where
   pure a = Arguments { definitions: [], decode: \_ _ -> Right a }
 
 argument :: forall a. DaggerValue a => String -> Arguments a
-argument name = argumentImpl name Nothing
+argument name = argumentImpl name Nothing Nothing
+
+-- | Filter a host directory before the CLI uploads it.
+directoryArgument :: String -> Array String -> Arguments Directory
+directoryArgument name patterns = argumentImpl name Nothing (Just patterns)
 
 defaultArgument :: forall a. DaggerValue a => EncodeJson a => String -> a -> Arguments a
-defaultArgument name value = argumentImpl name (Just (encodeJson value))
+defaultArgument name value = argumentImpl name (Just (encodeJson value)) Nothing
 
-argumentImpl :: forall a. DaggerValue a => String -> Maybe Json -> Arguments a
-argumentImpl name defaultValue = Arguments
-  { definitions: [{ name, valueType: valueType (Proxy :: Proxy a), defaultValue }]
+argumentImpl :: forall a. DaggerValue a => String -> Maybe Json -> Maybe (Array String) -> Arguments a
+argumentImpl name defaultValue ignore = Arguments
+  { definitions: [{ name, valueType: valueType (Proxy :: Proxy a), defaultValue, ignore }]
   , decode: \session values -> case decodeValue session (fromMaybe (fromMaybe jsonNull defaultValue) (Object.lookup name values)) of
       Left message -> Left ("Argument " <> name <> ": " <> message)
       Right result -> Right result

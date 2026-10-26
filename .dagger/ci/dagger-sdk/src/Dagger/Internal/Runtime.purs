@@ -24,10 +24,11 @@ type role Object nominal
 type Step = { name :: String, args :: Array Argument }
 type ResolvedStep = { name :: String, args :: Array { name :: String, typeName :: String, value :: Json } }
 newtype Argument = Argument { name :: String, typeName :: String, value :: Aff Json }
+-- | timeoutMs = 0 allows long-running builds; positive values set a deadline.
 type Config = { port :: Int, token :: String, timeoutMs :: Int }
 
 defaultConfig :: Config
-defaultConfig = { port: 0, token: "", timeoutMs: 300000 }
+defaultConfig = { port: 0, token: "", timeoutMs: 0 }
 
 foreign import connect :: Effect Session
 foreign import connectWith :: Config -> Effect Session

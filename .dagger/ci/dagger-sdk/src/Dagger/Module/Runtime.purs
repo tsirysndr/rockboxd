@@ -66,7 +66,7 @@ register client definitions = do
           Nothing -> TypeDef.withObject (objectName obj) (Query.typeDef client)
           Just t -> toTypeDef client t
         definition = foldl (\f arg -> Function.withArgWith arg.name (toTypeDef client arg.valueType)
-          (Function.defaultWithArgOpts { defaultValue = map (T.JSON <<< stringify) arg.defaultValue }) f)
+          (Function.defaultWithArgOpts { defaultValue = map (T.JSON <<< stringify) arg.defaultValue, ignore = arg.ignore }) f)
           (Query.function fn.name result client # Function.withDescription fn.description) fn.arguments
       in if fn.name == "" then TypeDef.withConstructor definition owner else TypeDef.withFunction definition owner
 

@@ -12,3 +12,8 @@ To update, copy the corresponding files from a reviewed SDK checkout, then run
 
 Local packaging adjustment: retain `schema/LICENSE` in module sources and generated
 clients, including after regeneration. The standalone schema JSON is omitted.
+
+Local runtime fixes: use Node HTTP without an implicit build deadline (explicit
+timeouts and cancellation remain supported), expose directory argument ignore
+metadata for filtering before upload, and run the module on Node 24. Keep these
+changes when refreshing the vendored SDK and generated client.

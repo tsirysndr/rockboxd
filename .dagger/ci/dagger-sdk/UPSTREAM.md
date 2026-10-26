@@ -9,3 +9,8 @@ are regenerated from the beta.21 engine schema.
 
 To update, copy the corresponding files from a reviewed SDK checkout, then run
 `dagger generate -y` from `.dagger/ci` and commit the generated bindings.
+
+Local runtime fixes: use Node HTTP without an implicit build deadline (explicit
+timeouts and cancellation remain supported), expose directory argument ignore
+metadata for filtering before upload, and run the module on Node 24. Keep these
+changes when refreshing the vendored SDK and generated client.

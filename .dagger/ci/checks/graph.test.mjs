@@ -10,6 +10,7 @@ import * as Base from '../output/CI.Base/index.js';
 import * as Graph from '../output/CI.Graph/index.js';
 import * as Build from '../output/CI.Build/index.js';
 import * as Firmware from '../output/CI.Firmware/index.js';
+import * as Definition from '../output/Dagger.Module.Definition/index.js';
 import * as Runner from '../output/CI.Runner/index.js';
 
 // Construct graphs only. A network call is a test failure, never an engine run.
@@ -72,4 +73,12 @@ test('CI modules contain no shell command dispatch or script delegation', () => 
     assert.doesNotMatch(text, /\[\s*"(?:bash|sh|zsh)"/, name);
     assert.doesNotMatch(text, /dockerBuildWith|\/ci\/scripts\/|GITHUB_ENV|GITHUB_OUTPUT/, name);
   }
+});
+
+// The CLI reads this metadata before importing host directories.
+test('directory upload exclusions are exposed in argument metadata', () => {
+  const source = Definition.directoryArgument('source')(Base.sourceExcludes);
+  assert.deepEqual(source.definitions[0].ignore.value0, Base.sourceExcludes);
+  const sdk = Definition.directoryArgument('androidSdk')(['**', '!ndk']);
+  assert.deepEqual(sdk.definitions[0].ignore.value0, ['**', '!ndk']);
 });
