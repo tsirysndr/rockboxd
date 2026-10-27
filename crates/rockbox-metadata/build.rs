@@ -12,6 +12,7 @@ const METADATA_SOURCES: &[&str] = &[
     "asf.c",
     "au.c",
     "ay.c",
+    "dsd.c",
     "flac.c",
     "gbs.c",
     "hes.c",

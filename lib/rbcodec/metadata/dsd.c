@@ -19,6 +19,7 @@
  ****************************************************************************/
 #include <string.h>
 #include "metadata.h"
+#include "metadata_common.h"
 #include "metadata_parsers.h"
 
 static uint32_t le32(const unsigned char *p)
@@ -75,7 +76,7 @@ static bool parse_dsf(int fd, struct mp3entry *id3, const unsigned char *head)
     set_common(id3, le32(fmt + 28), le64(fmt + 36), le64(head + 12));
     id3->first_frame_offset = 92;
 
-    if (metadata_offset && metadata_offset + 10 < (uint64_t)ffilesize(fd) &&
+    if (metadata_offset && metadata_offset + 10 < (uint64_t)metadata_filesize(fd) &&
         lseek(fd, metadata_offset, SEEK_SET) >= 0)
     {
         unsigned char tag[10];
@@ -97,7 +98,7 @@ static bool parse_dff(int fd, struct mp3entry *id3)
     uint32_t rate = 0;
     uint32_t channels = 0;
     uint64_t dsd_size = 0;
-    off_t end = ffilesize(fd);
+    off_t end = metadata_filesize(fd);
 
     if (lseek(fd, 16, SEEK_SET) < 0)
         return false;
