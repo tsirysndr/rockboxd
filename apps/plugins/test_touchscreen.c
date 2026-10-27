@@ -36,7 +36,7 @@
 #elif CONFIG_KEYPAD == CREATIVE_ZENXFI2_PAD
 #define TOUCHSCREEN_QUIT   BUTTON_POWER
 #define TOUCHSCREEN_TOGGLE BUTTON_MENU
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 #define TOUCHSCREEN_QUIT   BUTTON_POWER
 #define TOUCHSCREEN_TOGGLE BUTTON_PLAY
 #elif (CONFIG_KEYPAD == ANDROID_PAD)
@@ -287,6 +287,55 @@ static void tstest_velocity(void)
     }
 }
 
+static void tstest_flick(void)
+{
+    struct gesture_event gevent;
+
+    rb->splashf(HZ, "Flick test");
+    rb->touchscreen_set_mode(TOUCHSCREEN_POINT);
+
+    rb->lcd_clear_display();
+    rb->lcd_update();
+
+    while (true)
+    {
+        int action = rb->get_custom_action(CONTEXT_PLUGIN, TIMEOUT_BLOCK,
+                                           get_context_map);
+        if (action == ACTION_TOUCHSCREEN)
+        {
+            rb->lcd_clear_display();
+            rb->action_gesture_get_event(&gevent);
+
+            switch (rb->gesture_flick_get(&gevent)) {
+            case GESTURE_FLICK_TOP:
+                rb->splashf(HZ, "top flick");
+                break;
+            case GESTURE_FLICK_BOTTOM:
+                rb->splashf(HZ, "bottom flick");
+                break;
+            case GESTURE_FLICK_LEFT:
+                rb->splashf(HZ, "left flick");
+                break;
+            case GESTURE_FLICK_RIGHT:
+                rb->splashf(HZ, "right flick");
+                break;
+            }
+
+            rb->lcd_clear_display();
+            rb->lcd_update();
+        }
+        else if (action == ACTION_STD_CANCEL)
+        {
+            break;
+        }
+        else if (rb->default_event_handler(action) == SYS_USB_CONNECTED)
+        {
+            usb_exit = true;
+            break;
+        }
+    }
+}
+
 /* plugin entry point */
 enum plugin_status plugin_start(const void* parameter)
 {
@@ -299,6 +348,7 @@ enum plugin_status plugin_start(const void* parameter)
                         "Pointing mode test",
                         "Gesture test",
                         "Velocity test",
+                        "Flick test",
                         "Quit");
 
     while (true)
@@ -320,6 +370,10 @@ enum plugin_status plugin_start(const void* parameter)
 
         case 3:
             tstest_velocity();
+            break;
+
+        case 4:
+            tstest_flick();
             break;
 
         default:

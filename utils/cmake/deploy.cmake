@@ -94,8 +94,6 @@ endif()
 
 # MacOS: Build dmg
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(CODESIGN_IDENTITY "-" CACHE STRING
-            "Code signing identity to use for macOS signing")
     set(DMGBUILD_STAMP ${CMAKE_BINARY_DIR}/dmgbuild.stamp)
     add_custom_command(
             COMMENT "Setting up dmgbuild virtualenv"
@@ -136,23 +134,51 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             set(_deploy_deps "${_deploy_deps};deploy_${deploy_TARGET}_${_deploy_exe_tgt}")
         endforeach()
 
+        set(_dmg "${CMAKE_BINARY_DIR}/${deploy_TARGET}.dmg")
+
         add_custom_command(
             # TODO: find a better way to figure the app bundle name.
-            OUTPUT ${CMAKE_BINARY_DIR}/${deploy_TARGET}.dmg
-            COMMENT "Running macdeployqt and creating dmg ${deploy_TARGET}"
-            COMMAND ${MACDEPLOYQT_EXECUTABLE} ${deploy_TARGET}.app
+            OUTPUT "${_dmg}"
+            COMMENT "Running macdeployqt and creating ${deploy_TARGET}.dmg"
+            COMMAND "${MACDEPLOYQT_EXECUTABLE}" "${deploy_TARGET}.app"
 
-            COMMAND codesign --force --deep --sign "${CODESIGN_IDENTITY}" ${deploy_TARGET}.app
+            COMMAND codesign --force --options runtime --deep
+                    --sign "${CODESIGN_IDENTITY}" "${deploy_TARGET}.app"
 
-            COMMAND ${DMGBUILD} -s ${deploy_DMGBUILDCFG}
-                    -Dappbundle=${deploy_TARGET}.app
-                    ${deploy_TARGET} ${CMAKE_BINARY_DIR}/${deploy_TARGET}.dmg
+            COMMAND ${DMGBUILD} -s "${deploy_DMGBUILDCFG}"
+                    -Dappbundle="${deploy_TARGET}.app"
+                    "${deploy_TARGET}" "${_dmg}"
             DEPENDS ${deploy_TARGET}
                     dmgbuild_venv
                     ${_deploy_deps}
         )
-        add_custom_target(deploy_${deploy_TARGET}
-            DEPENDS ${CMAKE_BINARY_DIR}/${deploy_TARGET}.dmg)
+
+        if("${KEYCHAIN_PROFILE}" STREQUAL "")
+            add_custom_target(deploy_${deploy_TARGET}
+                DEPENDS "${_dmg}")
+        else()
+            set(_notarized_stamp "${_dmg}.notarized")
+
+            add_custom_command(
+                OUTPUT "${_notarized_stamp}"
+                COMMENT "Submitting ${deploy_TARGET}.dmg for notarization"
+
+                COMMAND xcrun notarytool submit "${_dmg}"
+                        --keychain-profile "${KEYCHAIN_PROFILE}"
+                        --wait
+
+                COMMAND xcrun stapler staple "${_dmg}"
+
+                COMMAND "${CMAKE_COMMAND}" -E touch "${_notarized_stamp}"
+
+                DEPENDS "${_dmg}"
+                VERBATIM
+            )
+
+            add_custom_target(deploy_${deploy_TARGET}
+                DEPENDS "${_notarized_stamp}")
+        endif()
+
         add_dependencies(deploy deploy_${deploy_TARGET})
     endfunction()
 endif()

@@ -24,7 +24,7 @@
 #include "i2c-async.h"
 #include <string.h>
 
-#if defined(HAVE_AXP2101_ADDON)
+#if defined(HAVE_AXP2101)
 # include "axp-2101.h"
 # include "devicedata.h"
 #endif
@@ -175,7 +175,7 @@ int axp_supply_get_voltage(int supply)
         } else
 #endif
         {
-            if(r & (1 << info->en_bit) == 0)
+            if((r & (1 << info->en_bit)) == 0)
                 return AXP_SUPPLY_DISABLED;
         }
     }

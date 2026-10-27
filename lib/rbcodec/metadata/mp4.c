@@ -146,63 +146,51 @@ static unsigned int read_mp4_tag_string(int fd, int size_left, char** buffer,
     return length;
 }
 
+/* Read an atom header.  Sets *size to the size of the atom's contents,
+ * clamped to its parent, of which size_left bytes were left, and returns
+ * what is left of the parent after the atom.  An atom too small for its
+ * own header ends the parent: *type 0, *size 0, 0 left. */
 static unsigned int read_mp4_atom(int fd, uint32_t* size,
                                   uint32_t* type, uint32_t size_left)
 {
+    uint32_t header = 8;
+
     read_uint32be(fd, size);
     read_uint32be(fd, type);
 
     if (*size == 1)
     {
-        /* A size of 1 means the real length is a 64-bit value following the
-         * type field. Streaming encoders emit this for mdat because the
-         * payload length isn't known when the header is written, so it does
-         * not imply a file too big for the filesystem — read it and carry on.
-         * The header is 16 bytes here rather than 8.
-         */
-        uint64_t largesize = 0;
+        /* 64-bit size.  FAT32 doesn't support files over 4 GB, so only
+         * the low 32 bits can be non-zero. */
+        uint32_t high;
 
-        read_uint64be(fd, &largesize);
+        read_uint32be(fd, &high);
+        read_uint32be(fd, size);
+        header = 16;
 
-        if (largesize < 16 || (largesize - 16) > UINT32_MAX)
+        if (high != 0)
         {
             errno = EFBIG;
             *type = 0;
             return 0;
         }
-
-        if (largesize > (uint64_t) size_left)
-        {
-            size_left = 0;
-        }
-        else
-        {
-            size_left -= (uint32_t) largesize;
-        }
-
-        *size = (uint32_t) (largesize - 16);
-
-        return size_left;
     }
 
-    if (*size > 0)
-    {
-        if (*size > size_left)
-        {
-            size_left = 0;
-        }
-        else
-        {
-            size_left -= *size;
-        }
-
-        *size -= 8;
-    }
-    else
+    /* 0 means up to the end of the parent */
+    if (*size == 0 || *size > size_left)
     {
         *size = size_left;
-        size_left = 0;
     }
+
+    if (*size < header)
+    {
+        *type = 0;
+        *size = 0;
+        return 0;
+    }
+
+    size_left -= *size;
+    *size -= header;
 
     return size_left;
 }
@@ -422,7 +410,10 @@ static bool read_mp4_tags(int fd, struct mp3entry* id3,
 
     do
     {
+        off_t end;
+
         size_left = read_mp4_atom(fd, &size, &type, size_left);
+        end = lseek(fd, 0, SEEK_CUR) + size;
 
         /* DEBUGF("Tag atom: '%c%c%c%c' (%d bytes left)\n", type >> 24 & 0xff,
             type >> 16 & 0xff, type >> 8 & 0xff, type & 0xff, size); */
@@ -618,9 +609,12 @@ static bool read_mp4_tags(int fd, struct mp3entry* id3,
             break;
 
         default:
-            lseek(fd, size, SEEK_CUR);
             break;
         }
+
+        /* the next atom starts where this one ends, however much of it
+           was read */
+        lseek(fd, end, SEEK_SET);
     }
     while ((size_left > 0) && (errno == 0));
 
@@ -638,7 +632,10 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
 
     do
     {
+        off_t end;
+
         size_left = read_mp4_atom(fd, &size, &type, size_left);
+        end = lseek(fd, 0, SEEK_CUR) + size;
 
         /* DEBUGF("Atom: '%c%c%c%c' (0x%08lx, %lu bytes left)\n",
             (int) ((type >> 24) & 0xff), (int) ((type >> 16) & 0xff),
@@ -658,24 +655,22 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             break;
 
         case MP4_meta:
-            /* ISO-BMFF declares `meta` a FullBox, so its payload starts with
-             * a zero version/flags word. QuickTime-flavoured files (Samsung
-             * recorders among them) omit it and start straight at the first
-             * child atom. Skipping unconditionally desynchronises the walk on
-             * those, so only skip when the word really is version/flags.
-             */
             {
-                uint32_t version = 0;
+                /* ISO meta starts with 4 bytes of version and flags;
+                   QuickTime's has none, so its hdlr atom comes first */
+                uint32_t first_size, first_type = 0;
 
-                read_uint32be(fd, &version);
-
-                if (version == 0)
+                if (size >= 8)
                 {
-                    size -= 4;
+                    read_uint32be(fd, &first_size);
+                    read_uint32be(fd, &first_type);
+                    lseek(fd, -8, SEEK_CUR);
                 }
-                else
+
+                if (first_type != MP4_hdlr)
                 {
-                    lseek(fd, -4, SEEK_CUR);
+                    lseek(fd, 4, SEEK_CUR);  /* Skip version */
+                    size -= 4;
                 }
             }
             /* Fall through */
@@ -732,6 +727,12 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
                 lseek(fd, 4, SEEK_CUR);
                 read_uint32be(fd, &entries);
                 id3->samples = 0;
+
+                /* 8 bytes each, after version, flags and count */
+                if (size < 8)
+                    entries = 0;
+                else if (entries > (size - 8) / 8)
+                    entries = (size - 8) / 8;
 
                 for (i = 0; i < entries; i++)
                 {
@@ -817,7 +818,7 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             if(size == 0)
                 break;
             /* mdat chunks accumulate! */
-            id3->FS_PREFIX(filesize) += size;
+            id3->filesize += size;
             if(id3->samples > 0) {
                 /* We've already seen the moov chunk. */
                 done = true;
@@ -848,10 +849,11 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
             break;
         }
 
-        /* Skip final seek. */
+        /* The next atom starts where this one ends, however much of it
+           was read.  Skip the seek after the mdat that ends the walk. */
         if (!done)
         {
-            lseek(fd, size, SEEK_CUR);
+            lseek(fd, end, SEEK_SET);
         }
     } while (rc && (size_left > 0) && (errno == 0) && !done);
 
@@ -861,12 +863,12 @@ static bool read_mp4_container(int fd, struct mp3entry* id3,
 bool get_mp4_metadata(int fd, struct mp3entry* id3)
 {
     id3->codectype = AFMT_UNKNOWN;
-    id3->FS_PREFIX(filesize) = 0;
+    id3->filesize = 0;
     errno = 0;
 
     if (read_mp4_container(fd, id3, metadata_filesize(fd)) && (errno == 0)
         && (id3->samples > 0) && (id3->frequency > 0)
-        && (id3->FS_PREFIX(filesize) > 0))
+        && (id3->filesize > 0))
     {
         if (id3->codectype == AFMT_UNKNOWN)
         {
@@ -884,7 +886,7 @@ bool get_mp4_metadata(int fd, struct mp3entry* id3)
             return false;
         }
 
-        id3->bitrate = ((int64_t) id3->FS_PREFIX(filesize) * 8) / id3->length;
+        id3->bitrate = ((int64_t) id3->filesize * 8) / id3->length;
         DEBUGF("MP4 bitrate %d, frequency %ld Hz, length %ld ms\n",
             id3->bitrate, id3->frequency, id3->length);
     }
@@ -893,7 +895,7 @@ bool get_mp4_metadata(int fd, struct mp3entry* id3)
         logf("MP4 metadata error");
         DEBUGF("MP4 metadata error. errno %d, samples %ld, frequency %ld, "
             "filesize %ld\n", errno, id3->samples, id3->frequency,
-            id3->FS_PREFIX(filesize));
+            id3->filesize);
         return false;
     }
 

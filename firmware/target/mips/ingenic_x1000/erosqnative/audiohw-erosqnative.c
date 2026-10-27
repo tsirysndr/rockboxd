@@ -20,6 +20,7 @@
 
 #include "system.h"
 #include "audiohw.h"
+#include "pcm_sink.h"
 #include "pcm_sw_volume.h"
 #include "pcm_sampr.h"
 #include "i2c-target.h"
@@ -29,8 +30,8 @@
 #include "logf.h"
 
 #include "aic-x1000.h"
-#include "i2c-x1000.h"
-#include "gpio-x1000.h"
+#include "i2c-ingenic.h"
+#include "gpio-ingenic.h"
 #include "devicedata.h"
 
 /*
@@ -88,7 +89,7 @@ void audiohw_init(void)
     mdelay(10);
     gpio_set_level(GPIO_STEREOSW_MUTE, 0);
 
-    i2c_x1000_set_freq(ES9018K2M_BUS, I2C_FREQ_400K);
+    i2c_ingenic_set_freq(ES9018K2M_BUS, I2C_FREQ_400K);
 
     // devices hw2 and newer use es9018k2m i2c dac
     // hw1 devices use swvol
@@ -102,11 +103,19 @@ void audiohw_init(void)
         }
 #endif
         es9018k2m_present_flag = true;
+        builtin_pcm_sink.caps.volume_type = PCM_SINK_HWVOL;
 
-       /* Default is 32-bit data, and it works ok. Enabling the following
-        * causes issue. Which is weird, I definitely thought AIC was configured
-        * for 24-bit data... */
-        // es9018k2m_write_reg(ES9018K2M_REG1_INPUT_CONFIG, 0b01001100); // 24-bit data
+        /*
+         * Set sample depth to 32-bit. The sample depth setting corresponds
+         * to the I2S frame length which is twice the sample depth (since
+         * I2S is stereo). The AIC only supports 64-bit frames (see 6.3.1
+         * "6.3.1 I2S and MSB-justified serial audio format" in the PM).
+         *
+         * Commented out since this is the hardware default. We technically
+         * do not need SPDIF/DSD detection so the lower nibble could be 0,
+         * but it was historically enabled does not seem to cause any harm.
+         */
+        //es92018k2m_write_reg(ES9018K2M_REG1_INPUT_CONFIG, 0xcc);
 
        /* Datasheet: Sets the number os FSR edges that must occur before    *
         * the DPLL and ASRC can lock on to the the incoming Signal.         *
@@ -192,9 +201,6 @@ void audiohw_set_volume(int vol_l, int vol_r)
         l = l <= PCM5102A_VOLUME_MIN ? PCM_MUTE_LEVEL : l;
         r = r <= PCM5102A_VOLUME_MIN ? PCM_MUTE_LEVEL : r;
 
-        /* set software volume just below unity due to
-         * DAC offset. We don't want to overflow the PCM system. */
-        pcm_set_master_volume(-1, -1);
         es9018k2m_set_volume_async(l, r);
     }
     else /* PCM5102A */

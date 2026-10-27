@@ -1117,7 +1117,7 @@ static int _talk_file(const char* filename,
     {
         return 0;
     }
-    size = filesize(fd);
+    size = ffilesize(fd);
 
     if (size > 0)
     {
@@ -1540,7 +1540,10 @@ int talk_spell(const char* spell, bool enqueue)
 void talk_disable(bool disable)
 {
     if (disable)
+    {
+        talk_force_shutup();
         talk_temp_disable_count++;
+    }
     else
         talk_temp_disable_count--;
 }

@@ -433,18 +433,6 @@
 #define FLIPIT_STEP_BY_STEP (BUTTON_HOME | BUTTON_PLAY)
 #define FLIPIT_TOGGLE       BUTTON_PLAY
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-
-#define FLIPIT_LEFT         BUTTON_PREV
-#define FLIPIT_RIGHT        BUTTON_NEXT
-#define FLIPIT_UP           BUTTON_HOME
-#define FLIPIT_DOWN         BUTTON_OPTION
-#define FLIPIT_QUIT         BUTTON_POWER
-#define FLIPIT_SHUFFLE      (BUTTON_HOME | BUTTON_PREV)
-#define FLIPIT_SOLVE        (BUTTON_HOME | BUTTON_NEXT)
-#define FLIPIT_STEP_BY_STEP (BUTTON_HOME | BUTTON_PLAY)
-#define FLIPIT_TOGGLE       BUTTON_PLAY
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 
 #define FLIPIT_LEFT         BUTTON_HOME
@@ -481,7 +469,7 @@
 #define FLIPIT_STEP_BY_STEP BUTTON_VOL_UP
 #define FLIPIT_TOGGLE       BUTTON_SELECT
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -512,7 +500,7 @@
 #define FLIPIT_STEP_BY_STEP BUTTON_Y
 #define FLIPIT_TOGGLE       BUTTON_A
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 
 #define FLIPIT_LEFT         BUTTON_LEFT
 #define FLIPIT_RIGHT        BUTTON_RIGHT
@@ -535,6 +523,18 @@
 #define FLIPIT_SOLVE        BUTTON_START
 #define FLIPIT_STEP_BY_STEP BUTTON_X
 #define FLIPIT_TOGGLE       BUTTON_A
+
+#elif CONFIG_KEYPAD == PSP_PAD
+
+#define FLIPIT_LEFT         BUTTON_LEFT
+#define FLIPIT_RIGHT        BUTTON_RIGHT
+#define FLIPIT_UP           BUTTON_UP
+#define FLIPIT_DOWN         BUTTON_DOWN
+#define FLIPIT_QUIT         BUTTON_BACK
+#define FLIPIT_SHUFFLE      BUTTON_MENU
+#define FLIPIT_SOLVE        BUTTON_USER
+#define FLIPIT_STEP_BY_STEP BUTTON_POWER
+#define FLIPIT_TOGGLE       BUTTON_SELECT
 
 #else
 #error No keymap defined!
@@ -955,7 +955,7 @@ enum plugin_status plugin_start(const void* parameter)
     }
     rb->lcd_update();
     rb->sleep(HZ*3/2);
-    rb->srand(*rb->current_tick);
+
 
     rc = flipit_loop();
     return rc;

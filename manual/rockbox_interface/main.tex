@@ -176,6 +176,14 @@ detail in the following paragraph.
   \ButtonHold{} is off before trying to use your player.
   }
   %
+  \opt{ipod6g}{
+  Earphones with an Apple-compatible inline remote are supported (not on
+  the 2007 model). A click of the remote's center button toggles
+  play/pause on any screen, even while the \ButtonHold{} switch is on;
+  the center button has no long-press function. The remote's volume
+  buttons adjust the \dap{}'s volume everywhere.
+  }
+  %
   \opt{ipod3g}{
   The main controls on the \dap{} are a slightly indented touch wheel
   with a flat round button in the center, and four buttons in a row above the
@@ -548,7 +556,7 @@ detail in the following paragraph.
   the default.\\}
 To turn on and off your Rockbox enabled \dap{} use the following keys:
     \begin{btnmap}
-      \opt{RG_NANO_PAD}{Long \ButtonPower & Turn on the \dap{} \\}
+      \opt{RG_NANO_PAD}{Long \ButtonPower}%
       \opt{IRIVER_H100_PAD,IRIVER_H300_PAD}{\ButtonOn}%
       \opt{MPIO_HD200_PAD,MPIO_HD300_PAD,SAMSUNG_YH92X_PAD,SAMSUNG_YH820_PAD}%
           {Long \ButtonPlay}%
@@ -622,7 +630,7 @@ To turn on and off your Rockbox enabled \dap{} use the following keys:
   {
   \subsection{Starting the original firmware}
   \label{ref:Dualboot}
-  \opt{ipod4g,ipodcolor,ipodvideo,ipodnano,ipodnano2g,ipodmini}
+  \opt{ipod4g,ipodcolor,ipodvideo,ipodnano,ipodnano2g,ipodnano3g,ipodmini}
     {
     Rockbox has a dual-boot feature. To boot into the original firmware, shut
     down the device as described above. Turn on the \ButtonHold{} switch
@@ -835,7 +843,7 @@ Note that scroll speed accelerates, the faster you rotate the wheel.}
 Press \ActionStdOk{} to select an item. Selecting an audio file in the File Browser
 will play it. The ``While playing screen'' (``WPS'', see \reference{ref:WPS}) will
 be displayed, and the current playlist will be replaced with tracks from the current
-directory. To go back to the bowser, either stop playback using the
+directory. To go back to the browser, either stop playback using the
 \ActionWpsStop{} button, or press \ActionWpsBrowse{}, which keeps playback
 running.
 When browsing files, return to parent directories with \ActionTreeParentDirectory.
@@ -859,7 +867,7 @@ include more advanced commands.
 In the file browser, the relevant selection may be a file (or directory).
 On the WPS, it is the currently playing track. Some actions do not apply
 to the selection, but relate to the screen itself, from which the context menu
-was accessed. Playback settings accessible from the “While playing screen” are one such
+was accessed. Playback settings accessible from the ``While playing screen'' are one such
 example.
 
 \section{Customising Rockbox}

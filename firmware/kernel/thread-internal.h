@@ -32,7 +32,7 @@
  * simulator (possibly) doesn't simulate stack usage anyway but well ... */
 
 #if defined(HAVE_SDL_THREADS) || defined(HAVE_POSIX_THREADS) || \
-    defined(__PCTOOL__) || defined(CTRU)
+    defined(__PCTOOL__) || defined(N3DS) || defined(SONY_PSP)
 struct regs
 {
     void *t;             /* OS thread */
@@ -41,7 +41,9 @@ struct regs
     void (*start)(void); /* Start function */
 };
 
+#ifndef PSP
 #define DEFAULT_STACK_SIZE 0x100 /* tiny, ignored anyway */
+#endif
 #else
 #include "asm/thread.h"
 #endif /* HAVE_SDL_THREADS || HAVE_POSIX_THREADS */
@@ -322,7 +324,7 @@ static inline void rtr_queue_remove(struct __rtr_queue *rtrp,
     lldc_remove(rtrp, &thread->rtr);
 }
 
-#define TMO_NOT_QUEUED (NULL + 1)
+#define TMO_NOT_QUEUED ((struct __tmo_queue_node *)1)
 
 static inline bool tmo_is_queued(struct thread_entry *thread)
 {

@@ -31,8 +31,8 @@
 // #define LOGF_ENABLE
 #include "logf.h"
 
-#include "gpio-x1000.h"
-#include "i2c-x1000.h"
+#include "gpio-ingenic.h"
+#include "i2c-ingenic.h"
 
 int es9018k2m_present_flag = 0;
 
@@ -72,7 +72,7 @@ void eros_qn_switch_output(int select)
 
 bool eros_qn_discover_dac(bool pwr_after_discovery)
 {
-    i2c_x1000_set_freq(ES9018K2M_BUS, I2C_FREQ_400K);
+    i2c_ingenic_set_freq(ES9018K2M_BUS, I2C_FREQ_400K);
     gpio_set_level(GPIO_DAC_PWR, 1);
     gpio_set_level(GPIO_DAC_ANALOG_PWR, 1);
     mdelay(10);

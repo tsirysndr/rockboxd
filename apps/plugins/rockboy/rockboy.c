@@ -74,7 +74,7 @@ static void setoptions (void)
     int optionssize = sizeof(options);
     int filesize = 0;
     if(fd >= 0)
-        filesize = rb->filesize(fd);
+        filesize = rb->ffilesize(fd);
 
     /* don't read the option file if the size
      * is not as expected to avoid crash */
@@ -414,16 +414,6 @@ static void setoptions (void)
         options.SELECT  = BUTTON_VOL_UP;
         options.MENU    = BUTTON_POWER;
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-        options.UP      = BUTTON_PREV;
-        options.DOWN    = BUTTON_NEXT;
-
-        options.A       = BUTTON_HOME;
-        options.B       = BUTTON_OPTION;
-        options.START   = BUTTON_VOL_DOWN;
-        options.SELECT  = BUTTON_VOL_UP;
-        options.MENU    = BUTTON_POWER;
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
         options.UP      = BUTTON_PREV;
         options.DOWN    = BUTTON_NEXT;
@@ -457,7 +447,7 @@ static void setoptions (void)
         options.SELECT  = BUTTON_VOL_UP;
         options.MENU    = BUTTON_POWER;
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
         /* use touchscreen */
 
 #elif CONFIG_KEYPAD == MA_PAD
@@ -482,7 +472,7 @@ static void setoptions (void)
         options.SELECT  = BUTTON_FN;
         options.MENU    = BUTTON_X;
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
         options.UP     = BUTTON_UP;
         options.DOWN   = BUTTON_DOWN;
         options.LEFT   = BUTTON_LEFT;
@@ -506,11 +496,23 @@ static void setoptions (void)
         options.SELECT = BUTTON_SELECT;
         options.MENU   = BUTTON_POWER;
 
+#elif CONFIG_KEYPAD == PSP_PAD
+        options.UP     = BUTTON_UP;
+        options.DOWN   = BUTTON_DOWN;
+        options.LEFT   = BUTTON_LEFT;
+        options.RIGHT  = BUTTON_RIGHT;
+
+        options.A      = BUTTON_SELECT;
+        options.B      = BUTTON_BACK;
+        options.START  = BUTTON_POWER;
+        options.SELECT = BUTTON_USER;
+        options.MENU   = BUTTON_MENU;
+
 #else
 #error No Keymap Defined!
 #endif
 
-#if defined(HAVE_TOUCHSCREEN) && (CONFIG_KEYPAD != CTRU_PAD)
+#if defined(HAVE_TOUCHSCREEN) && (CONFIG_KEYPAD != N3DS_PAD)
         options.UP      = BUTTON_TOPMIDDLE;
         options.DOWN    = BUTTON_BOTTOMMIDDLE;
         options.START   = BUTTON_TOPRIGHT;

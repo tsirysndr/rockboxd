@@ -65,11 +65,11 @@ int hiby_has_valid_output(void) {
     const char * const sysfs_hs_switch = "/sys/class/switch/headset/state";
     const char * const sysfs_bal_switch = "/sys/class/switch/balance/state";
 
-    sysfs_get_int(sysfs_hs_switch, &status);
-    if (status) ps = 2; // headset
+    if (sysfs_get_int(sysfs_hs_switch, &status) && status)
+        ps = 2; // headset
 
-    sysfs_get_int(sysfs_bal_switch, &status);
-    if (status) ps = 3; // balanced output
+    if (sysfs_get_int(sysfs_bal_switch, &status) && status)
+        ps = 3; // balanced output
 
     return ps;
 }
@@ -85,6 +85,12 @@ int hiby_get_outputs(void){
 void hiby_set_output(int ps)
 {
     if (!hw_init || muted) return;
+
+    // Default to headset if nothing was ever inserted; otherwise, R3 Pro II crashes on playback
+    if (ps == 0)
+    {
+        ps = last_ps > 0 ? last_ps : 2;
+    }
 
     if (last_ps != ps)
     {

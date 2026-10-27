@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2009 Mohamed Tarek
  *
@@ -96,7 +95,7 @@ int rm_get_packet(uint8_t **src,RMContext *rmctx, RMPacket *pkt);
 
 #ifdef TEST
 
-int filesize(int fd);
+int ffilesize(int fd);
 void advance_buffer(uint8_t **buf, int val);
 
 /* Get a (sub_packet_h*frames_per_packet) number of audio frames from a file descriptor */

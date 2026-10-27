@@ -646,25 +646,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define HK_CUR2STACK      "DBL PLAY"
 #   define HK_REM2STACK      "NEXT"
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#   define SOL_QUIT          BUTTON_POWER
-#   define SOL_UP            BUTTON_HOME
-#   define SOL_DOWN          BUTTON_OPTION
-#   define SOL_LEFT          BUTTON_PREV
-#   define SOL_RIGHT         BUTTON_NEXT
-#   define SOL_MOVE_PRE      BUTTON_PLAY
-#   define SOL_MOVE          (BUTTON_PLAY | BUTTON_REL)
-#   define SOL_DRAW          (BUTTON_POWER | BUTTON_REPEAT)
-#   define SOL_REM2CUR       BUTTON_VOL_DOWN
-#   define SOL_CUR2STACK_PRE BUTTON_PLAY
-#   define SOL_CUR2STACK     (BUTTON_PLAY | BUTTON_REPEAT)
-#   define SOL_REM2STACK     BUTTON_VOL_UP
-#   define HK_MOVE           "PLAY"
-#   define HK_DRAW           "DBL HOME"
-#   define HK_REM2CUR        "PREV"
-#   define HK_CUR2STACK      "DBL PLAY"
-#   define HK_REM2STACK      "NEXT"
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #   define SOL_QUIT          BUTTON_POWER
 #   define SOL_UP            BUTTON_PREV
@@ -722,7 +703,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define HK_CUR2STACK     "HOLD SELECT"
 #   define HK_REM2STACK     "VOL+"
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 #   define SOL_QUIT         BUTTON_POWER
 
 #elif CONFIG_PAD == SDL_APP
@@ -759,7 +740,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define HK_CUR2STACK      "B"
 #   define HK_REM2STACK      "R"
 
-#elif (CONFIG_KEYPAD == CTRU_PAD)
+#elif (CONFIG_KEYPAD == N3DS_PAD)
 #   define SOL_QUIT         BUTTON_BACK
 #   define SOL_UP           BUTTON_UP
 #   define SOL_DOWN         BUTTON_DOWN
@@ -813,6 +794,24 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define HK_DRAW         "X"
 #   define HK_REM2CUR      "Long Y"
 #   define HK_CUR2STACK    "Long A.."
+#   define HK_REM2STACK    "Start"
+
+#elif (CONFIG_KEYPAD == PSP_PAD)
+#   define SOL_QUIT         BUTTON_BACK
+#   define SOL_UP           BUTTON_UP
+#   define SOL_DOWN         BUTTON_DOWN
+#   define SOL_LEFT         BUTTON_LEFT
+#   define SOL_RIGHT        BUTTON_RIGHT
+#   define SOL_MOVE_PRE     BUTTON_SELECT
+#   define SOL_MOVE         (BUTTON_SELECT | BUTTON_REL)
+#   define SOL_DRAW         BUTTON_MENU
+#   define SOL_REM2CUR      (BUTTON_USER | BUTTON_REPEAT)
+#   define SOL_CUR2STACK    (BUTTON_SELECT | BUTTON_REPEAT)
+#   define SOL_REM2STACK    BUTTON_POWER
+#   define HK_MOVE         "Cross"
+#   define HK_DRAW         "Square"
+#   define HK_REM2CUR      "Long Triangle"
+#   define HK_CUR2STACK    "Long Cross.."
 #   define HK_REM2STACK    "Start"
 
 #else
@@ -1744,7 +1743,7 @@ static int solitaire( int skipmenu )
     int c,h,prevcard;
     int biggest_col_length;
 
-    rb->srand( *rb->current_tick );
+
     if( skipmenu != SOLITAIRE_QUIT )
     {
         switch( solitaire_menu(false) )

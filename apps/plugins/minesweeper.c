@@ -382,19 +382,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define MINESWP_DISCOVER2  BUTTON_VOL_UP
 #   define MINESWP_INFO       (BUTTON_PLAY | BUTTON_OPTION)
 
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-#   define MINESWP_LEFT       BUTTON_PREV
-#   define MINESWP_RIGHT      BUTTON_NEXT
-#   define MINESWP_UP         BUTTON_HOME
-#   define MINESWP_DOWN       BUTTON_OPTION
-#   define MINESWP_QUIT       BUTTON_POWER
-#   define MINESWP_TOGGLE_PRE BUTTON_PLAY
-#   define MINESWP_TOGGLE     (BUTTON_PLAY | BUTTON_REL)
-#   define MINESWP_TOGGLE2    BUTTON_VOL_DOWN
-#   define MINESWP_DISCOVER   (BUTTON_PLAY | BUTTON_REPEAT)
-#   define MINESWP_DISCOVER2  BUTTON_VOL_UP
-#   define MINESWP_INFO       (BUTTON_PLAY | BUTTON_OPTION)
-
 #elif (CONFIG_KEYPAD == IHIFI_770_PAD) || (CONFIG_KEYPAD == IHIFI_800_PAD)
 #   define MINESWP_LEFT       BUTTON_HOME
 #   define MINESWP_RIGHT      BUTTON_VOL_DOWN
@@ -441,7 +428,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define MINESWP_DISCOVER     (BUTTON_MENU|BUTTON_REPEAT)
 #   define MINESWP_INFO         BUTTON_MENU
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -456,7 +443,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define MINESWP_DISCOVER     BUTTON_A
 #   define MINESWP_INFO         BUTTON_Y
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #   define MINESWP_LEFT         BUTTON_LEFT
 #   define MINESWP_RIGHT        BUTTON_RIGHT
 #   define MINESWP_UP           BUTTON_UP
@@ -475,6 +462,16 @@ CONFIG_KEYPAD == MROBE500_PAD
 #   define MINESWP_TOGGLE       BUTTON_B
 #   define MINESWP_DISCOVER     BUTTON_A
 #   define MINESWP_INFO         BUTTON_START
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#   define MINESWP_LEFT         BUTTON_LEFT
+#   define MINESWP_RIGHT        BUTTON_RIGHT
+#   define MINESWP_UP           BUTTON_UP
+#   define MINESWP_DOWN         BUTTON_DOWN
+#   define MINESWP_QUIT         BUTTON_BACK
+#   define MINESWP_TOGGLE       BUTTON_USER
+#   define MINESWP_DISCOVER     BUTTON_SELECT
+#   define MINESWP_INFO         BUTTON_MENU
 
 #else
 #error No keymap defined!
@@ -909,7 +906,7 @@ static enum minesweeper_status minesweeper( void )
     mine_raster.height = height*TileSize;
 #endif
 
-    rb->srand( *rb->current_tick );
+
     minesweeper_init();
     x = 0;
     y = 0;

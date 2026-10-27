@@ -317,16 +317,6 @@ CONFIG_KEYPAD == SANSA_M200_PAD
 #define UP        BUTTON_HOME
 #define DOWN      BUTTON_OPTION
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define QUIT      BUTTON_POWER
-#define LEFT      BUTTON_PREV
-#define RIGHT     BUTTON_NEXT
-#define ALTLEFT   BUTTON_VOL_DOWN
-#define ALTRIGHT  BUTTON_VOL_UP
-#define SELECT    BUTTON_PLAY
-#define UP        BUTTON_HOME
-#define DOWN      BUTTON_OPTION
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD ||  CONFIG_KEYPAD == IHIFI_800_PAD
 #define QUIT      BUTTON_POWER
 #define LEFT      BUTTON_HOME
@@ -353,7 +343,7 @@ CONFIG_KEYPAD == SANSA_M200_PAD
 #define UP          BUTTON_UP
 #define DOWN        BUTTON_DOWN
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 #define QUIT        BUTTON_POWER
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -380,7 +370,7 @@ CONFIG_KEYPAD == SANSA_M200_PAD
 #define UP              BUTTON_UP
 #define DOWN            BUTTON_DOWN
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define QUIT        BUTTON_BACK
 #define LEFT        BUTTON_LEFT
 #define RIGHT       BUTTON_RIGHT
@@ -393,6 +383,14 @@ CONFIG_KEYPAD == SANSA_M200_PAD
 #define LEFT        BUTTON_LEFT
 #define RIGHT       BUTTON_RIGHT
 #define SELECT      BUTTON_A
+#define UP          BUTTON_UP
+#define DOWN        BUTTON_DOWN
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define QUIT        BUTTON_BACK
+#define LEFT        BUTTON_LEFT
+#define RIGHT       BUTTON_RIGHT
+#define SELECT      BUTTON_SELECT
 #define UP          BUTTON_UP
 #define DOWN        BUTTON_DOWN
 
@@ -2641,7 +2639,7 @@ enum plugin_status plugin_start(const void* parameter)
     backlight_ignore_timeout();
 
     /* now go ahead and have fun! */
-    rb->srand( *rb->current_tick );
+
     brickmania_loadgame();
     resume_file = resume;
     while(!brickmania_game_loop())

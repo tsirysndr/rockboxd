@@ -154,7 +154,7 @@ bool ft_play_playlist(char* pathname, char* dirname, char* filename)
     if (playlist_create(dirname, filename) != -1)
     {
         if (global_settings.playlist_shuffle)
-            playlist_shuffle(current_tick, -1);
+            playlist_shuffle(0, -1);
 
         playlist_start(0, 0, 0);
         return true;
@@ -380,6 +380,12 @@ int ft_load(struct tree_context* c, const char* tempdir)
             CHK_FT(SHOW_FMS, FILE_ATTR_FMS) ||
             CHK_FT(SHOW_FMR, FILE_ATTR_FMR) ||
 #endif
+#ifdef HAVE_RECORDING
+            CHK_FT(SHOW_WRS, FILE_ATTR_WRS) ||
+#ifdef HAVE_REMOTE_LCD
+            CHK_FT(SHOW_RWRS, FILE_ATTR_RWRS) ||
+#endif
+#endif
 #ifdef HAVE_REMOTE_LCD
             CHK_FT(SHOW_RWPS, FILE_ATTR_RWPS) ||
             CHK_FT(SHOW_RSBS, FILE_ATTR_RSBS) ||
@@ -585,7 +591,6 @@ int ft_enter(struct tree_context* c)
         c->selected_item=0;
     }
     else {
-        int seed = current_tick;
         bool play = false;
         int start_index=0;
 
@@ -630,7 +635,7 @@ int ft_enter(struct tree_context* c)
                         start_index = ft_build_playlist(c, c->selected_item);
                         if (global_settings.playlist_shuffle)
                         {
-                            start_index = playlist_shuffle(seed, start_index);
+                            start_index = playlist_shuffle(0, start_index);
                             /* when shuffling dir.: play all files
                                even if the file selected by user is
                                not the first one */
@@ -661,6 +666,16 @@ int ft_enter(struct tree_context* c)
             case FILE_ATTR_SBS:
                 ft_apply_skin_file(buf, global_settings.sbs_file);
                 break;
+#ifdef HAVE_RECORDING
+            case FILE_ATTR_WRS:
+                ft_apply_skin_file(buf, global_settings.wrs_file);
+                break;
+#ifdef HAVE_REMOTE_LCD
+            case FILE_ATTR_RWRS:
+                ft_apply_skin_file(buf, global_settings.rwrs_file);
+                break;
+#endif
+#endif
 #ifdef HAVE_REMOTE_LCD
             case FILE_ATTR_RSBS:
                 ft_apply_skin_file(buf, global_settings.rsbs_file);

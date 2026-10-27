@@ -351,16 +351,6 @@
 #define CUBE_PAUSE         BUTTON_HOME
 #define CUBE_HIGHSPEED     BUTTON_PLAY
 
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-#define CUBE_QUIT          BUTTON_POWER
-#define CUBE_NEXT          BUTTON_NEXT
-#define CUBE_PREV          BUTTON_PREV
-#define CUBE_INC           BUTTON_VOL_UP
-#define CUBE_DEC           BUTTON_VOL_DOWN
-#define CUBE_MODE          BUTTON_OPTION
-#define CUBE_PAUSE         BUTTON_HOME
-#define CUBE_HIGHSPEED     BUTTON_PLAY
-
 #elif (CONFIG_KEYPAD == IHIFI_770_PAD) || (CONFIG_KEYPAD == IHIFI_800_PAD)
 #define CUBE_QUIT          BUTTON_POWER
 #define CUBE_NEXT          BUTTON_NEXT
@@ -391,7 +381,7 @@
 #define CUBE_PAUSE          BUTTON_PLAY
 #define CUBE_HIGHSPEED      BUTTON_BACK
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 
@@ -417,7 +407,7 @@
 #define CUBE_PAUSE         BUTTON_A
 #define CUBE_HIGHSPEED     BUTTON_Y
 
-#elif (CONFIG_KEYPAD == CTRU_PAD)
+#elif (CONFIG_KEYPAD == N3DS_PAD)
 #define CUBE_QUIT          BUTTON_BACK
 #define CUBE_NEXT          BUTTON_RIGHT
 #define CUBE_PREV          BUTTON_LEFT
@@ -436,6 +426,16 @@
 #define CUBE_MODE          BUTTON_SELECT
 #define CUBE_PAUSE         BUTTON_START
 #define CUBE_HIGHSPEED     BUTTON_A
+
+#elif (CONFIG_KEYPAD == PSP_PAD)
+#define CUBE_QUIT          BUTTON_BACK
+#define CUBE_NEXT          BUTTON_RIGHT
+#define CUBE_PREV          BUTTON_LEFT
+#define CUBE_INC           BUTTON_UP
+#define CUBE_DEC           BUTTON_DOWN
+#define CUBE_MODE          BUTTON_MENU
+#define CUBE_PAUSE         BUTTON_USER
+#define CUBE_HIGHSPEED     BUTTON_SELECT
 
 #else
 #error No keymap defined!

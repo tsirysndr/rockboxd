@@ -31,6 +31,34 @@ TalkFileCreator::TalkFileCreator(QObject* parent): QObject(parent)
 bool TalkFileCreator::createTalkFiles()
 {
     m_abort = false;
+    QStringList dirs = m_dirs;
+    if(dirs.isEmpty())
+        dirs.append(m_dir);
+
+    for(const QString& dir : dirs) {
+        if(m_abort)
+            break;
+
+        m_dir = dir;
+        LOG_INFO() << "creating talk files for folder" << m_dir;
+        if(!createTalkFilesForDir()) {
+            emit done(true);
+            return false;
+        }
+    }
+
+    if(m_abort) {
+        doAbort();
+        emit done(true);
+        return false;
+    }
+
+    emit done(false);
+    return true;
+}
+
+bool TalkFileCreator::createTalkFilesForDir()
+{
     QString errStr;
 
     emit logItem(tr("Starting Talk file generation for folder %1")
@@ -51,10 +79,10 @@ bool TalkFileCreator::createTalkFiles()
     // generate entries
     TalkGenerator generator(this);
     // no string corrections yet: do not set language for TalkGenerator.
-    connect(&generator, &TalkGenerator::done, this, &TalkFileCreator::done);
     connect(&generator, &TalkGenerator::logItem, this, &TalkFileCreator::logItem);
     connect(&generator, &TalkGenerator::logProgress, this, &TalkFileCreator::logProgress);
-    connect(this, &TalkFileCreator::aborted, &generator, &TalkGenerator::abort);
+    connect(this, &TalkFileCreator::aborted,
+            &generator, &TalkGenerator::abort, Qt::DirectConnection);
 
     if(generator.process(&m_talkList) == TalkGenerator::eERROR)
     {
@@ -77,7 +105,6 @@ bool TalkFileCreator::createTalkFiles()
 
     emit logItem(tr("Finished creating Talk files"),LOGOK);
     emit logProgress(1,1);
-    emit done(false);
 
     return true;
 }
@@ -101,7 +128,6 @@ void TalkFileCreator::doAbort()
 {
     cleanup();
     emit logProgress(0,1);
-    emit done(true);
 }
 //! \brief creates a list of what to generate
 //!
@@ -110,6 +136,20 @@ bool TalkFileCreator::createTalkList(QDir startDir)
 {
     LOG_INFO() << "generating list of files" << startDir;
     m_talkList.clear();
+
+    const QString startPath = QDir::cleanPath(startDir.absolutePath());
+    auto isInIgnoredDirectory = [&startPath](const QFileInfo& fileInfo) {
+        QDir dir(fileInfo.isDir() ? fileInfo.absoluteFilePath()
+                                  : fileInfo.absolutePath());
+        while(true) {
+            if(QFileInfo::exists(dir.filePath("talkclips.ignore")))
+                return true;
+
+            if(QDir::cleanPath(dir.absolutePath()) == startPath || !dir.cdUp())
+                break;
+        }
+        return false;
+    };
 
      // create Iterator
     QDirIterator::IteratorFlags flags = QDirIterator::NoIteratorFlags;
@@ -134,6 +174,10 @@ bool TalkFileCreator::createTalkList(QDir startDir)
 
         QFileInfo fileInf = it.fileInfo();
 
+        // A talkclips.ignore file excludes its directory and all descendants.
+        if(isInIgnoredDirectory(fileInf))
+            continue;
+
         // its a dir
         if(fileInf.isDir())
         {
@@ -142,12 +186,6 @@ bool TalkFileCreator::createTalkList(QDir startDir)
             // insert into List
             if(!dir.dirName().isEmpty() && m_talkFolders)
             {
-                // check if we should ignore it
-                if(QFileInfo::exists(dir.path() + "/talkclips.ignore"))
-                {
-                    continue;
-                }
-
                 // check to see if it's already covered
                 if(m_generateOnlyNew && QFileInfo::exists(dir.path() + "/_dirname.talk"))
                 {
@@ -183,8 +221,8 @@ bool TalkFileCreator::createTalkList(QDir startDir)
                 bool match = false;
                 for(int i=0; i < m_ignoreFiles.size();i++)
                 {
-                    QString pattern = m_ignoreFiles[i].trimmed()
-                                        .replace("?", ".").replace("*", ".*");
+                    QString pattern = QRegularExpression::wildcardToRegularExpression(
+                            m_ignoreFiles[i].trimmed());
                     QRegularExpression rx(pattern);
                     if(rx.match(fileInf.fileName()).hasMatch())
                         match = true;

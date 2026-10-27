@@ -230,6 +230,7 @@ static int asf_parse_header(int fd, struct mp3entry* id3,
     int i;
     int fileprop = 0;
     uint64_t play_duration;
+    uint64_t preroll;
     uint16_t flags;
     uint32_t subobjects;
     uint8_t utf8buf[512];
@@ -288,13 +289,21 @@ static int asf_parse_header(int fd, struct mp3entry* id3,
                     read_uint64le(fd, &wfx->numpackets);
                     /*DEBUGF("read packets:  %llx %lld\n", wfx->numpackets, wfx->numpackets);*/
 
-                    /* Now get the play duration - uint64_t at offset 40 */
+                    /* Now get the play duration - uint64_t at offset 40,
+                     * in 100 ns units */
                     read_uint64le(fd, &play_duration);
-                    id3->length = play_duration / 10000;
+
+                    /* The preroll (ms) - uint64_t at offset 56.  The play
+                     * duration includes it, the packet times don't */
+                    lseek(fd, 8, SEEK_CUR);
+                    read_uint64le(fd, &preroll);
+                    play_duration /= 10000;
+                    id3->length = play_duration > preroll ?
+                                  play_duration - preroll : play_duration;
                     /*DEBUGF("****** length = %lums\n", id3->length);*/
 
                     /* Read the packet size - uint32_t at offset 68 */
-                    lseek(fd, 20, SEEK_CUR);
+                    lseek(fd, 4, SEEK_CUR);
                     read_uint32le(fd, &wfx->packet_size);
 
                     /* Skip bytes remaining in object */
@@ -510,27 +519,23 @@ static int asf_parse_header(int fd, struct mp3entry* id3,
                             id3->mb_track_id = id3buf;
                             asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);
 #ifdef HAVE_ALBUMART
-                        } else if (itag == eWM_Picture) {
-                            /* Expected is either "01 00 xx xx 03 yy yy yy yy" or
-                             * "03 yy yy yy yy". xx is the size of the WM/Picture
-                             * container in bytes. yy equals the raw data length of
-                             * the embedded image.
+                        } else if (itag == eWM_Picture && type == 1
+                                   && length >= 5) {
+                            /* A byte array: picture type (1 byte), image
+                             * size (4), MIME type and description (UTF-16,
+                             * each ending in two nils), image.  Any picture
+                             * type is taken.
                              *
-                             *  Also save position after this tag in file in case any parsing errors */
-                            uint32_t after_pic_pos = lseek(fd, -4, SEEK_CUR) + 4 + length;
+                             * Also save position after this tag in file in
+                             * case any parsing errors */
+                            uint32_t after_pic_pos = lseek(fd, 1, SEEK_CUR)
+                                                     - 1 + length;
+                            uint32_t pic_size = 0;
 
-                            if (read(fd, &type, 1) != 1)
-                                type = 0;
-
-                            if (type == 1) {
-                                lseek(fd, 3, SEEK_CUR);
-                                read(fd, &type, 1);
-                            }
-                            if (type == 3) {
-                                uint32_t pic_size = 0;
-                                /* Read the raw data length of the embedded image. */
-                                read_uint32le(fd, &pic_size);
-
+                            /* Read the raw data length of the embedded
+                             * image. */
+                            read_uint32le(fd, &pic_size);
+                            if (pic_size <= length - 5u) {
                                 /* Reset utf8 buffer */
                                 utf8 = utf8buf;
                                 utf8length = 512;
@@ -647,7 +652,7 @@ bool get_asf_metadata(int fd, struct mp3entry* id3)
        header.
      */
     id3->first_frame_offset = lseek(fd, 0, SEEK_CUR) + 26;
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     /* We copy the wfx struct to the MP3 TOC field in the id3 struct so
        the codec doesn't need to parse the header object again */
     memcpy(id3->toc, &wfx, sizeof(wfx));

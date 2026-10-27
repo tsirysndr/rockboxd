@@ -224,6 +224,8 @@ typedef struct WMAProDecodeCtx {
     uint8_t          len_prefix;                    ///< frame is prefixed with its length
     uint8_t          dynamic_range_compression;     ///< frame contains DRC data
     uint8_t          bits_per_sample;               ///< integer audio sample size for the unscaled IMDCT output (used to scale to [-1.0, 1.0])
+    uint8_t          quant_step_bias;               ///< added to the quantization step of a stream of less than 24 bits
+    int32_t          quant_scale;                   ///< s1.30 factor for its quantization factors, 0 if none
     uint16_t         samples_per_frame;             ///< number of samples to output
     uint16_t         log2_frame_size;
     int8_t           num_channels;                  ///< number of channels in the stream (same as AVCodecContext.num_channels)
@@ -332,6 +334,18 @@ int decode_init(asf_waveformatex_t *wfx)
         s->decode_flags    = AV_RL16(edata_ptr+14);
         channel_mask       = AV_RL32(edata_ptr+2);
         s->bits_per_sample = AV_RL16(edata_ptr);
+
+        /* A stream of fewer bits has a lower quantization step. Decode it at
+         * the level of a 24 bit stream instead: use that stream's quantization
+         * step, and scale the factors by what is left,
+         * 2^(24-bits) / 10^(bias/20). */
+        if (s->bits_per_sample == 16) {
+            s->quant_step_bias = (90 * 24 >> 4) - (90 * 16 >> 4);
+            s->quant_scale     = 1545752065; /* 256 / 10^(45/20) */
+        } else if (s->bits_per_sample == 20) {
+            s->quant_step_bias = (90 * 24 >> 4) - (90 * 20 >> 4);
+            s->quant_scale     = 1216241597; /* 16 / 10^(23/20) */
+        }
         /** dump the extradata */
         for (i = 0; i < wfx->datalen; i++)
             DEBUGF("[%x] ", wfx->data[i]);
@@ -1031,6 +1045,38 @@ static int decode_scale_factors(WMAProDecodeCtx* s)
 }
 
 /**
+ *@brief Apply a 2x2 decorrelation matrix to one band of two channels.
+ *       Two channels are by far the common case; the results are the
+ *       same as the general loop's in inverse_channel_transform().
+ *@param ch0 first channel's coefficients
+ *@param ch1 second channel's coefficients
+ *@param mat the matrix, as 16.16 fixed point
+ *@param len number of coefficients
+ */
+static inline void decorrelate_stereo(int32_t *ch0, int32_t *ch1,
+                                      const int32_t *mat, int len)
+{
+    const int32_t m0 = mat[0], m1 = mat[1], m2 = mat[2], m3 = mat[3];
+
+    if (m0 == ONE_FRACT16 && m1 == -ONE_FRACT16 &&
+        m2 == ONE_FRACT16 && m3 ==  ONE_FRACT16) {
+        /* The matrix of a stereo stream. Multiplying by +-1.0 is exact,
+         * so add and subtract; unsigned, as the multiply's result wraps. */
+        for (; len > 0; len--) {
+            uint32_t a = *ch0, b = *ch1;
+            *ch0++ = a - b;
+            *ch1++ = a + b;
+        }
+    } else {
+        for (; len > 0; len--) {
+            int32_t a = *ch0, b = *ch1;
+            *ch0++ = fixmul16(m0, a) + fixmul16(m1, b);
+            *ch1++ = fixmul16(m2, a) + fixmul16(m3, b);
+        }
+    }
+}
+
+/**
  *@brief Reconstruct the individual channel data.
  *@param s codec context
  */
@@ -1052,24 +1098,33 @@ static void inverse_channel_transform(WMAProDecodeCtx *s)
                  sfb < s->cur_sfb_offsets + s->num_bands; sfb++) {
                 int y;
                 if (*tb++ == 1) {
-                    /** multiply values with the decorrelation_matrix */
-                    for (y = sfb[0]; y < FFMIN(sfb[1], s->subframe_len); y++) {
-                        const int32_t* mat = s->chgroup[i].fixdecorrelation_matrix;
-                        const int32_t* data_end = data + num_channels;
-                        int32_t* data_ptr = data;
-                        int32_t** ch;
+                    if (num_channels == 2) {
+                        decorrelate_stereo(ch_data[0] + sfb[0],
+                                ch_data[1] + sfb[0],
+                                s->chgroup[i].fixdecorrelation_matrix,
+                                FFMIN(sfb[1], s->subframe_len) - sfb[0]);
+                    } else {
+                        /** multiply values with the decorrelation_matrix */
+                        for (y = sfb[0];
+                             y < FFMIN(sfb[1], s->subframe_len); y++) {
+                            const int32_t* mat =
+                                s->chgroup[i].fixdecorrelation_matrix;
+                            const int32_t* data_end = data + num_channels;
+                            int32_t* data_ptr = data;
+                            int32_t** ch;
 
-                        for (ch = ch_data; ch < ch_end; ch++)
-                            *data_ptr++ = (*ch)[y];
+                            for (ch = ch_data; ch < ch_end; ch++)
+                                *data_ptr++ = (*ch)[y];
 
-                        for (ch = ch_data; ch < ch_end; ch++) {
-                            int32_t sum = 0;
-                            data_ptr = data;
+                            for (ch = ch_data; ch < ch_end; ch++) {
+                                int32_t sum = 0;
+                                data_ptr = data;
 
-                            while (data_ptr < data_end)
-                                sum += fixmul16(*mat++, *data_ptr++);
+                                while (data_ptr < data_end)
+                                    sum += fixmul16(*mat++, *data_ptr++);
 
-                            (*ch)[y] = sum;
+                                (*ch)[y] = sum;
+                            }
                         }
                     }
                 } else if (s->num_channels == 2) {
@@ -1229,7 +1284,7 @@ static int decode_subframe(WMAProDecodeCtx *s)
 
     if (transmit_coeffs) {
         int step;
-        int quant_step = 90 * s->bits_per_sample >> 4;
+        int quant_step = (90 * s->bits_per_sample >> 4) + s->quant_step_bias;
 
         /** decode number of vector coded coefficients */
         if ((s->transmit_num_vec_coeffs = get_bits1(&s->gb))) {
@@ -1330,8 +1385,11 @@ static int decode_subframe(WMAProDecodeCtx *s)
                     DEBUGF("in wmaprodec.c : unhandled value for exp (%d), please report sample.\n", exp);
                     return -1;
                 }
-                const int32_t quant = QUANT(exp);
+                int32_t quant = QUANT(exp);
                 int start = s->cur_sfb_offsets[b];
+
+                if (s->quant_scale)
+                    quant = (int64_t)quant * s->quant_scale >> 30;
 
                 vector_fixmul_scalar(s->tmp+start,
                                      s->channel[c].coeffs + start,

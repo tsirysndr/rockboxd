@@ -191,6 +191,7 @@ channel_mode_proc_karaoke:
  */
     .section    .text, "ax",%progbits
     .global crossfeed_process
+    .type crossfeed_process, %function
 crossfeed_process:
     @ input: r0 = this, r1 = buf_p
     @ unfortunately, we ended up in a bit of a register squeeze here, and need
@@ -256,6 +257,7 @@ crossfeed_process:
  */
     .section .text
     .global crossfeed_meier_process
+    .type crossfeed_meier_process, %function
 crossfeed_meier_process:
     @ input: r0 = this, r1 = buf_p
     ldr     r1, [r1]                   @ r1 = buf = *buf_p;
@@ -296,6 +298,7 @@ crossfeed_meier_process:
  */
     .section    .text, "ax",%progbits
     .global     resample_hermite
+    .type       resample_hermite, %function
 resample_hermite:
     @input: r0 = data, r1 = src, r2 = dst
     stmfd   sp!, { r0-r2, r4-r11, lr }  @ stack parms, modified regs
@@ -564,34 +567,32 @@ pga_process:
  * void filter_process(struct dsp_filter *f, int32_t *buf[], int count,
  *                     unsigned int channels)
  *
- * define HIGH_PRECISION as '1' to make filtering calculate lower bits after
- * shifting. without this, "shift" - 1 of the lower bits will be lost here.
+ * The output is the 64-bit sum shifted right by 32 - shift. The bits that
+ * are shifted out are kept, left aligned in a word, and added to the next
+ * sum: see dsp_filter.c for why they must not be dropped.
+ *
+ * A shift by a register costs a cycle more than one by a constant, and
+ * there would be four of them for a sample. So there is a loop for each
+ * shift the coefficient functions use, 4, 5 and 6, and a slower one for
+ * any other.
  */
-#define HIGH_PRECISION 0
-
 #if defined(CPU_PP)
     .section    .icode,"ax",%progbits
 #else
     .section    .text, "ax",%progbits
 #endif
-    .global filter_process
-filter_process:
-    @input: r0 = f, r1 = buf, r2 = count, r3 = channels
-    stmfd   sp!, { r4-r11, lr }     @ save all clobbered regs
-    ldmia   r0!, { r4-r8 }          @ load coefs, r0 = f->history
-    sub     r3, r3, #1              @ r3 = ch = channels - 1
-    stmfd   sp!, { r0-r3 }          @ save adjusted params
-    ldrb    r14, [r0, #32]          @ r14 = shift
 
-    @ Channels are processed high to low while history is saved low to high
-    @ It's really noone's business how we do this
-.fp_channelloop:
-    ldmia   r0, { r9-r12 }          @ load history, r0 = history[channels-ch-1]
+    @ The channel loop for a shift of \s. On entry, and for the next
+    @ channel: r0 = history[channels-ch-1], r1 = buf, r2 = count, r3 = ch,
+    @ r4-r8 = coefs. In the sample loop: r9-r12 = history, r0..r1 =
+    @ accumulator, r2 = samples left, r3 = buf[ch], r14 = frac
+.macro FP_LOOP s
+.fp_channelloop_\s:
+    ldmia   r0, { r9-r12 }          @ load history
     ldr     r3, [r1, r3, lsl #2]    @ r3 = buf[ch]
-
-    @ r9-r12 = history, r4-r8 = coefs, r0..r1 = accumulator,
-    @ r2 = number of samples, r3 = buf[ch], r14 = shift amount
-.fp_loop:
+    ldr     r14, [sp, #16]          @ r14 = &frac[channels-ch-1]
+    ldr     r14, [r14]              @ r14 = frac
+.fp_loop_\s:
     @ Direct form 1 filtering code.
     @ y[n] = b0*x[i] + b1*x[i - 1] + b2*x[i - 2] + a1*y[i - 1] + a2*y[i - 2],
     @ where y[] is output and x[] is input. This is performed out of order to
@@ -604,26 +605,102 @@ filter_process:
     smlal   r0, r1, r8, r12         @ acc += a2*y[i - 2]
     smlal   r0, r1, r4, r9          @ acc += b0*x[i] /* avoid stall on arm9 */
     mov     r12, r11                @ fix output history
-    mov     r11, r1, asl r14        @ get upper part of result and shift left
-#if HIGH_PRECISION
-    rsb     r1, r14, #32            @ get shift amount for lower part
-    orr     r11, r11, r0, lsr r1    @ then mix in correctly shifted lower part
-#endif
+    mov     r11, r1, lsl #\s        @ y = acc >> (32 - shift): upper part
+    orr     r11, r11, r0, lsr #32-\s @ and the lower part
+    adds    r14, r14, r0, lsl #\s   @ frac += the bits of acc below y's
+    adc     r11, r11, #0            @ y += the carry of that
     str     r11, [r3], #4           @ save result
     subs    r2, r2, #1              @ are we done with this channel?
-    bgt     .fp_loop                @
+    bgt     .fp_loop_\s             @
 
+    ldr     r1, [sp, #16]           @ r1 = &frac[channels-ch-1]
     ldr     r3, [sp, #12]           @ r3 = ch
+    str     r14, [r1], #4           @ save back frac, frac++
     ldr     r0, [sp]                @ r0 = history[channels-ch-1]
+    str     r1, [sp, #16]           @ store &frac[channels-ch-1]
     subs    r3, r3, #1              @ all channels processed?
     stmia   r0!, { r9-r12 }         @ save back history, history++
     ldmibhs sp, { r1-r2 }           @ r1 = buf, r2 = count
     strhs   r3, [sp, #12]           @ store ch
     strhs   r0, [sp]                @ store history[channels-ch-1]
-    bhs     .fp_channelloop
+    bhs     .fp_channelloop_\s
+    b       .fp_done
+.endm
 
-    add     sp, sp, #16             @ compensate for temp storage
+    .global filter_process
+    .type   filter_process, %function
+filter_process:
+    @input: r0 = f, r1 = buf, r2 = count, r3 = channels
+    stmfd   sp!, { r4-r11, lr }     @ save all clobbered regs
+    cmp     r2, #0                  @
+    ble     .fp_exit                @ nothing to do
+    ldmia   r0!, { r4-r8 }          @ load coefs, r0 = f->history
+    sub     r3, r3, #1              @ r3 = ch = channels - 1
+    ldrb    r14, [r0, #32]          @ r14 = shift
+    add     r12, r0, #36            @ r12 = f->frac
+    stmfd   sp!, { r0-r3, r12 }     @ save adjusted params
+
+    @ Channels are processed high to low while history is saved low to high
+    @ It's really noone's business how we do this
+    cmp     r14, #4
+    beq     .fp_channelloop_4
+    cmp     r14, #5
+    beq     .fp_channelloop_5
+    cmp     r14, #6
+    beq     .fp_channelloop_6
+
+    @ Any other shift. Here frac is in the accumulator's low word, shifted
+    @ down, and r2 = samples left - 1 and, in its low byte where a shift by
+    @ register looks, 32 - shift. r14 = shift
+.fp_channelloop_n:
+    ldmia   r0, { r9-r12 }          @ load history
+    ldr     r3, [r1, r3, lsl #2]    @ r3 = buf[ch]
+    ldr     r0, [sp, #16]           @ r0 = &frac[channels-ch-1]
+    rsb     r1, r14, #32            @ r1 = 32 - shift
+    sub     r2, r2, #1              @
+    orr     r2, r1, r2, lsl #8      @ r2 = (count - 1) << 8 | (32 - shift)
+    ldr     r0, [r0]                @
+    mov     r1, #0                  @
+    mov     r0, r0, lsr r14         @ acc = frac
+.fp_loop_n:
+    smlal   r0, r1, r5, r9          @ acc += b1*x[i - 1]
+    smlal   r0, r1, r6, r10         @ acc += b2*x[i - 2]
+    mov     r10, r9                 @ fix input history
+    ldr     r9, [r3]                @ load input and fix history
+    smlal   r0, r1, r7, r11         @ acc += a1*y[i - 1]
+    smlal   r0, r1, r8, r12         @ acc += a2*y[i - 2]
+    smlal   r0, r1, r4, r9          @ acc += b0*x[i]
+    mov     r12, r11                @ fix output history
+    mov     r11, r1, asl r14        @ y = acc >> (32 - shift): upper part
+    orr     r11, r11, r0, lsr r2    @ and the lower part
+    mov     r0, r0, lsl r14         @ acc = the bits below y's lowest
+    mov     r0, r0, lsr r14         @
+    mov     r1, #0                  @
+    str     r11, [r3], #4           @ save result
+    subs    r2, r2, #256            @ are we done with this channel?
+    bcs     .fp_loop_n              @
+
+    mov     r0, r0, lsl r14         @ frac, left aligned again
+    ldr     r1, [sp, #16]           @ r1 = &frac[channels-ch-1]
+    ldr     r3, [sp, #12]           @ r3 = ch
+    str     r0, [r1], #4            @ save back frac, frac++
+    ldr     r0, [sp]                @ r0 = history[channels-ch-1]
+    str     r1, [sp, #16]           @ store &frac[channels-ch-1]
+    subs    r3, r3, #1              @ all channels processed?
+    stmia   r0!, { r9-r12 }         @ save back history, history++
+    ldmibhs sp, { r1-r2 }           @ r1 = buf, r2 = count
+    strhs   r3, [sp, #12]           @ store ch
+    strhs   r0, [sp]                @ store history[channels-ch-1]
+    bhs     .fp_channelloop_n
+
+.fp_done:
+    add     sp, sp, #20             @ compensate for temp storage
+.fp_exit:
     ldmpc   regs=r4-r11
+
+    FP_LOOP 4
+    FP_LOOP 5
+    FP_LOOP 6
     .size   filter_process, .-filter_process
 #endif /* CPU_ARM_MICRO */
 

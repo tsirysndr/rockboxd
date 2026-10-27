@@ -217,14 +217,6 @@
 #define BTN_FIRE         BUTTON_PLAY
 #define BTN_PAUSE        BUTTON_POWER
 
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-#define BTN_UP           BUTTON_VOL_UP
-#define BTN_DOWN         BUTTON_VOL_DOWN
-#define BTN_LEFT         BUTTON_PREV
-#define BTN_RIGHT        BUTTON_NEXT
-#define BTN_FIRE         BUTTON_PLAY
-#define BTN_PAUSE        BUTTON_POWER
-
 #elif (CONFIG_KEYPAD == EROSQ_PAD)
 #define BTN_UP           BUTTON_PREV
 #define BTN_DOWN         BUTTON_NEXT
@@ -249,7 +241,7 @@
 #define BTN_FIRE        BUTTON_SELECT
 #define BTN_PAUSE       BUTTON_POWER
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 #define BTN_FIRE        BUTTON_CENTER
 #define BTN_PAUSE       BUTTON_POWER
 #define BTN_HAVE_DIAGONAL
@@ -274,7 +266,7 @@
 #define BTN_FIRE        BUTTON_A
 #define BTN_PAUSE       BUTTON_START
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define BTN_UP          BUTTON_UP
 #define BTN_DOWN        BUTTON_DOWN
 #define BTN_LEFT        BUTTON_LEFT
@@ -289,6 +281,14 @@
 #define BTN_RIGHT       BUTTON_RIGHT
 #define BTN_FIRE        BUTTON_A
 #define BTN_PAUSE       BUTTON_POWER
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define BTN_UP          BUTTON_UP
+#define BTN_DOWN        BUTTON_DOWN
+#define BTN_LEFT        BUTTON_LEFT
+#define BTN_RIGHT       BUTTON_RIGHT
+#define BTN_FIRE        BUTTON_USER
+#define BTN_PAUSE       BUTTON_MENU
 
 #else
 #error Unsupported keypad
@@ -318,7 +318,8 @@
       (CONFIG_KEYPAD != CREATIVE_ZENXFI2_PAD) && \
       (CONFIG_KEYPAD != SHANLING_Q1_PAD) && \
       (CONFIG_KEYPAD != HIBY_R3PROII_PAD) && \
-      (CONFIG_KEYPAD != CTRU_PAD)
+      (CONFIG_KEYPAD != HIDIZS_AP80MAX_PAD) && \
+      (CONFIG_KEYPAD != N3DS_PAD)
 #define BTN_FIRE       BUTTON_BOTTOMLEFT
 #define BTN_PAUSE      BUTTON_TOPLEFT
 #endif

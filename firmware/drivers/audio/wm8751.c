@@ -187,6 +187,13 @@ void audiohw_preinit(void)
     and_l(~(1<<5), &GPIO1_OUT);
     or_l((1<<5), &GPIO1_ENABLE);
     or_l((1<<5), &GPIO1_FUNCTION);
+#elif defined(SAMSUNG_YPCP3)
+    /* headphone amplifier enable, GPIO F2 active high: off for now. The
+     * pin is SDRAM A12 until switched to GPIO, which the 16 MB of SDRAM
+     * does not need; the original firmware switches it. */
+    SCU_IOMUXB_CON |= IOMUX_GPIO_F2;
+    GPIO_PFDR &= ~(1<<2);
+    GPIO_PFCON |= (1<<2);
 #endif
 
     /*
@@ -233,6 +240,9 @@ void audiohw_postinit(void)
     /* headphones + line-out */
     wmcodec_set_bits(PWRMGMT2, PWRMGMT2_LOUT1 | PWRMGMT2_ROUT1 | 
                      PWRMGMT2_LOUT2 | PWRMGMT2_ROUT2);
+#elif defined(SAMSUNG_YPCP3)
+    /* headphones, on OUT2 */
+    wmcodec_set_bits(PWRMGMT2, PWRMGMT2_LOUT2 | PWRMGMT2_ROUT2);
 #else
     /* headphones */
     wmcodec_set_bits(PWRMGMT2, PWRMGMT2_LOUT1 | PWRMGMT2_ROUT1);
@@ -286,6 +296,8 @@ void audiohw_postinit(void)
    or_l((1<<25), &GPIO1_OUT);
 #elif defined(MPIO_HD300)
    or_l((1<<5), &GPIO1_OUT);
+#elif defined(SAMSUNG_YPCP3)
+    GPIO_PFDR |= (1<<2);
 #endif
 }
 
@@ -293,10 +305,18 @@ void audiohw_set_volume(int vol_l, int vol_r)
 {
     vol_l = vol_tenthdb2hw(vol_l);
     vol_r = vol_tenthdb2hw(vol_r);   
+#if defined(SAMSUNG_YPCP3)
+    /* headphones on OUT2 */
+    wmcodec_set_masked(LOUT2, LOUT2_LOUT2VOL(vol_l),
+                       LOUT2_LOUT2VOL_MASK);
+    wmcodec_set_masked(ROUT2, ROUT2_RO2VU | ROUT2_ROUT2VOL(vol_r),
+                       ROUT2_ROUT2VOL_MASK);
+#else
     wmcodec_set_masked(LOUT1, LOUT1_LOUT1VOL(vol_l),
                        LOUT1_LOUT1VOL_MASK);
     wmcodec_set_masked(ROUT1, ROUT1_RO1VU | ROUT1_ROUT1VOL(vol_r),
                        ROUT1_ROUT1VOL_MASK);
+#endif
 }
 
 #ifdef AUDIOHW_HAVE_LINEOUT
@@ -353,6 +373,8 @@ void audiohw_close(void)
     and_l(~(1<<25), &GPIO1_OUT);
 #elif defined(MPIO_HD300)
     and_l(~(1<<5), &GPIO1_OUT);
+#elif defined(SAMSUNG_YPCP3)
+    GPIO_PFDR &= ~(1<<2);
 #endif
 
     /* 2. Disable all output buffers. */
@@ -446,6 +468,70 @@ static void audiohw_set_alc(unsigned char level,  /* signal level at ADC */
 }
 #endif
 
+#if defined(SAMSUNG_YPCP3)
+/* Samsung YP-CP3: the FM tuner on LINPUT1/RINPUT1, the microphone - mono -
+ * on RINPUT2, the headphones on OUT2. The rk27xx cannot send received
+ * samples straight back out, so what is heard of an input goes through the
+ * codec's analog bypass, the input PGA into the output mixers: the radio
+ * always, the microphone never. As in the original firmware, the radio
+ * passes the PGA at +12 dB when only listened to, and the microphone gets
+ * +13 dB of boost and is recorded by the right ADC onto both channels.
+ * While recording, the gain setting drives the PGA. */
+void audiohw_set_recsrc(int source, bool recording)
+{
+    audiohw_mute(true);
+
+    /* inputs off */
+    wmcodec_clear_bits(LEFTMIX1, LEFTMIX1_LI2LO);
+    wmcodec_clear_bits(RIGHTMIX2, RIGHTMIX2_RI2RO);
+    wmcodec_clear_bits(PWRMGMT1, PWRMGMT1_AINL | PWRMGMT1_AINR |
+                       PWRMGMT1_ADCL | PWRMGMT1_ADCR);
+    wmcodec_set_masked(ADCR, ADCR_RMICBOOST_DISABLED, 0x3 << 4);
+    wmcodec_set_masked(ADDITIONAL1, ADDITIONAL1_DATSEL_LR,
+                       ADDITIONAL1_DATSEL_MASK);
+
+    switch (source)
+    {
+    case AUDIO_SRC_FMRADIO:
+        wmcodec_set_masked(ADCL, ADCL_LINSEL_LINPUT1, ADCL_LINSEL_MASK);
+        wmcodec_set_masked(ADCR, ADCR_RINSEL_RINPUT1, ADCR_RINSEL_MASK);
+        wmcodec_set_bits(PWRMGMT1, PWRMGMT1_AINL | PWRMGMT1_AINR);
+        if (recording)
+        {
+            wmcodec_set_bits(PWRMGMT1, PWRMGMT1_ADCL | PWRMGMT1_ADCR);
+        }
+        else
+        {
+            wmcodec_set_reg(LINVOL, LINVOL_LIZC | LINVOL_LINVOL(0x27));
+            wmcodec_set_reg(RINVOL, RINVOL_RIVU | RINVOL_RIZC |
+                            RINVOL_RINVOL(0x27));
+        }
+
+        wmcodec_set_masked(LEFTMIX1, LEFTMIX1_LMIXSEL_ADCLIN |
+                           LEFTMIX1_LI2LOVOL(0x20),
+                           0x7 | LEFTMIX1_LI2LOVOL_MASK);
+        wmcodec_set_bits(LEFTMIX1, LEFTMIX1_LI2LO);
+        wmcodec_set_masked(RIGHTMIX1, RIGHTMIX1_RMIXSEL_ADCRIN, 0x7);
+        wmcodec_set_masked(RIGHTMIX2, RIGHTMIX2_RI2ROVOL(0x20),
+                           RIGHTMIX2_RI2ROVOL_MASK);
+        wmcodec_set_bits(RIGHTMIX2, RIGHTMIX2_RI2RO);
+        break;
+
+    case AUDIO_SRC_MIC:
+        wmcodec_set_masked(ADCR, ADCR_RINSEL_RINPUT2 | ADCR_RMICBOOST_13DB,
+                           ADCR_RINSEL_MASK | (0x3 << 4));
+        wmcodec_set_bits(PWRMGMT1, PWRMGMT1_AINR | PWRMGMT1_ADCR);
+        wmcodec_set_masked(ADDITIONAL1, ADDITIONAL1_DATSEL_RR,
+                           ADDITIONAL1_DATSEL_MASK);
+        break;
+
+    default: /* playback */
+        break;
+    }
+
+    audiohw_mute(false);
+}
+#else /* !SAMSUNG_YPCP3 */
 void audiohw_set_recsrc(int source, bool recording)
 {
     /* INPUT1 - FM radio
@@ -618,6 +704,7 @@ void audiohw_set_recsrc(int source, bool recording)
 #endif
     } /* switch(source) */
 }
+#endif /* SAMSUNG_YPCP3 */
 
 static int digital_gain2hw(int value)
 {

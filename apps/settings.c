@@ -34,6 +34,9 @@
 #include "crc32.h"
 #include "sound.h"
 #include "settings.h"
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+#include "videoout.h"
+#endif
 #include "debug.h"
 #include "usb.h"
 #include "backlight.h"
@@ -145,6 +148,8 @@ static void rename_temp_file(const char *tempfile,
 }
 #endif /* ndef ROCKBOX_NO_TEMP_SETTINGS_FILE */
 
+#endif // !__PCTOOL__
+
 const char* setting_get_cfgvals(const struct settings_list *setting)
 {
     if ((setting->flags & F_TABLE_SETTING) == F_TABLE_SETTING)
@@ -160,6 +165,8 @@ const char* setting_get_cfgvals(const struct settings_list *setting)
         return setting->cfg_vals;
     return NULL;
 }
+
+#ifndef __PCTOOL__
 
 /* calculates and stores crc of settings, returns true if settings have changed */
 static bool settings_crc_changed(void)
@@ -207,6 +214,8 @@ void settings_load(void)
     /* set initial CRC value - settings_save checks, if changed writes to disk */
     settings_crc_changed();
 }
+
+#endif // !__PCTOOL__
 
 bool cfg_string_to_int(const struct settings_list *setting, int* out, const char* str)
 {
@@ -393,6 +402,7 @@ bool string_to_cfg(const char *name, char* value, bool *theme_changed)
     return true;
 }
 
+#ifndef __PCTOOL__
 bool settings_load_config(const char* file, bool apply)
 {
     logf("%s()\r\n", __func__);
@@ -922,6 +932,18 @@ void audio_settings_apply()
 
 }
 
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+void settings_apply_videoout(int mode)
+{
+    if (mode < VIDEOOUT_OFF || mode > VIDEOOUT_ON)
+        mode = VIDEOOUT_OFF;
+
+    global_settings.composite_video_output = mode;
+    videoout_set_mode((enum videoout_mode)mode, FBADDR(0, 0),
+                      LCD_WIDTH, LCD_HEIGHT);
+}
+#endif
+
 void settings_apply(bool read_disk)
 {
     logf("%s", __func__);
@@ -1150,6 +1172,10 @@ void settings_apply(bool read_disk)
 #endif
 #endif /* HAVE_BACKLIGHT */
 
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+    settings_apply_videoout(global_settings.composite_video_output);
+#endif
+
 #ifndef HAS_BUTTON_HOLD
     set_selective_softlock_actions(
                             global_settings.bt_selective_softlock_actions,
@@ -1176,6 +1202,9 @@ void settings_apply(bool read_disk)
 
 #if !defined(SIMULATOR) && !defined(USB_NONE) && (defined(HAVE_USB_ADB) || defined(HAVE_USB_POWER))
     usb_set_mode(global_settings.usb_mode);
+#endif
+#if defined(USB_ENABLE_AUDIO) || defined(HAVE_HOST_USB_AUDIO)
+    usb_set_audio(global_settings.usb_audio);
 #endif
 #if defined(HAVE_GENERAL_PURPOSE_LED)
     led_hw_on();

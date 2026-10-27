@@ -17,7 +17,6 @@ text files%
 
 \section{Games}
   See also the Chip{}-8 emulator in \reference{ref:Chip8emulator},
-  Frotz in \reference{ref:Frotz},
   \opt{iriverh100,iaudiom5,lcd_color}
   {Rockboy in \reference{ref:Rockboy}}
   and ZXBox in \reference{ref:ZXBox}.
@@ -171,7 +170,6 @@ option from the \setting{Context Menu} (see \reference{ref:Contextmenu}).}
     Shortcuts             & \fname{.link}                    &   \\
     MS Windows shortcuts  & \fname{.lnk}                     &   \\
     Chip-8 Emulator       & \fname{.ch8}                     &   \\
-    Frotz                 & \fname{.z1} to \fname{.z8}       &   \\
     Image Viewer          & \fname{.bmp, .jpg, .jpeg, .png\opt{lcd_color}{, .ppm}}  &   \\
     Lua scripting language& \fname{.lua}                     &   \\
     \nopt{lowmem}{
@@ -182,6 +180,9 @@ option from the \setting{Context Menu} (see \reference{ref:Contextmenu}).}
                           & \fname{.s3m, .stm, .stx, .ult,}  &  \\
                           & \fname{.uni, .umx, .xm}         &   \\
         MPEG Player       & \fname{.mpg, .mpeg, .mpv, .m2v}  &   \\
+    }
+    \opt{HAVE_HW_H264}{
+        H.264 Player      & \fname{.mp4, .m4v, .mov}          &   \\
     }
         MP3 Encoder       & \fname{.wav}                     & x \\
         Rockboy       & \fname{.gb, .gbc}                &   \\
@@ -200,8 +201,6 @@ option from the \setting{Context Menu} (see \reference{ref:Contextmenu}).}
 
 \input{plugins/chip8emulator.tex}
 
-\input{plugins/frotz.tex}
-
 \input{plugins/imageviewer.tex}
 
 \opt{large_plugin_buffer}{\input{plugins/lua.tex}}
@@ -210,6 +209,8 @@ option from the \setting{Context Menu} (see \reference{ref:Contextmenu}).}
 \nopt{lowmem}{\input{plugins/mikmod.tex}}
 
 \nopt{lowmem}{\input{plugins/mpegplayer.tex}}
+
+\opt{HAVE_HW_H264}{\input{plugins/h264_player.tex}}
 
 \input{plugins/mp3_encoder.tex}
 

@@ -374,7 +374,7 @@ static int keyremap_open_file(const char *filename, int *fd, size_t *fsize)
         *fd = rb->open(filename, O_RDONLY);
         if (*fd)
         {
-            *fsize = rb->filesize(*fd);
+            *fsize = rb->ffilesize(*fd);
 
             count = *fsize / sizeof(struct button_mapping);
 
@@ -746,11 +746,14 @@ static int keymap_add_button_entry(int context, int action_code,
     for (int i = 0; i < ctx_data.act_count; i++)
     {
         if (ctx_data.act_map[i].context == context &&
-            ctx_data.act_map[i].map.action_code == action_code)
+            ctx_data.act_map[i].map.action_code == action_code &&
+            ctx_data.act_map[i].map.button_code == button_code &&
+            ctx_data.act_map[i].map.pre_button_code == pre_button_code)
         {
-            /*Duplicate -- Update the existing entry */
-            ctx_data.act_map[i].map.button_code = button_code;
-            ctx_data.act_map[i].map.pre_button_code = pre_button_code;
+            /*Duplicate -- Use the existing entry */
+            /* FS#13975 allow multiple entries to map same action code */
+            logf("keyremap: skipping duplicate @ [%d] ctx: %d, act: %d btn: %d pbtn: %d",
+                            i, context, action_code, button_code, pre_button_code);
             return ctx_data.act_count;
         }
     }

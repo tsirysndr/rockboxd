@@ -221,15 +221,6 @@ const struct button_mapping pla_main_ctx[] =
     { PLA_DOWN_REPEAT,      BUTTON_OPTION|BUTTON_REPEAT,        BUTTON_NONE },
     { PLA_LEFT_REPEAT,      BUTTON_PREV|BUTTON_REPEAT,          BUTTON_NONE },
     { PLA_RIGHT_REPEAT,     BUTTON_NEXT|BUTTON_REPEAT,          BUTTON_NONE },
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-    { PLA_UP,               BUTTON_HOME,                        BUTTON_NONE },
-    { PLA_DOWN,             BUTTON_OPTION,                      BUTTON_NONE },
-    { PLA_LEFT,             BUTTON_PREV,                        BUTTON_NONE },
-    { PLA_RIGHT,            BUTTON_NEXT,                        BUTTON_NONE },
-    { PLA_UP_REPEAT,        BUTTON_HOME|BUTTON_REPEAT,          BUTTON_NONE },
-    { PLA_DOWN_REPEAT,      BUTTON_OPTION|BUTTON_REPEAT,        BUTTON_NONE },
-    { PLA_LEFT_REPEAT,      BUTTON_PREV|BUTTON_REPEAT,          BUTTON_NONE },
-    { PLA_RIGHT_REPEAT,     BUTTON_NEXT|BUTTON_REPEAT,          BUTTON_NONE },
 #elif (CONFIG_KEYPAD == EROSQ_PAD)
     { PLA_UP,               BUTTON_VOL_UP,                      BUTTON_NONE },
     { PLA_DOWN,             BUTTON_VOL_DOWN,                    BUTTON_NONE },
@@ -284,7 +275,7 @@ const struct button_mapping pla_main_ctx[] =
     { PLA_DOWN_REPEAT,      BUTTON_DOWN|BUTTON_REPEAT,          BUTTON_NONE },
     { PLA_LEFT_REPEAT,      BUTTON_LEFT|BUTTON_REPEAT,          BUTTON_NONE },
     { PLA_RIGHT_REPEAT,     BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
-#elif (CONFIG_KEYPAD == CTRU_PAD)
+#elif (CONFIG_KEYPAD == N3DS_PAD)
     { PLA_UP,               BUTTON_UP,                          BUTTON_NONE },
     { PLA_DOWN,             BUTTON_DOWN,                        BUTTON_NONE },
     { PLA_LEFT,             BUTTON_LEFT,                        BUTTON_NONE },
@@ -294,6 +285,15 @@ const struct button_mapping pla_main_ctx[] =
     { PLA_LEFT_REPEAT,      BUTTON_LEFT|BUTTON_REPEAT,          BUTTON_NONE },
     { PLA_RIGHT_REPEAT,     BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
 #elif CONFIG_KEYPAD == ECHO_R1_PAD
+    { PLA_UP,               BUTTON_UP,                          BUTTON_NONE },
+    { PLA_DOWN,             BUTTON_DOWN,                        BUTTON_NONE },
+    { PLA_LEFT,             BUTTON_LEFT,                        BUTTON_NONE },
+    { PLA_RIGHT,            BUTTON_RIGHT,                       BUTTON_NONE },
+    { PLA_UP_REPEAT,        BUTTON_UP|BUTTON_REPEAT,            BUTTON_NONE },
+    { PLA_DOWN_REPEAT,      BUTTON_DOWN|BUTTON_REPEAT,          BUTTON_NONE },
+    { PLA_LEFT_REPEAT,      BUTTON_LEFT|BUTTON_REPEAT,          BUTTON_NONE },
+    { PLA_RIGHT_REPEAT,     BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
+#elif (CONFIG_KEYPAD == PSP_PAD)
     { PLA_UP,               BUTTON_UP,                          BUTTON_NONE },
     { PLA_DOWN,             BUTTON_DOWN,                        BUTTON_NONE },
     { PLA_LEFT,             BUTTON_LEFT,                        BUTTON_NONE },
@@ -499,12 +499,6 @@ const struct button_mapping pla_main_ctx[] =
     {PLA_SELECT,            BUTTON_PLAY,                        BUTTON_NONE},
     {PLA_SELECT_REL,        BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY},
     {PLA_SELECT_REPEAT,     BUTTON_PLAY|BUTTON_REPEAT,          BUTTON_NONE},
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-    {PLA_CANCEL,            BUTTON_POWER|BUTTON_REL,            BUTTON_POWER},
-    {PLA_EXIT,              BUTTON_POWER|BUTTON_REPEAT,         BUTTON_NONE},
-    {PLA_SELECT,            BUTTON_PLAY,                        BUTTON_NONE},
-    {PLA_SELECT_REL,        BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY},
-    {PLA_SELECT_REPEAT,     BUTTON_PLAY|BUTTON_REPEAT,          BUTTON_NONE},
 #elif (CONFIG_KEYPAD == EROSQ_PAD)
     {PLA_CANCEL,            BUTTON_BACK|BUTTON_REL,             BUTTON_BACK},
     {PLA_EXIT,              BUTTON_POWER,                       BUTTON_NONE},
@@ -529,7 +523,7 @@ const struct button_mapping pla_main_ctx[] =
     {PLA_SELECT,            BUTTON_SELECT,                      BUTTON_NONE},
     {PLA_SELECT_REL,        BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT},
     {PLA_SELECT_REPEAT,     BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_NONE},
-#elif (CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD)
+#elif (CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD)
     {PLA_EXIT,              BUTTON_POWER,                       BUTTON_NONE},
 #elif (CONFIG_KEYPAD == MA_PAD)
     {PLA_CANCEL,            BUTTON_BACK|BUTTON_REL,            BUTTON_BACK},
@@ -543,7 +537,7 @@ const struct button_mapping pla_main_ctx[] =
     {PLA_SELECT,            BUTTON_A,                           BUTTON_NONE},
     {PLA_SELECT_REL,        BUTTON_A|BUTTON_REL,                BUTTON_A},
     {PLA_SELECT_REPEAT,     BUTTON_A|BUTTON_REPEAT,             BUTTON_NONE},
-#elif (CONFIG_KEYPAD == CTRU_PAD)
+#elif (CONFIG_KEYPAD == N3DS_PAD)
     {PLA_CANCEL,            BUTTON_BACK,                        BUTTON_NONE},
     {PLA_EXIT,              BUTTON_MENU,                        BUTTON_NONE},
     {PLA_SELECT,            BUTTON_SELECT,                      BUTTON_NONE},
@@ -555,6 +549,12 @@ const struct button_mapping pla_main_ctx[] =
     {PLA_SELECT,            BUTTON_A,                           BUTTON_NONE},
     {PLA_SELECT_REL,        BUTTON_A|BUTTON_REL,                BUTTON_SELECT},
     {PLA_SELECT_REPEAT,     BUTTON_A|BUTTON_REPEAT,             BUTTON_NONE},
+#elif (CONFIG_KEYPAD == PSP_PAD)
+    {PLA_CANCEL,            BUTTON_BACK,                        BUTTON_NONE},
+    {PLA_EXIT,              BUTTON_MENU,                        BUTTON_NONE},
+    {PLA_SELECT,            BUTTON_SELECT,                      BUTTON_NONE},
+    {PLA_SELECT_REL,        BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT},
+    {PLA_SELECT_REPEAT,     BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_NONE},
 #else
 #   ifndef HAVE_TOUCHSCREEN
 #       error pluginlib_actions: No actions defined

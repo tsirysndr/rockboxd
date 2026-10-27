@@ -142,7 +142,8 @@ static void mmu_buff_reset(void)
 
 static inline bool card_detect_target(void)
 {
-#if defined(RK27_GENERIC) || defined(IHIFI770) || defined(IHIFI770C) || defined(IHIFI800)
+#if defined(RK27_GENERIC) || defined(IHIFI770) || defined(IHIFI770C) || defined(IHIFI800) || \
+    defined(SAMSUNG_YPCP3)
     /* PC7, active low */
     return !(GPIO_PCDR & 0x80);
 #elif defined(HM60X) || defined(HM801)
@@ -322,10 +323,11 @@ static int sd_init_card(void)
     if (!sd_wait_card_busy())
         return -21;
 
-    /* CMD6 */
-    if(!send_cmd(SD_SWITCH_FUNC, 0x80fffff1, RES_R1, &response))
-        return -8;
-    sleep(HZ/10);
+    /* No CMD6 switch to high-speed mode: this is an SD 1.01 host, with a
+     * card clock of at most 25 MHz, and a card switched to high speed does
+     * not take the data it drives - every write failed, the card waiting in
+     * receive-data state for a block it never saw, while reads worked. The
+     * original firmware leaves the card at default speed too. */
 
     /*  Card back to full speed  25MHz*/
     SD_CTRL = (SD_CTRL & ~0x7FF);
@@ -359,13 +361,8 @@ static void init_controller(void)
     MMU_CTRL = MMU_MMU0_BUFII | MMU_CPU_BUFI | MMU_BUFII_RESET |
                MMU_BUFII_BYTE | MMU_BUFI_RESET | MMU_BUFI_WORD;
 
-    /* setup A2A DMA CH0 for SD reads */
-    A2A_ISRC0 = (unsigned long)(&MMU_DATA);
-    A2A_ICNT0 = 512;
-    A2A_LCNT0 = 1;
-
-    /* setup A2A DMA CH1 for SD writes */
-    A2A_IDST1 = (unsigned long)(&MMU_DATA);
+    /* setup A2A DMA CH1 for SD reads and writes (source and destination
+     * are set for each transfer); CH0 is core_sleep()'s */
     A2A_ICNT1 = 512;
     A2A_LCNT1 = 1;
 
@@ -407,15 +404,16 @@ static inline void read_sd_data(unsigned char **dst)
     commit_discard_dcache_range((const void *)buf, 512);
 
 
-    A2A_IDST0 = (unsigned long)buf;
-    A2A_CON0  = (3<<9) |    /* burst 16 */
+    A2A_ISRC1 = (unsigned long)(&MMU_DATA);
+    A2A_IDST1 = (unsigned long)buf;
+    A2A_CON1  = (3<<9) |    /* burst 16 */
                 (1<<6) |    /* fixed src */
                 (1<<3) |    /* DMA start */
                 (2<<1) |    /* word transfer size */
                 (1<<0);     /* software mode */
 
     /* wait for DMA engine to finish transfer */
-    while (A2A_DMA_STS & 1);
+    while (A2A_DMA_STS & 2);
 
 #ifdef ALIGN_BUF
     if (buf == aligned_buf)
@@ -440,6 +438,7 @@ static inline void write_sd_data(unsigned char **src)
     commit_discard_dcache_range((const void *)buf, 512);
 
     A2A_ISRC1 = (unsigned long)buf;
+    A2A_IDST1 = (unsigned long)(&MMU_DATA);
     A2A_CON1  = (3<<9) |    /* burst 16 */
                 (1<<5) |    /* fixed dst */
                 (1<<3) |    /* DMA start */
@@ -463,11 +462,14 @@ int sd_read_sectors(IF_MD(int drive,) sector_t start, int count,
     int cnt, ret = 0;
     unsigned char *dst;
 
-    mutex_lock(&sd_mtx);
-    enable_controller(true);
-
+    /* Checked before taking the lock: returning from after it left sd_mtx
+     * held and the controller powered. With no card numblocks is 0, so
+     * that was every request. */
     if (count <= 0 || start + count > card_info.numblocks)
         return -1;
+
+    mutex_lock(&sd_mtx);
+    enable_controller(true);
 
     if(!(card_info.ocr & (1<<30)))
         start <<= 9; /* not SDHC */
@@ -601,11 +603,14 @@ int sd_write_sectors(IF_MD(int drive,) sector_t start, int count,
     unsigned char *src;
     /* bool card_selected = false; */
 
-    mutex_lock(&sd_mtx);
-    enable_controller(true);
-
+    /* Checked before taking the lock: returning from after it left sd_mtx
+     * held and the controller powered. With no card numblocks is 0, so
+     * that was every request. */
     if (count <= 0 || start + count > card_info.numblocks)
         return -1;
+
+    mutex_lock(&sd_mtx);
+    enable_controller(true);
 
     if(!(card_info.ocr & (1<<30)))
         start <<= 9; /* not SDHC */

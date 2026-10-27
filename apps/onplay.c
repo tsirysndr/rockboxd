@@ -178,7 +178,7 @@ static bool shuffle_playlist(void)
     if (!yesno_pop_confirm(ID2P(LANG_SHUFFLE)))
         return false;
     playlist_sort(NULL, true);
-    playlist_randomise(NULL, current_tick, true);
+    playlist_randomise(NULL, 0, true);
     playlist_set_modified(NULL, true);
 
     return false;
@@ -319,7 +319,6 @@ static int add_to_playlist(void* arg)
     if (position == PLAYLIST_INSERT_SHUFFLED ||
         position == PLAYLIST_INSERT_LAST_SHUFFLED)
     {
-        srand(current_tick);
         if (position == PLAYLIST_INSERT_LAST_SHUFFLED)
             playlist_set_last_shuffled_start();
     }
@@ -331,7 +330,7 @@ static int add_to_playlist(void* arg)
         /* nothing is currently playing so begin playing what we just
            inserted */
         if (global_settings.playlist_shuffle)
-            playlist_shuffle(current_tick, -1);
+            playlist_shuffle(0, -1);
         playlist_start(0, 0, 0);
         onplay_result = ONPLAY_START_PLAY;
     }

@@ -142,7 +142,7 @@ bool get_vtx_metadata(int fd, struct mp3entry* id3)
     id3->bitrate = 706;
     id3->frequency = 44100; // XXX allow this to be configured?
 
-    id3->FS_PREFIX(filesize) = metadata_filesize(fd);
+    id3->filesize = metadata_filesize(fd);
     id3->length = info.frames * 1000 / info.playerfreq;
 
     return true;

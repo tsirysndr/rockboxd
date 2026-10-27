@@ -32,7 +32,10 @@ struct dsp_filter
     int32_t coefs[5];      /* 00h: Order is b0, b1, b2, a1, a2 */
     int32_t history[2][4]; /* 14h: Order is x-1, x-2, y-1, y-2, per channel */
     uint8_t shift;         /* 34h: Final shift after computation */
-                           /* 38h */
+    uint32_t frac[2];      /* 38h: Part of the last sum that was below the
+                                   output's lowest bit, left aligned, per
+                                   channel */
+                           /* 40h */
 };
 
 void filter_shelf_coefs(unsigned long cutoff, long A, bool low, int32_t *c);

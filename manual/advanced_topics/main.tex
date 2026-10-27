@@ -109,9 +109,13 @@ file find the instructions on the Rockbox website:
   \\
   \config{folder, m3u, m3u8, cfg, wps, lng, rock, bmark, cue, colours, mpa,
   \firmwareextension{}, %
-  mp1, mp2, mp3, ogg, oga, wma, wmv, asf, wav, flac, ac3, a52, mpc, wv,
-  m4a, m4b, mp4, mp4a, mod, shn, aif, aiff, spx, sid, adx, nsf, nsfe, spc,
-  ape, mac, sap, mpg, mpeg%
+  mp3, mp2, mpa, mp1, ogg, oga, wma, wmv, asf, wav,
+  flac, ace, a52, mpc, mv, m4a, m4b, mp4, mod, mpga,
+  ahn, aif, aiff, spx, opus, sid, adx, nsf, nsfe, spc,
+  ape, mac, sap, rm, ra, rmvb, cmc, cm3, cm4, cms, dmc,
+  dlt, mpt, mpd, rmt, tmc, tm8, tm2, oma, aa3, at3, mmf,
+   au, snd, vox, w64, tta, ay, vtx, gbs, hes, sgc, vgm,
+  vgz, kss, aac, dsf, dff, iso %
   \opt{HAVE_REMOTE_LCD}{, rwps}%
   \opt{lcd_non-mono}{, bmp}%
   \opt{radio}{, fmr}%
@@ -236,7 +240,8 @@ Windows 2000 or XP (but not in 9x/ME) can do this.
 \begin{description}
 \item [Files Locations: ] Each different ``themeable'' aspect requires its own file --
   WPS files have the extension \fname{.wps}, FM screen files have the extension
-  \fname{.fms}, and SBS files have the extension \fname{.sbs}. The main theme
+  \fname{.fms}, \opt{recording}{recording screen files have the extension
+  \fname{.wrs} (\fname{.rwrs} for the remote), }and SBS files have the extension \fname{.sbs}. The main theme
   file has the extension \fname{.cfg}. All files should have the same name.
 
   The theme \fname{.cfg} file should be placed in the \fname{/.rockbox/themes}

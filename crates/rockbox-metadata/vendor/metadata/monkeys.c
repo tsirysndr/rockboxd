@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2007 Dave Chapman
  *
@@ -39,6 +38,7 @@ bool get_monkeys_metadata(int fd, struct mp3entry* id3)
     uint32_t totalsamples;
     uint32_t blocksperframe, finalframeblocks, totalframes;
     int fileversion;
+    int bytes;
 
     lseek(fd, 0, SEEK_SET);
 
@@ -52,7 +52,12 @@ bool get_monkeys_metadata(int fd, struct mp3entry* id3)
         return rc;
     }
 
-    read(fd, buf + 4, MAX_PATH - 4);
+    /* bytes of the file now in buf; the fields read below need 32 */
+    bytes = 4 + read(fd, buf + 4, MAX_PATH - 4);
+    if (bytes < 32)
+    {
+        return rc;
+    }
 
     fileversion = get_short_le(buf+4);
     if (fileversion < 3970)
@@ -64,6 +69,12 @@ bool get_monkeys_metadata(int fd, struct mp3entry* id3)
     if (fileversion >= 3980)
     {
         descriptorlength = get_long_le(buf+8);
+
+        /* the header follows the descriptor; its fields end 24 bytes in */
+        if (descriptorlength > (uint32_t)(bytes - 24))
+        {
+            return rc;
+        }
 
         header = buf + descriptorlength;
 
@@ -82,15 +93,20 @@ bool get_monkeys_metadata(int fd, struct mp3entry* id3)
         id3->frequency = get_long_le(buf+12);
     }
 
+    if (id3->frequency == 0)
+    {
+        return rc;
+    }
+
     id3->vbr = true;   /* All APE files are VBR */
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
 
     totalsamples = finalframeblocks;
     if (totalframes > 1)
         totalsamples += blocksperframe * (totalframes-1);
 
     id3->length = ((int64_t) totalsamples * 1000) / id3->frequency;
-    id3->bitrate = (id3->FS_PREFIX(filesize) * 8) / id3->length;
+    id3->bitrate = id3->length ? (id3->filesize * 8) / id3->length : 0;
 
     read_ape_tags(fd, id3);
     return true;

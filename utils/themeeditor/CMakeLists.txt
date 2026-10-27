@@ -120,6 +120,14 @@ target_link_libraries(RockboxThemeEditor
 target_include_directories(RockboxThemeEditor PRIVATE models graphics gui qtfindreplacedialog quazip)
 target_compile_definitions(RockboxThemeEditor PRIVATE FINDREPLACE_NOLIB)
 
+# This is an issue with the code produced by QT's MOC
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    check_cxx_compiler_flag(-Wsfinae-incomplete=0 HAVE_SFINAE_INCOMPLETE)
+    if (HAVE_SFINAE_INCOMPLETE)
+        target_compile_options(RockboxThemeEditor PRIVATE -Wsfinae-incomplete=0)
+    endif()
+endif()
+
 if(APPLE)
     # MacOS Application Bundle specifics.
     target_sources(RockboxThemeEditor PRIVATE

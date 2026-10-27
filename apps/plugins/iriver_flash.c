@@ -23,6 +23,7 @@
 #include "plugin.h"
 #include "lib/helper.h"
 #include "checksum.h"
+#include "system-iriver.h"
 
 /*
  * Flash commands may rely on null pointer dereferences to work correctly.
@@ -373,7 +374,7 @@ static bool load_firmware(const char* filename, enum firmware firmware,
     }
 
     /* get file and buffer lengths and acquire the buffer */
-    fd_len = rb->filesize(fd);
+    fd_len = rb->ffilesize(fd);
     buffer = rb->plugin_get_audio_buffer(&buffer_len);
 
     /* ensure there's enough space in the buffer */

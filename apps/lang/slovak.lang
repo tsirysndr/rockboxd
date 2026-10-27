@@ -1005,13 +1005,13 @@
   desc: in the equalizer settings menu
   user: core
   <source>
-    *: "Peak Filter %d"
+    *: "Peak Filter"
   </source>
   <dest>
-    *: "Filter pásma %d"
+    *: "Vrcholový filter"
   </dest>
   <voice>
-    *: "Filter pásma"
+    *: "Vrcholový filter"
   </voice>
 </phrase>
 <phrase>
@@ -9086,15 +9086,15 @@
   user: core
   <source>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Bass Cutoff"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Bass Cutoff"
   </source>
   <dest>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Hranica hĺbok"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Hranica hĺbok"
   </dest>
   <voice>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Hranica hĺbok"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Hranica hĺbok"
   </voice>
 </phrase>
 <phrase>
@@ -9103,15 +9103,15 @@
   user: core
   <source>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Treble Cutoff"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Treble Cutoff"
   </source>
   <dest>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Hranica výšok"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Hranica výšok"
   </dest>
   <voice>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Hranica výšok"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Hranica výšok"
   </voice>
 </phrase>
 <phrase>
@@ -17097,5 +17097,135 @@
   </dest>
   <voice>
     *: "Nastaviť kontextovú položku"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_EQUALIZER_BAND
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "Filter %d"
+  </source>
+  <dest>
+    *: "~Filter %d"
+  </dest>
+  <voice>
+    *: "~Filter"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_EQUALIZER_FILTER_TYPE
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "Filter Type"
+  </source>
+  <dest>
+    *: "Typ filtra"
+  </dest>
+  <voice>
+    *: "Typ filtra"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_COMPOSITE_VIDEO_OUTPUT
+  desc: Enables composite video framebuffer mirroring on supported targets
+  user: core
+  <source>
+    *: none
+    videoout: "Composite Video Output"
+  </source>
+  <dest>
+    *: none
+    videoout: "Kompozitný video výstup"
+  </dest>
+  <voice>
+    *: none
+    videoout: "Kompozitný video výstup"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TOUCHSCREEN_FLICK_SHORTCUTS
+  desc: in settings menu
+  user: core
+  <source>
+    *: none
+    touchscreen: "Touchscreen Flick Shortcuts"
+  </source>
+  <dest>
+    *: none
+    touchscreen: "Skratky švihnutia na obrazovke"
+  </dest>
+  <voice>
+    *: none
+    touchscreen: "Skratky švihnutia na obrazovke"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_RECORDING_SCREEN
+  desc: in the theme menu: browse recording screen skins
+  user: core
+  <source>
+    *: none
+    recording: "Recording Screen"
+  </source>
+  <dest>
+    *: none
+    recording: "Obrazovka nahrávania"
+  </dest>
+  <voice>
+    *: none
+    recording: "Obrazovka nahrávania"
+  </voice>
+</phrase>
+<phrase>
+  id: VOICE_EXT_WRS
+  desc: spoken only, for file extension
+  user: core
+  <source>
+    *: none
+    recording: ""
+  </source>
+  <dest>
+    *: none
+    recording: ""
+  </dest>
+  <voice>
+    *: none
+    recording: "Téma obrazovky nahrávania"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_REMOTE_RECORDING_SCREEN
+  desc: in the theme menu: browse remote recording screen skins
+  user: core
+  <source>
+    *: none
+    recording_remote: "Remote Recording Screen"
+  </source>
+  <dest>
+    *: none
+    recording_remote: "Obrazovka diaľkového nahrávania"
+  </dest>
+  <voice>
+    *: none
+    recording_remote: "Obrazovka diaľkového nahrávania"
+  </voice>
+</phrase>
+<phrase>
+  id: VOICE_EXT_RWRS
+  desc: spoken only, for file extension
+  user: core
+  <source>
+    *: none
+    recording_remote: ""
+  </source>
+  <dest>
+    *: none
+    recording_remote: ""
+  </dest>
+  <voice>
+    *: none
+    recording_remote: "Téma obrazovky diaľkového nahrávania"
   </voice>
 </phrase>

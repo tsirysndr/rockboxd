@@ -305,15 +305,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define DOWN     BUTTON_OPTION
 #define PAUSE    BUTTON_PLAY
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-
-#define QUIT     BUTTON_POWER
-#define LEFT     BUTTON_PREV
-#define RIGHT    BUTTON_NEXT
-#define UP       BUTTON_HOME
-#define DOWN     BUTTON_OPTION
-#define PAUSE    BUTTON_PLAY
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 
 #define QUIT     BUTTON_POWER
@@ -357,7 +348,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define DOWN    BUTTON_DOWN
 #define PAUSE   BUTTON_PLAY
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == RG_NANO_PAD
@@ -369,7 +360,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define DOWN    BUTTON_DOWN
 #define PAUSE   BUTTON_A
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 
 #define QUIT  BUTTON_BACK
 #define LEFT  BUTTON_LEFT
@@ -386,6 +377,15 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define UP    BUTTON_UP
 #define DOWN  BUTTON_DOWN
 #define PAUSE BUTTON_START
+
+#elif CONFIG_KEYPAD == PSP_PAD
+
+#define QUIT  BUTTON_BACK
+#define LEFT  BUTTON_LEFT
+#define RIGHT BUTTON_RIGHT
+#define UP    BUTTON_UP
+#define DOWN  BUTTON_DOWN
+#define PAUSE BUTTON_SELECT
 
 #else
 #error "No keymap defined!"
@@ -620,12 +620,6 @@ static inline int get_newy (int y, int len, int deg)
         return y + len * 2;
     else /* (deg & DIR_UU) */
         return y - len * 2;
-}
-
-/* make random function get it's value from the device ticker */
-static inline void randomize (void)
-{
-    rb->srand (*rb->current_tick);
 }
 
 /* get a random number between 0 and range-1 */
@@ -1339,9 +1333,7 @@ enum plugin_status plugin_start (const void *parameter)
         rb->splash(HZ, "Failed to load saved game");
     }
 
-    randomize ();
     ret = xobox_loop ();
-
 
     /* Turn on backlight timeout (revert to settings) */
     backlight_use_settings();

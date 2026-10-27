@@ -51,6 +51,8 @@
 #define CONFIG_STORAGE (STORAGE_SD | STORAGE_NAND)
 
 #define CONFIG_NAND NAND_RK27XX
+#define CONFIG_RK27XX_FTL RK27XX_FTL_SCHEME_B
+#define FTL_ALLOW_WRITE
 #define HAVE_SW_TONE_CONTROLS
 
 #define HAVE_SW_VOLUME_CONTROL
@@ -118,7 +120,7 @@
 #define HAVE_SW_POWEROFF
 
 /* The number of bytes reserved for loadable codecs */
-#define CODEC_SIZE 0x100000
+#define CODEC_SIZE 0x80000
 
 /* The number of bytes reserved for loadable plugins */
 #define PLUGIN_BUFFER_SIZE 0x80000

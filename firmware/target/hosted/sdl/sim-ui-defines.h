@@ -390,6 +390,13 @@
 #define UI_WIDTH                    LCD_WIDTH
 #define UI_HEIGHT                   LCD_HEIGHT
 
+#elif defined(SAMSUNG_YPCP3)
+#define UI_TITLE                    "Samsung YP-CP3"
+#define UI_WIDTH                    614 /* width of GUI window */
+#define UI_HEIGHT                   324 /* height of GUI window */
+#define UI_LCD_POSX                 40
+#define UI_LCD_POSY                 37
+
 #elif defined(SAMSUNG_YPR0)
 #define UI_TITLE                    "Samsung YP-R0"
 #define UI_WIDTH                    313 /* width of GUI window */
@@ -432,7 +439,7 @@
 #define UI_LCD_POSX                 78
 #define UI_LCD_POSY                 92
 
-#elif defined(AGPTEK_ROCKER)
+#elif defined(AGPTEK_ROCKER) || defined(AGPTEK_ROCKER_NATIVE)
 #define UI_TITLE                    "Agptek Rocker"
 #define UI_WIDTH                    186
 #define UI_HEIGHT                   380
@@ -488,7 +495,7 @@
 #define UI_LCD_POSX                 45
 #define UI_LCD_POSY                 50
 
-#elif defined(FIIO_M3K) || defined(FIIO_M3K_LINUX)
+#elif defined(FIIO_M3K)
 #define UI_TITLE                    "FiiO M3K"
 #define UI_WIDTH                    334 /* width of GUI window */
 #define UI_HEIGHT                   684 /* height of GUI window */
@@ -524,6 +531,13 @@
 #define UI_HEIGHT                   1016
 #define UI_LCD_POSX                 77
 #define UI_LCD_POSY                 74
+
+#elif defined(HIDIZS_AP80MAX)
+#define UI_TITLE                    "Hidizs AP80 Pro Max"
+#define UI_WIDTH                    580
+#define UI_HEIGHT                   880
+#define UI_LCD_POSX                 100
+#define UI_LCD_POSY                 100
 
 #elif defined(SIMULATOR)
 #error no UI defines

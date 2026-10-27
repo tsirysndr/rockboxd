@@ -28,7 +28,6 @@
 #include "kernel.h"
 #include "button.h"
 #include "file.h"
-#include "audio.h"
 #include "system.h"
 #include "i2c.h"
 #include "adc.h"
@@ -132,10 +131,12 @@ static void rolo_error(const char *text)
     lcd_scroll_stop();
 }
 
-#if CONFIG_CPU == IMX31L || CONFIG_CPU == RK27XX || CONFIG_CPU == X1000
+#if CONFIG_CPU == IMX31L || CONFIG_CPU == RK27XX || CONFIG_CPU == X1000 \
+ || CONFIG_CPU == X1600
 /* this is in firmware/target/arm/imx31/rolo_restart.c for IMX31 */
 /* this is in firmware/target/arm/rk27xx/rolo_restart.c for rk27xx */
 /* this is in firmware/target/mips/ingenic_x1000/boot-x1000.c for X1000 */
+/* this is in firmware/target/mips/ingenic_x1600/boot-x1600.c for X1600 */
 extern void rolo_restart(const unsigned char* source, unsigned char* dest,
                          int length);
 #else
@@ -219,6 +220,7 @@ extern unsigned long loadaddress;
  * Name: rolo_load(const char *filename)
  * Filename must be a fully defined filename including the path and extension
  *
+ * Must call audio_hard_stop() before calling us!
  ***************************************************************************/
 int rolo_load(const char* filename)
 {
@@ -237,8 +239,6 @@ int rolo_load(const char* filename)
     lcd_remote_puts(0, 1, "Loading...");
     lcd_remote_update();
 #endif
-
-    audio_hard_stop();
 
     /* get the system buffer. release only in case of error, otherwise
      * we don't return anyway */

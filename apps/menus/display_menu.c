@@ -180,6 +180,10 @@ MENUITEM_SETTING(lcd_sleep_after_backlight_off,
 #ifdef HAVE_BACKLIGHT_BRIGHTNESS
 MENUITEM_SETTING(brightness_item, &global_settings.brightness, NULL);
 #endif
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+MENUITEM_SETTING(composite_video_output,
+                 &global_settings.composite_video_output, NULL);
+#endif
 #endif /* HAVE_BACKLIGHT */
 #ifdef HAVE_LCD_CONTRAST
 MENUITEM_SETTING(contrast, &global_settings.contrast, NULL);
@@ -214,6 +218,9 @@ MAKE_MENU(lcd_settings,ID2P(LANG_LCD_MENU),
             ,&brightness_item
 # endif
 #endif /* HAVE_BACKLIGHT */
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+            ,&composite_video_output
+#endif
 #ifdef HAVE_LCD_CONTRAST
             ,&contrast
 #endif
@@ -573,6 +580,8 @@ static int line_padding_callback(int action,
 }
 
 MENUITEM_SETTING(touch_mode, &global_settings.touch_mode, touch_mode_callback);
+MENUITEM_SETTING(touch_enable_flick_shortcuts,
+                 &global_settings.touch_enable_flick_shortcuts, NULL);
 
 MENUITEM_FUNCTION(touchscreen_menu_calibrate, 0,
 	              ID2P(LANG_TOUCHSCREEN_CALIBRATE), calibrate, NULL, Icon_NOICON);
@@ -581,8 +590,12 @@ MENUITEM_FUNCTION(touchscreen_menu_reset_calibration, 0,
 	              reset_mapping, NULL, Icon_NOICON);
 MENUITEM_SETTING(list_line_padding, &global_settings.list_line_padding, line_padding_callback);
 
-MAKE_MENU(touchscreen_menu, ID2P(LANG_TOUCHSCREEN_SETTINGS), NULL, Icon_NOICON, &list_line_padding, &touch_mode,
-            &touchscreen_menu_calibrate, &touchscreen_menu_reset_calibration);
+MAKE_MENU(touchscreen_menu, ID2P(LANG_TOUCHSCREEN_SETTINGS), NULL, Icon_NOICON,
+          &touch_mode,
+          &touch_enable_flick_shortcuts,
+          &list_line_padding,
+          &touchscreen_menu_calibrate,
+          &touchscreen_menu_reset_calibration);
 #endif
 
 static int codepage_callback(int action,

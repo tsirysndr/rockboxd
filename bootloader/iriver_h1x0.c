@@ -25,6 +25,7 @@
 #include "string.h"
 #include "cpu.h"
 #include "system.h"
+#include "system-iriver.h"
 #include "lcd.h"
 #include "lcd-remote.h"
 #include "scroll_engine.h"
@@ -597,18 +598,4 @@ void main(void)
 int usb_screen(void)
 {
    return 0;
-}
-
-ucschar_t *bidi_l2v(const unsigned char *str, int orientation)
-{
-    static ucschar_t utf_buf[SCROLL_LINE_SIZE];
-    ucschar_t *target;
-    (void)orientation;
-
-    target = utf_buf;
-
-    while (*str)
-        str = utf8decode(str, target++);
-    *target = 0;
-    return utf_buf;
 }

@@ -19,6 +19,7 @@
  ****************************************************************************/
 
 #include "x1000bootloader.h"
+#include "ingenic/gui-ingenic.h"
 #include "core_alloc.h"
 #include "system.h"
 #include "kernel.h"
@@ -85,7 +86,7 @@ static int read_linux_args(const char* filename)
     }
 
     /* this isn't 100% correct but will be good enough */
-    off_t fsize = filesize(fd);
+    off_t fsize = ffilesize(fd);
     if(fsize < 0 || fsize+1 > (off_t)max_size) {
         splashf(5*HZ, "Arguments too long");
         ret = -4;

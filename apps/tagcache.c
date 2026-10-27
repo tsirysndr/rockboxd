@@ -3096,7 +3096,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
          */
         masterfd_pos = lseek(masterfd, tcmh.tch.entry_count * sizeof(struct index_entry),
             SEEK_CUR);
-        if (masterfd_pos == filesize(masterfd))
+        if (masterfd_pos == ffilesize(masterfd))
         {
             logf("appending...");
             init = true;
@@ -4682,7 +4682,7 @@ failure:
 }
 #endif /* HAVE_TC_RAMCACHE */
 
-static bool check_file_refs(bool auto_update)
+static bool check_deleted_file_refs(bool auto_update)
 {
     int fd;
     bool ret = true;
@@ -4789,11 +4789,6 @@ wend_finished:
     logf("done");
 
     return ret;
-}
-
-static bool check_deleted_files(void)
-{
-    return check_file_refs(true);
 }
 
 /* Note that this function must not be inlined, otherwise the whole point
@@ -5056,6 +5051,12 @@ void do_tagcache_build(const char *path[])
 
     ret = true;
 
+    if (path[0] == NULL)
+    {
+        logf("tagcache path empty, skipping...");
+        goto commit;
+    }
+
     roots_ll[0].path = path[0];
     roots_ll[0].next = NULL;
 
@@ -5133,6 +5134,7 @@ void do_tagcache_build(const char *path[])
     }
     free_search_roots(&roots_ll[0]);
 
+commit:
     /* Write the header. */
     header.magic = TAGCACHE_MAGIC;
     header.datasize = data_size;
@@ -5312,7 +5314,7 @@ static void tagcache_thread(void)
 #ifdef HAVE_TC_RAMCACHE
                 load_ramcache();
 #endif
-                check_deleted_files();
+                check_deleted_file_refs(true);
                 break ;
 
             case Q_START_SCAN:
@@ -5327,7 +5329,7 @@ static void tagcache_thread(void)
                 {
                     load_ramcache();
                     if (global_settings.tagcache_ram == TAGCACHE_RAM_ON)
-                        check_file_refs(global_settings.tagcache_autoupdate);
+                        check_deleted_file_refs(global_settings.tagcache_autoupdate);
                     if (tc_stat.ramcache && global_settings.tagcache_autoupdate)
                         tagcache_build();
                 }
@@ -5340,7 +5342,7 @@ static void tagcache_thread(void)
                     /* This will be very slow unless dircache is enabled
                        or target is flash based, but do it anyway for
                        consistency. */
-                    check_deleted_files();
+                    check_deleted_file_refs(true);
                 }
 
                 logf("tagcache check done");
@@ -5491,7 +5493,7 @@ void tagcache_init(void)
 void tagcache_reverse_scan(void)
 {
     logf("Checking for deleted files");
-    check_deleted_files();
+    check_deleted_file_refs(true);
 }
 #endif
 

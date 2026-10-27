@@ -305,8 +305,18 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
         fg = screen->get_foreground();
         bg = screen->get_background();
 
-        broken = (fg == bg) ||
-                 (bg == 63422 && fg == 65535); /* -> iPod reFresh themes from '22 */
+        if (fg == bg)
+            broken = true;
+
+#if defined(HAVE_LCD_COLOR)
+        /* iPod reFresh themes from '22 */
+        if (screen->is_color)
+        {
+            if (bg == SCREEN_COLOR_TO_NATIVE(screen, LCD_RGBPACK(244, 244, 244)) &&
+                fg == SCREEN_COLOR_TO_NATIVE(screen, LCD_RGBPACK(255, 255, 255)))
+                broken = true;
+        }
+#endif
 
         vp->drawmode = DRMODE_FG;
         /* can't do vp->fg_pattern here, since set_foreground does a bit more on

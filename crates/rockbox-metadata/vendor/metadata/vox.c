@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2010 Yoshihisa Uchida
  *
@@ -42,8 +41,8 @@ bool get_vox_metadata(int fd, struct mp3entry* id3)
     id3->frequency = 8000;
     id3->bitrate   = 8000 * 4 / 1000;
     id3->vbr       = false;   /* All VOX files are CBR */
-    id3->FS_PREFIX(filesize)  = filesize(fd);
-    id3->length    = id3->FS_PREFIX(filesize) >> 2;
+    id3->filesize  = ffilesize(fd);
+    id3->length    = id3->filesize >> 2;
 
     return true;
 }

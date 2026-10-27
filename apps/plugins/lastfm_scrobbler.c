@@ -66,7 +66,6 @@ Example
     All fields except those marked (optional) above are required.
 */
 
-#include "rbversion.h"
 #include "plugin.h"
 #include "lib/configfile.h"
 
@@ -86,8 +85,6 @@ Example
 
 /* increment this on any code change that effects output */
 #define SCROBBLER_VERSION "1.1"
-
-#define SCROBBLER_REVISION " " RBVERSION " "
 
 #define SCROBBLER_BAD_ENTRY "# FAILED - "
 
@@ -531,8 +528,8 @@ static int sbl_check_or_open(bool check_only)
             /* write file header */
             rb->fdprintf(fd, "#AUDIOSCROBBLER/" SCROBBLER_VERSION "\n"
                          "#TZ/UNKNOWN\n" "#CLIENT/Rockbox "
-                         TARGET_NAME SCROBBLER_REVISION
-                         HDR_STR_TIMELESS "\n");
+                         TARGET_NAME " %s "
+                         HDR_STR_TIMELESS "\n", rb->rbversion);
             rb->fdprintf(fd, ITEM_HDR);
         }
         else

@@ -97,7 +97,7 @@
 #define HAVE_SW_POWEROFF
 
 /* The number of bytes reserved for loadable codecs */
-#define CODEC_SIZE 0x100000
+#define CODEC_SIZE 0x80000
 
 /* The number of bytes reserved for loadable plugins */
 #define PLUGIN_BUFFER_SIZE 0x80000
@@ -156,9 +156,6 @@
 
 /* Define this if you want to use coldfire's i2c interface */
 #define CONFIG_I2C I2C_COLDFIRE
-
-/* Define this if you can run rockbox from flash memory */
-#define HAVE_FLASHED_ROCKBOX
 
 /* The size of the flash ROM */
 #define FLASH_SIZE 0x400000

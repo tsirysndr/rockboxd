@@ -28,18 +28,21 @@
 VoiceFileCreator::VoiceFileCreator(QObject* parent) :QObject(parent)
 {
     m_wavtrimThreshold=500;
+    corrFile = nullptr;
 }
 
 void VoiceFileCreator::abort()
 {
-    m_abort = true;
     emit aborted();
 }
 
 bool VoiceFileCreator::createVoiceFile()
 {
     m_talkList.clear();
-    m_abort = false;
+    delete corrFile;
+    corrFile = new QFile(":/builtin/voice-corrections.txt", this);
+    corrFile->open(QIODevice::ReadOnly);
+
     emit logItem(tr("Starting Voicefile generation"),LOGINFO);
 
     // test if tempdir exists
@@ -88,19 +91,17 @@ bool VoiceFileCreator::createVoiceFile()
             }
             if(cindex != -1) {
                 LOG_INFO() << "extracting voice corrections file";
-                QTemporaryFile corrfileT;
-                corrfileT.open();
-                QString cfn = corrfileT.fileName();
+                QTemporaryFile *corrfileT = new QTemporaryFile(this);
+                corrfileT->open();
+                QString cfn = corrfileT->fileName();
                 if(z.extractArchive(cfn, QFileInfo(contents.at(cindex)).fileName())) {
                     emit logItem(tr("Extracted voice corrections file from installation"), LOGINFO);
-                    corrFile = &corrfileT;
+                    delete corrFile;
+                    corrFile = corrfileT;
                 } else {
                     // XXX try to fetch an updated file via voicecorrections_url ?
-                    corrfileT.close();
+                    delete corrfileT;
                     emit logItem(tr("Using internal voice corrections file"), LOGINFO);
-                    QFile corrfile(":/builtin/voice-corrections.txt");
-                    corrfile.open(QIODevice::ReadOnly);
-                    corrFile = &corrfile;
                 }
             }
             if(eindex != -1) {
@@ -182,7 +183,7 @@ bool VoiceFileCreator::createVoiceFile()
 
                         // everything successful, now create the actual voice file.
                         create();
-                        if (corrFile->isOpen())
+                        if (corrFile && corrFile->isOpen())
                             corrFile->close();
                         return true;
                     }
@@ -326,12 +327,13 @@ void VoiceFileCreator::create(void)
     {
         TalkGenerator generator(this);
         // set language for string correction. If not set no correction will be made.
-        if(useCorrection)
+        if(useCorrection && corrFile)
             generator.setLang(m_lang, corrFile);
         connect(&generator, &TalkGenerator::done, this, &VoiceFileCreator::done);
         connect(&generator, &TalkGenerator::logItem, this, &VoiceFileCreator::logItem);
         connect(&generator, &TalkGenerator::logProgress, this, &VoiceFileCreator::logProgress);
-        connect(this, &VoiceFileCreator::aborted, &generator, &TalkGenerator::abort);
+        connect(this, &VoiceFileCreator::aborted,
+                &generator, &TalkGenerator::abort, Qt::DirectConnection);
 
         if(generator.process(&m_talkList, m_wavtrimThreshold) == TalkGenerator::eERROR)
         {

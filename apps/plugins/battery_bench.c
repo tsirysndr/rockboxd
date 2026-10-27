@@ -99,7 +99,7 @@ struct battery_tables_t {
        CONFIG_KEYPAD == IHIFI_800_PAD || \
        CONFIG_KEYPAD == XDUOO_X3II_PAD || \
        CONFIG_KEYPAD == XDUOO_X20_PAD || \
-       CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD || \
+       CONFIG_KEYPAD == FIIO_M3K_PAD || \
        CONFIG_KEYPAD == EROSQ_PAD)
 
 #define BATTERY_ON  BUTTON_PLAY
@@ -237,13 +237,7 @@ struct battery_tables_t {
 #define BATTERY_OFF_TXT "Power"
 #define BATTERY_ON_TXT  "Menu - start"
 
-#elif CONFIG_KEYPAD == FIIO_M3K_PAD
-#define BATTERY_ON      BUTTON_PLAY
-#define BATTERY_OFF     BUTTON_POWER
-#define BATTERY_ON_TXT  "Play"
-#define BATTERY_OFF_TXT "Power"
-
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == MA_PAD
@@ -258,7 +252,7 @@ struct battery_tables_t {
 #define BATTERY_ON_TXT  "A"
 #define BATTERY_OFF_TXT "X"
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define BATTERY_ON      BUTTON_SELECT
 #define BATTERY_OFF     BUTTON_BACK
 #define BATTERY_ON_TXT  "A - start"
@@ -269,6 +263,12 @@ struct battery_tables_t {
 #define BATTERY_OFF     BUTTON_SELECT
 #define BATTERY_ON_TXT  "Start"
 #define BATTERY_OFF_TXT "Select"
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define BATTERY_ON      BUTTON_SELECT
+#define BATTERY_OFF     BUTTON_BACK
+#define BATTERY_ON_TXT  "Cross - start"
+#define BATTERY_OFF_TXT "Circle"
 
 #else
 #error "No keymap defined!"

@@ -1467,9 +1467,16 @@ static bool initialize_tagtree(void) /* also used when user selects 'Reload' in 
     return true;
 }
 
+static bool tagnavi_loaded;
+
 void tagtree_init(void)
 {
-    initialize_tagtree();
+    tagnavi_loaded = initialize_tagtree();
+}
+
+bool tagtree_ready(void)
+{
+    return tagnavi_loaded;
 }
 
 static int format_str(struct tagcache_search *tcs, struct display_format *fmt,
@@ -2097,7 +2104,8 @@ int tagtree_load(struct tree_context* c)
         {
             splash(HZ, ID2P(LANG_WAIT));
             tagtree_unload(c);
-            if (!initialize_tagtree())
+            tagnavi_loaded = initialize_tagtree();
+            if (!tagnavi_loaded)
                 return 0;
         }
         c->dirlevel = 0;
@@ -2141,7 +2149,7 @@ int tagtree_enter(struct tree_context* c, bool is_visible)
         is_random_item = true;
         if(c->filesindir<=c->special_entry_count) /* Menu contains only special entries */
             return 0;
-        srand(current_tick);
+
         dptr = (tagtree_get_entry(c, c->special_entry_count+(rand() % (c->filesindir-c->special_entry_count))));
         seek = dptr->extraseek;
     }
@@ -2478,7 +2486,6 @@ static bool insert_all_playlist(struct tree_context *c,
 
         if (fill_randomly)
         {
-            srand(current_tick);
             size_t bufsize = 0;
             bool *buffer = (bool *) plugin_get_buffer(&bufsize);
             rand_bool_array = fill_random_playlist_indexes(buffer, bufsize,
@@ -2760,7 +2767,7 @@ static int tagtree_play_folder(struct tree_context* c)
 
     if (global_settings.playlist_shuffle)
     {
-        start_index = playlist_shuffle(current_tick, start_index);
+        start_index = playlist_shuffle(0, start_index);
         if (!global_settings.play_selected)
             start_index = 0;
     }

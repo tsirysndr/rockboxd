@@ -57,17 +57,6 @@
 #define BUSY_END_BITS \
     (BUSY_SUCCESS_BITS | DATA_ERROR_BITS)
 
-static size_t get_sdmmc_bus_freq(uint32_t clock)
-{
-    switch (clock)
-    {
-    case SDMMC_BUS_CLOCK_400KHZ: return 400000;
-    case SDMMC_BUS_CLOCK_25MHZ:  return 25000000;
-    case SDMMC_BUS_CLOCK_50MHZ:  return 50000000;
-    default:                     return 0;
-    }
-}
-
 static size_t abs_diff(size_t a, size_t b)
 {
     return a > b ? a - b : b - a;
@@ -208,7 +197,7 @@ void stm32h7_sdmmc_set_bus_clock(void *controller, uint32_t clock)
         return;
 
     size_t ker_freq = stm32_clock_get_frequency(ctl->clock);
-    size_t bus_freq = get_sdmmc_bus_freq(clock);
+    size_t bus_freq = sdmmc_host_get_bus_freq(clock);
     if (!bus_freq)
         panicf("%s", __func__);
 
@@ -389,16 +378,8 @@ int stm32h7_sdmmc_submit_command(void *controller,
     /* Wait for command completion */
     semaphore_wait(&ctl->sem, TIMEOUT_BLOCK);
 
-    /*
-     * Discard data from speculative reads that may have
-     * accessed the buffer during the DMA transfer.
-     */
+    /* Save original command status code */
     int cmd_error = ctl->cmd_error;
-    if (cmd_error == SDMMC_STATUS_OK)
-    {
-        if (SDMMC_DATA_DIR(cmd->flags) == SDMMC_DATA_READ)
-            discard_dcache_range(buff_addr, buff_size);
-    }
 
     /*
      * If a data transfer command fails we need to issue CMD12
@@ -419,6 +400,15 @@ int stm32h7_sdmmc_submit_command(void *controller,
          */
         stm32h7_sdmmc_submit_command(ctl, &cmd12, NULL);
     }
+
+    /*
+     * Discard data from speculative reads that may have
+     * accessed the buffer during the DMA transfer. Must
+     * be done after the CMD12 above otherwise the cache
+     * may end up out of sync with main memory.
+     */
+    if (SDMMC_DATA_DIR(cmd->flags) == SDMMC_DATA_READ)
+        discard_dcache_range(buff_addr, buff_size);
 
     /* Return error from original command */
     return cmd_error;

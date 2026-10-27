@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2005 Dave Chapman
  * Copyright (C) 2010 Yoshihisa Uchida
@@ -135,15 +134,16 @@ struct wave_fmt {
     uint64_t numbytes;
 };
 
+/* Decode size bytes from src, writing at most dstsize bytes to dst */
 static unsigned char *convert_utf8(const unsigned char *src, unsigned char *dst,
-                                   int size, bool is_64)
+                                   int size, int dstsize, bool is_64)
 {
     if (is_64)
     {
         /* Note: wave64: metadata codepage is UTF-16 only */
-        return utf16LEdecode(src, dst, size);
+        return utf16decode(src, dst, size / 2, dstsize, true);
     }
-    return iso_decode(src, dst, -1, size);
+    return iso_decode_ex(src, dst, -1, size, dstsize);
 }
 
 static void set_totalsamples(struct wave_fmt *fmt, struct mp3entry* id3)
@@ -258,16 +258,21 @@ static void parse_list_chunk(int fd, struct mp3entry* id3, int chunksize, bool i
 
     /* decrease skip bytes */
     chunksize -= 4;
+    if (chunksize <= 0)
+        return;
 
     infosize = read(fd, bp, (ID3V2_BUF_SIZE > chunksize)? chunksize : ID3V2_BUF_SIZE);
     if (infosize <= 8)
         return;
 
     endp = bp + infosize;
-    while (bp < endp)
+    while (endp - bp >= 8)
     {
         datasize = get_long_le(bp + 4);
         data_pos = bp + 8;
+        /* an item may not reach past what was read */
+        if (datasize < 0 || datasize > endp - data_pos)
+            datasize = endp - data_pos;
         remain = ID3V2_BUF_SIZE - (tag_pos - (unsigned char*)id3->id3v2buf);
         if (remain < 1)
             break;
@@ -277,9 +282,8 @@ static void parse_list_chunk(int fd, struct mp3entry* id3, int chunksize, bool i
             if (memcmp(bp, info_chunks[i].tag, 4) == 0)
             {
                 *((char **)(((char*)id3) + info_chunks[i].offset)) = tag_pos;
-                tag_pos = convert_utf8(data_pos, tag_pos,
-                                       (datasize + 1 >= remain )? remain - 1 : datasize,
-                                       is_64);
+                tag_pos = convert_utf8(data_pos, tag_pos, datasize,
+                                       remain - 1, is_64);
                 *tag_pos++ = 0;
                 break;
             }
@@ -306,7 +310,7 @@ static bool read_header(int fd, struct mp3entry* id3, const unsigned char *chunk
     memset(&fmt, 0, sizeof(struct wave_fmt));
  
     id3->vbr = false;   /* All Wave/Wave64 files are CBR */
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
 
     /* get RIFF chunk header */
     lseek(fd, 0, SEEK_SET);
@@ -380,7 +384,7 @@ static bool read_header(int fd, struct mp3entry* id3, const unsigned char *chunk
         chunksize += ((is_64)? ((1 + ~chunksize) & 0x07) : (chunksize & 1));
 
         offset += chunksize;
-        if (offset >= id3->FS_PREFIX(filesize))
+        if (offset >= id3->filesize)
             break;
 
         lseek(fd, chunksize - read_data, SEEK_CUR);
@@ -404,7 +408,7 @@ static bool read_header(int fd, struct mp3entry* id3, const unsigned char *chunk
     /* Calculate track length (in ms) and estimate the bitrate (in kbit/s) */
     id3->length = (fmt.formattag != WAVE_FORMAT_ATRAC3)?
                       (uint64_t)fmt.totalsamples * 1000 / id3->frequency :
-                      ((id3->FS_PREFIX(filesize) - id3->first_frame_offset) * 8) / id3->bitrate;
+                      ((id3->filesize - id3->first_frame_offset) * 8) / id3->bitrate;
 
     /* output header/id3 info (for debug) */
     DEBUGF("%s header info ----\n", (is_64)? "wave64" : "wave");

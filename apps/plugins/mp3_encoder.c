@@ -906,7 +906,7 @@ static int wave_open(void)
      (cfg.samplerate != 44100) && (cfg.samplerate != 48000))    return -9;
 
   header_size = 0x28;
-  wav_size = rb->filesize(wavfile);
+  wav_size = rb->ffilesize(wavfile);
   rb->lseek(wavfile, header_size, SEEK_SET);
 
   return 0;
@@ -2554,12 +2554,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define MP3ENC_DONE    BUTTON_POWER
 #define MP3ENC_SELECT  BUTTON_PLAY
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define MP3ENC_PREV    BUTTON_HOME
-#define MP3ENC_NEXT    BUTTON_OPTION
-#define MP3ENC_DONE    BUTTON_POWER
-#define MP3ENC_SELECT  BUTTON_PLAY
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #define MP3ENC_PREV    BUTTON_PREV
 #define MP3ENC_NEXT    BUTTON_NEXT
@@ -2578,7 +2572,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define MP3ENC_DONE     BUTTON_POWER
 #define MP3ENC_SELECT   BUTTON_SELECT
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -2598,7 +2592,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define MP3ENC_DONE     BUTTON_START
 #define MP3ENC_SELECT   BUTTON_A
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define MP3ENC_PREV     BUTTON_UP
 #define MP3ENC_NEXT     BUTTON_DOWN
 #define MP3ENC_DONE     BUTTON_POWER
@@ -2609,6 +2603,12 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define MP3ENC_NEXT     BUTTON_DOWN
 #define MP3ENC_DONE     BUTTON_POWER
 #define MP3ENC_SELECT   BUTTON_RIGHT
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define MP3ENC_PREV     BUTTON_UP
+#define MP3ENC_NEXT     BUTTON_DOWN
+#define MP3ENC_DONE     BUTTON_POWER
+#define MP3ENC_SELECT   BUTTON_SELECT
 
 #else
 #error No keymap defined!

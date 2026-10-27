@@ -25,6 +25,7 @@
 #define _WPS_ENGINE_INTERNALS_
 
 #include "tag_table.h"
+#include "skin_engine.h"
 #include "skin_parser.h"
 #include "gesture.h"
 #ifndef __PCTOOL__
@@ -44,12 +45,11 @@ struct skin_stats *skin_get_stats(int number, int screen);
 #define skin_clear_stats(stats) memset(stats, 0, sizeof(struct skin_stats))
 bool skin_backdrop_get_debug(int index, char **path, int *ref_count, size_t *size);
 
-/*
- * setup up the skin-data from a format-buffer (isfile = false)
- * or from a skinfile (isfile = true)
- */
-bool skin_data_load(enum screen_type screen, struct wps_data *wps_data,
-                    const char *buf, bool isfile, struct skin_stats *stats);
+/* Set up skin data from a format buffer (isfile = false)
+                       or from skin file (isfile = true) */
+bool skin_data_load(enum skinnable_screens skin, enum screen_type screen,
+                    struct wps_data *wps_data, const char *buf, bool isfile,
+                    struct skin_stats *stats);
 
 /* Timeout unit expressed in HZ. In WPS, all timeouts are given in seconds
    (possibly with a decimal fraction) but stored as integer values.
@@ -136,6 +136,12 @@ struct progressbar {
     bool nofill;
     bool noborder;
     bool nobar;
+    /* peak meter bars: fall back at the peak release rate and mark the
+     * held peak, as the recording screen's peak meter does */
+    bool hold;
+    int hold_size;          /* thickness of the held peak, in pixels */
+    int level, hold_pos;    /* in units of MAX_PEAK */
+    long last_tick, hold_tick;
     OFFSETTYPE(struct gui_img *) slider;
 
     OFFSETTYPE(struct gui_img *) backdrop;

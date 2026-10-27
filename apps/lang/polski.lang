@@ -1014,13 +1014,13 @@
   desc: in the equalizer settings menu
   user: core
   <source>
-    *: "Peak Filter %d"
+    *: "Peak Filter"
   </source>
   <dest>
-    *: "Filtr pasmowy %d"
+    *: "Filtr szczytowy"
   </dest>
   <voice>
-    *: "Filtr pasmowy"
+    *: "Filtr szczytowy"
   </voice>
 </phrase>
 <phrase>
@@ -9095,15 +9095,15 @@
   user: core
   <source>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Bass Cutoff"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Bass Cutoff"
   </source>
   <dest>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Ścięcie basów"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Granica basu"
   </dest>
   <voice>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Ścięcie basów"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Granica basu"
   </voice>
 </phrase>
 <phrase>
@@ -9112,15 +9112,15 @@
   user: core
   <source>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Treble Cutoff"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Treble Cutoff"
   </source>
   <dest>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Ścięcie tonów niskich"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Granica tonów wysokich"
   </dest>
   <voice>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Ścięcie tonów niskich"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Granica tonów wysokich"
   </voice>
 </phrase>
 <phrase>
@@ -17104,5 +17104,135 @@
   </dest>
   <voice>
     *: "Ustaw element kontekstowy"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_EQUALIZER_BAND
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "Filter %d"
+  </source>
+  <dest>
+    *: "Filtr %d"
+  </dest>
+  <voice>
+    *: "Filtr"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_EQUALIZER_FILTER_TYPE
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "Filter Type"
+  </source>
+  <dest>
+    *: "Typ filtra"
+  </dest>
+  <voice>
+    *: "Typ filtra"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_COMPOSITE_VIDEO_OUTPUT
+  desc: Enables composite video framebuffer mirroring on supported targets
+  user: core
+  <source>
+    *: none
+    videoout: "Composite Video Output"
+  </source>
+  <dest>
+    *: none
+    videoout: "Wyjście wideo kompozytowe"
+  </dest>
+  <voice>
+    *: none
+    videoout: "Wyjście wideo kompozytowe"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TOUCHSCREEN_FLICK_SHORTCUTS
+  desc: in settings menu
+  user: core
+  <source>
+    *: none
+    touchscreen: "Touchscreen Flick Shortcuts"
+  </source>
+  <dest>
+    *: none
+    touchscreen: "Skróty ekranu dotykowego"
+  </dest>
+  <voice>
+    *: none
+    touchscreen: "Skróty ekranu dotykowego"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_RECORDING_SCREEN
+  desc: in the theme menu: browse recording screen skins
+  user: core
+  <source>
+    *: none
+    recording: "Recording Screen"
+  </source>
+  <dest>
+    *: none
+    recording: "Ekran nagrywania"
+  </dest>
+  <voice>
+    *: none
+    recording: "Ekran nagrywania"
+  </voice>
+</phrase>
+<phrase>
+  id: VOICE_EXT_WRS
+  desc: spoken only, for file extension
+  user: core
+  <source>
+    *: none
+    recording: ""
+  </source>
+  <dest>
+    *: none
+    recording: ""
+  </dest>
+  <voice>
+    *: none
+    recording: "styl ekranu nagrywania"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_REMOTE_RECORDING_SCREEN
+  desc: in the theme menu: browse remote recording screen skins
+  user: core
+  <source>
+    *: none
+    recording_remote: "Remote Recording Screen"
+  </source>
+  <dest>
+    *: none
+    recording_remote: "Ekran zdalnego nagrywania"
+  </dest>
+  <voice>
+    *: none
+    recording_remote: "Ekran zdalnego nagrywania"
+  </voice>
+</phrase>
+<phrase>
+  id: VOICE_EXT_RWRS
+  desc: spoken only, for file extension
+  user: core
+  <source>
+    *: none
+    recording_remote: ""
+  </source>
+  <dest>
+    *: none
+    recording_remote: ""
+  </dest>
+  <voice>
+    *: none
+    recording_remote: "styl ekranu zdalnego nagrywania"
   </voice>
 </phrase>

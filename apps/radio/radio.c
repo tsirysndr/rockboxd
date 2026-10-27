@@ -97,6 +97,12 @@
 #define FM_PLAY
 #define FM_MODE
 
+#elif (CONFIG_KEYPAD == RK27XX_GENERIC_PAD)
+#define FM_MENU
+#define FM_PLAY
+#define FM_STOP
+#define FM_EXIT
+
 #elif (CONFIG_KEYPAD == SAMSUNG_YPR0_PAD)
 #define FM_MENU
 #define FM_PRESET
@@ -106,6 +112,7 @@
 #define FM_PLAY
 #define FM_PREV_PRESET
 #define FM_NEXT_PRESET
+#define FM_RECORD
 
 #elif (CONFIG_KEYPAD == SANSA_FUZEPLUS_PAD)
 #define FM_PRESET_ADD
@@ -395,8 +402,16 @@ void radio_screen(void)
                            (radio_status == FMRADIO_PAUSED) ?
                                SRCF_FMRADIO_PAUSED : SRCF_FMRADIO_PLAYING);
 
-    if(radio_preset_count() < 1 && yesno_pop(ID2P(LANG_FM_FIRST_AUTOSCAN)))
-        presets_scan(NULL);
+    /* The question and the scan clear the screen: set it up again after,
+     * as for the other screens shown from here - the skin redraws only
+     * its viewports, and its backdrop would stay missing elsewhere. */
+    if(radio_preset_count() < 1)
+    {
+        fms_fix_displays(FMS_EXIT);
+        if(yesno_pop(ID2P(LANG_FM_FIRST_AUTOSCAN)))
+            presets_scan(NULL);
+        fms_fix_displays(FMS_ENTER);
+    }
 
     preset_set_current(preset_find(curr_freq));
     if(radio_current_preset() != -1)

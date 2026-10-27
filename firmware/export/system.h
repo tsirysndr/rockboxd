@@ -40,16 +40,6 @@ extern void system_init(void);
 
 extern long cpu_frequency;
 
-struct flash_header {
-    uint32_t magic;
-    uint32_t length;
-    char version[32];
-};
-
-bool detect_flashed_romimage(void);
-bool detect_flashed_ramimage(void);
-bool detect_original_firmware(void);
-
 #if defined(HAVE_ADJUSTABLE_CPU_FREQ) \
         && defined(ROCKBOX_HAS_LOGF) && (NUM_CORES == 1)
 #define CPU_BOOST_LOGGING
@@ -352,7 +342,7 @@ static inline void cpu_boost_unlock(void)
 #ifndef SIMULATOR
 bool dbg_ports(void);
 #endif
-#if (CONFIG_PLATFORM & PLATFORM_NATIVE) || defined(SONY_NWZ_LINUX) || defined(HIBY_LINUX) || defined(FIIO_M3K_LINUX)
+#if (CONFIG_PLATFORM & PLATFORM_NATIVE) || defined(SONY_NWZ_LINUX) || defined(HIBY_LINUX)
 bool dbg_hw_info(void);
 #endif
 

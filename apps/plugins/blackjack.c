@@ -510,22 +510,6 @@ enum {
 #define BJACK_RIGHT         BUTTON_NEXT
 #define BJACK_LEFT          BUTTON_PREV
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define BJACK_SELECT_NAME   "PLAY"
-#define BJACK_STAY_NAME     "NEXT"
-#define BJACK_QUIT_NAME     "POWER"
-#define BJACK_DOUBLE_NAME   "PREV"
-#define BJACK_SELECT        BUTTON_PLAY
-#define BJACK_QUIT          BUTTON_POWER
-#define BJACK_MAX           BUTTON_VOL_UP
-#define BJACK_MIN           BUTTON_VOL_DOWN
-#define BJACK_STAY          BUTTON_NEXT
-#define BJACK_DOUBLEDOWN    BUTTON_PREV
-#define BJACK_UP            BUTTON_HOME
-#define BJACK_DOWN          BUTTON_OPTION
-#define BJACK_RIGHT         BUTTON_NEXT
-#define BJACK_LEFT          BUTTON_PREV
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #define BJACK_SELECT_NAME   "PLAY"
 #define BJACK_STAY_NAME     "NEXT"
@@ -591,7 +575,7 @@ enum {
 #define BJACK_LEFT          BUTTON_LEFT
 
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 #define BJACK_QUIT          BUTTON_POWER
 #define BJACK_QUIT_NAME     "QUIT"
 
@@ -611,7 +595,7 @@ enum {
 #define BJACK_RIGHT         BUTTON_RIGHT
 #define BJACK_LEFT          BUTTON_LEFT
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define BJACK_SELECT_NAME   "A"
 #define BJACK_STAY_NAME     "X"
 #define BJACK_QUIT_NAME     "B"
@@ -638,6 +622,22 @@ enum {
 #define BJACK_MIN           BUTTON_Y
 #define BJACK_STAY          BUTTON_X
 #define BJACK_DOUBLEDOWN    BUTTON_START
+#define BJACK_UP            BUTTON_UP
+#define BJACK_DOWN          BUTTON_DOWN
+#define BJACK_RIGHT         BUTTON_RIGHT
+#define BJACK_LEFT          BUTTON_LEFT
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define BJACK_SELECT_NAME   "Cross"
+#define BJACK_STAY_NAME     "Triangle"
+#define BJACK_QUIT_NAME     "Circle"
+#define BJACK_DOUBLE_NAME   "Square"
+#define BJACK_SELECT        BUTTON_SELECT
+#define BJACK_QUIT          BUTTON_BACK
+#define BJACK_MAX           (BUTTON_LEFT|BUTTON_UP)
+#define BJACK_MIN           (BUTTON_RIGHT|BUTTON_DOWN)
+#define BJACK_STAY          BUTTON_MENU
+#define BJACK_DOUBLEDOWN    BUTTON_USER
 #define BJACK_UP            BUTTON_UP
 #define BJACK_DOWN          BUTTON_DOWN
 #define BJACK_RIGHT         BUTTON_RIGHT
@@ -737,7 +737,7 @@ static struct highscore highscores[NUM_SCORES];
 ******************************************************************************/
 static void blackjack_init(struct game_context* bj) {
     /* seed the rand generator */
-    rb->srand(*rb->current_tick);
+
 
     /* reset card positions */
     dealer_x = 4;

@@ -48,8 +48,12 @@
 /* define this if you have a flash memory storage */
 #define HAVE_FLASH_STORAGE
 
-#define CONFIG_STORAGE (STORAGE_SD | STORAGE_NAND)
-#define NUM_DRIVES 1  /* NAND doesn't work yet */
+/* The NAND's FTL scheme is not known yet, so the NAND is not storage here:
+ * only the FTL scheme finder is built (Debug > View FTL scheme). Once a
+ * report confirms the scheme, define CONFIG_RK27XX_FTL and add STORAGE_NAND,
+ * as config/hifimanhm60x.h does. */
+#define CONFIG_STORAGE STORAGE_SD
+#define NUM_DRIVES 1
 
 #define CONFIG_NAND NAND_RK27XX
 #define HAVE_SW_TONE_CONTROLS
@@ -117,7 +121,7 @@
 #define HAVE_SW_POWEROFF
 
 /* The number of bytes reserved for loadable codecs */
-#define CODEC_SIZE 0x100000
+#define CODEC_SIZE 0x80000
 
 /* The number of bytes reserved for loadable plugins */
 #define PLUGIN_BUFFER_SIZE 0x80000

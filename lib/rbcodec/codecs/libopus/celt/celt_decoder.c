@@ -227,6 +227,7 @@ void opus_custom_decoder_destroy(CELTDecoder *st)
 /* Special case for stereo with no downsampling and no accumulation. This is
    quite common and we can make it faster by processing both channels in the
    same loop, reducing overhead due to the dependency loop in the IIR filter. */
+#ifndef OVERRIDE_DEEMPH_STEREO
 static void deemphasis_stereo_simple(celt_sig *in[], opus_val16 *pcm, int N, const opus_val16 coef0,
       celt_sig *mem)
 {
@@ -252,6 +253,7 @@ static void deemphasis_stereo_simple(celt_sig *in[], opus_val16 *pcm, int N, con
    mem[0] = m0;
    mem[1] = m1;
 }
+#endif
 #endif
 
 #ifndef RESYNTH
@@ -357,10 +359,20 @@ void deemphasis(celt_sig *in[], opus_val16 *pcm, int N, int C, int downsample, c
    RESTORE_STACK;
 }
 
+#ifndef OVERRIDE_CELT_SAT
+/* Clamp n samples to +/-SIG_SAT in place. */
+static OPUS_INLINE void celt_sat(celt_sig *x, int n)
+{
+   int i;
+   for (i=0;i<n;i++)
+      x[i] = SATURATE(x[i], SIG_SAT);
+}
+#endif
+
 #ifndef RESYNTH
 static
 #endif
-void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
+ICODE_ATTR_OPUS void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
                     opus_val16 *oldBandE, int start, int effEnd, int C, int CC,
                     int isTransient, int LM, int downsample,
                     int silence, int arch)
@@ -432,8 +444,7 @@ void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
    /* Saturate IMDCT output so that we can't overflow in the pitch postfilter
       or in the */
    c=0; do {
-      for (i=0;i<N;i++)
-         out_syn[c][i] = SATURATE(out_syn[c][i], SIG_SAT);
+      celt_sat(out_syn[c], N);
    } while (++c<CC);
    RESTORE_STACK;
 }
@@ -491,6 +502,19 @@ static int celt_plc_pitch_search(celt_sig *decode_mem[2], int C, int arch)
    pitch_index = PLC_PITCH_LAG_MAX-pitch_index;
    RESTORE_STACK;
    return pitch_index;
+}
+
+/* Same output as celt_fir(), but running in place reduces stack use. */
+static void celt_fir_inplace(opus_val16 *x, const opus_val16 *num, int N, int ord)
+{
+   int i, j;
+   for (i=N-1;i>=0;i--)
+   {
+      opus_val32 sum = SHL32(EXTEND32(x[i]), SIG_SHIFT);
+      for (j=0;j<ord;j++)
+         sum = MAC16_16(sum, num[ord-j-1], x[i+j-ord]);
+      x[i] = ROUND16(sum, SIG_SHIFT);
+   }
 }
 
 static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
@@ -594,7 +618,6 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
       int pitch_index;
       VARDECL(opus_val32, etmp);
       VARDECL(opus_val16, _exc);
-      VARDECL(opus_val16, fir_tmp);
 
       if (loss_count == 0)
       {
@@ -610,7 +633,6 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
 
       ALLOC(etmp, overlap, opus_val32);
       ALLOC(_exc, MAX_PERIOD+LPC_ORDER, opus_val16);
-      ALLOC(fir_tmp, exc_length, opus_val16);
       exc = _exc+LPC_ORDER;
       window = mode->window;
       c=0; do {
@@ -671,11 +693,9 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
          /* Initialize the LPC history with the samples just before the start
             of the region for which we're computing the excitation. */
          {
-            /* Compute the excitation for exc_length samples before the loss. We need the copy
-               because celt_fir() cannot filter in-place. */
-            celt_fir(exc+MAX_PERIOD-exc_length, lpc+c*LPC_ORDER,
-                  fir_tmp, exc_length, LPC_ORDER, st->arch);
-            OPUS_COPY(exc+MAX_PERIOD-exc_length, fir_tmp, exc_length);
+            /* Compute the excitation for exc_length samples before the loss. */
+            celt_fir_inplace(exc+MAX_PERIOD-exc_length, lpc+c*LPC_ORDER,
+                  exc_length, LPC_ORDER);
          }
 
          /* Check if the waveform is decaying, and if so how fast.
@@ -811,7 +831,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM)
    RESTORE_STACK;
 }
 
-int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *data,
+ICODE_ATTR_OPUS int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *data,
       int len, opus_val16 * OPUS_RESTRICT pcm, int frame_size, ec_dec *dec, int accum)
 {
    int c, i, N;

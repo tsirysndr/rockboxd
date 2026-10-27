@@ -35,12 +35,18 @@ int filesize(FILE* fd)
 
 unsigned int le2int(unsigned char* buf)
 {
-   return ((buf[3] << 24) | (buf[2] << 16) | (buf[1] << 8) | buf[0]);
+    return (((unsigned int)buf[3] << 24)
+        | ((unsigned int)buf[2] << 16)
+        | ((unsigned int)buf[1] << 8)
+        | buf[0]);
 }
 
 unsigned int be2int(unsigned char* buf)
 {
-   return ((buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3]);
+    return (((unsigned int)buf[0] << 24)
+        | ((unsigned int)buf[1] << 16)
+        | ((unsigned int)buf[2] << 8)
+        | buf[3]);
 }
 
 void int2le(unsigned int val, unsigned char* addr)
@@ -53,22 +59,24 @@ void int2le(unsigned int val, unsigned char* addr)
 
 const char* find_firmware_key(const unsigned char* buffer, size_t len)
 {
-    char szkey1[] = "34d1";
-    size_t cchkey1 = strlen(szkey1);
-    char szkey2[] = "TbnCboEbn";
-    size_t cchkey2 = strlen(szkey2);
-    uint32_t i;
-    for (i = 0; i < (uint32_t)len; i++)
+    /* These identify prefixes; the full key may be longer. */
+    static const char prefix1[] = "34d1";
+    static const char prefix2[] = "TbnCboEbn";
+
+    for (size_t i = 0; i < len; i++)
     {
-        if (len >= cchkey1)
+        const unsigned char* candidate = buffer + i;
+        size_t remaining = len - i;
+
+        /* Require room for a terminator, but compare only the prefix. */
+        if ((remaining >= sizeof(prefix1) &&
+             memcmp(candidate, prefix1, sizeof(prefix1) - 1) == 0) ||
+            (remaining >= sizeof(prefix2) &&
+             memcmp(candidate, prefix2, sizeof(prefix2) - 1) == 0))
         {
-            if (!strncmp((char*)&buffer[i], szkey1, cchkey1))
-                return (const char*)&buffer[i];
-        }
-        if (len >= cchkey2)
-        {
-            if (!strncmp((char*)&buffer[i], szkey2, cchkey2))
-                return (const char*)&buffer[i];
+            /* No NUL here means no later candidate can be terminated. */
+            return memchr(candidate, '\0', remaining)
+                ? (const char*)candidate : NULL;
         }
     }
     return NULL;
@@ -77,7 +85,12 @@ const char* find_firmware_key(const unsigned char* buffer, size_t len)
 uint32_t find_firmware_offset(unsigned char* buffer, size_t len)
 {
     uint32_t i;
-    for (i = 0; i < (uint32_t)len; i += 0x10)
+
+    /* Each candidate needs a size word and four payload bytes to inspect. */
+    if (len < 2 * sizeof(uint32_t))
+        return 0;
+
+    for (i = 0; i <= len - 2 * sizeof(uint32_t); i += 0x10)
     {
         if (buffer[i + sizeof(uint32_t)] != 0
             && buffer[i + sizeof(uint32_t) + 1] != 0
@@ -97,7 +110,10 @@ bool crypt_firmware(const char* key, unsigned char* buffer, size_t len)
     char key_cpy[255];
     unsigned int i;
     unsigned int tmp = 0;
-    int key_length = strlen(key);
+    size_t key_length = strlen(key);
+
+    if (key_length == 0 || key_length >= sizeof(key_cpy))
+        return false;
 
     strcpy(key_cpy, key);
     for(i=0; i < strlen(key); i++)
@@ -848,24 +864,28 @@ enum zen_error_t find_pe_data(void *fw, size_t fw_size, uint32_t *data_ptr, uint
 {
     uint8_t *buffer = fw;
     /* Rudimentary Win32 PE reading to find .data section */
-    if(memcmp(&buffer[0], "MZ", 2) != 0 && memcmp(&buffer[0x118], "PE", 2) != 0)
+    if(fw_size < 0x11a || memcmp(&buffer[0], "MZ", 2) != 0 ||
+       memcmp(&buffer[0x118], "PE", 2) != 0)
     {
         printf("[ERR]  Input file isn't an executable\n");
         return ZEN_FW_INVALID;
     }
     *data_ptr = 0, *data_size = 0;
-    uint32_t start_sec_addr = /*sizeof NT headers */ 0xf8 +
-        /* address of opt header */*(uint32_t *)&buffer[0x3c];
-    for(uint32_t i = start_sec_addr; i < 0x1000; i += 0x28)
+    uint32_t pe_offset = le2int(&buffer[0x3c]);
+    if(pe_offset > 0x1000 - 0xf8)
+        return ZEN_FW_INVALID;
+    uint32_t start_sec_addr = /*sizeof NT headers */ 0xf8 + pe_offset;
+    for(uint32_t i = start_sec_addr; i < 0x1000 && i + 0x28 <= fw_size; i += 0x28)
     {
-        if(strcmp((char*)&buffer[i], ".data") == 0)
+        if(memcmp(&buffer[i], ".data", 6) == 0)
         {
             *data_ptr = le2int(&buffer[i + 0x14]);
             *data_size = le2int(&buffer[i + 0x10]);
             break;
         }
     }
-    if(*data_ptr == 0 || *data_size == 0)
+    if(*data_ptr == 0 || *data_size == 0 ||
+       *data_ptr > fw_size || *data_size > fw_size - *data_ptr)
     {
         printf("[ERR]  Couldn't find .data section\n");
         return ZEN_FW_INVALID;

@@ -440,18 +440,6 @@
 #define  GBN_BUTTON_CONTEXT            BUTTON_PLAY | BUTTON_REPEAT
 #define  GBN_BUTTON_NEXT_VAR           BUTTON_HOME | BUTTON_POWER
 
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-#define  GBN_BUTTON_UP                 BUTTON_HOME
-#define  GBN_BUTTON_DOWN               BUTTON_OPTION
-#define  GBN_BUTTON_LEFT               BUTTON_PREV
-#define  GBN_BUTTON_RIGHT              BUTTON_NEXT
-#define  GBN_BUTTON_RETREAT            BUTTON_VOL_DOWN
-#define  GBN_BUTTON_ADVANCE            BUTTON_VOL_UP
-#define  GBN_BUTTON_MENU               BUTTON_POWER
-#define  GBN_BUTTON_PLAY               BUTTON_PLAY | BUTTON_REL
-#define  GBN_BUTTON_CONTEXT            BUTTON_PLAY | BUTTON_REPEAT
-#define  GBN_BUTTON_NEXT_VAR           BUTTON_HOME | BUTTON_POWER
-
 #elif (CONFIG_KEYPAD == IHIFI_770_PAD) || (CONFIG_KEYPAD == IHIFI_800_PAD)
 
 #define  GBN_BUTTON_UP                 BUTTON_PREV
@@ -509,7 +497,7 @@
 #define GBN_BUTTON_CONTEXT          BUTTON_X
 #define GBN_BUTTON_NEXT_VAR         BUTTON_Y
 
-#elif (CONFIG_KEYPAD == CTRU_PAD)
+#elif (CONFIG_KEYPAD == N3DS_PAD)
 #define  GBN_BUTTON_UP              BUTTON_UP
 #define  GBN_BUTTON_DOWN            BUTTON_DOWN
 #define  GBN_BUTTON_LEFT            BUTTON_LEFT
@@ -528,6 +516,16 @@
 #define  GBN_BUTTON_ADVANCE         BUTTON_Y
 #define  GBN_BUTTON_PLAY            BUTTON_A
 #define  GBN_BUTTON_MENU            BUTTON_POWER
+
+#elif (CONFIG_KEYPAD == PSP_PAD)
+#define  GBN_BUTTON_UP              BUTTON_UP
+#define  GBN_BUTTON_DOWN            BUTTON_DOWN
+#define  GBN_BUTTON_LEFT            BUTTON_LEFT
+#define  GBN_BUTTON_RIGHT           BUTTON_RIGHT
+#define  GBN_BUTTON_RETREAT         BUTTON_BACK
+#define  GBN_BUTTON_ADVANCE         BUTTON_USER
+#define  GBN_BUTTON_PLAY            BUTTON_SELECT
+#define  GBN_BUTTON_MENU            BUTTON_MENU
 
 #else
 #error Unsupported keypad

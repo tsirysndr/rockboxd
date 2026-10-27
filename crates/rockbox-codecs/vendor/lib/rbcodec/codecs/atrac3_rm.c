@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2009 Mohamed Tarek
  *
@@ -93,7 +92,7 @@ enum codec_status codec_run(void)
     init_rm(&rmctx);
 
     ci->configure(DSP_SET_FREQUENCY, ci->id3->frequency);
-    ci->configure(DSP_SET_SAMPLE_DEPTH, 17); /* Remark: atrac3 uses s15.0 by default, s15.2 was hacked. */
+    ci->configure(DSP_SET_SAMPLE_DEPTH, ATRAC3_OUTPUT_DEPTH);
     ci->configure(DSP_SET_STEREO_MODE, rmctx.nb_channels == 1 ?
         STEREO_MONO : STEREO_NONINTERLEAVED);
 
@@ -107,6 +106,10 @@ enum codec_status codec_run(void)
     h = rmctx.sub_packet_h;
     scrambling_unit_size = h * (fs + packet_header_size);
     spn = h * fs / sps;
+
+    /* The decoder takes its frame size from the id3, which the RM
+     * metadata parser does not fill in. */
+    ci->id3->bytesperframe = sps;
 
     res = atrac3_decode_init(&q, ci->id3, rmctx.nb_channels, rmctx.extradata_size);
     if(res < 0) {

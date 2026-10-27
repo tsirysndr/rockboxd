@@ -35,15 +35,13 @@
  * file descriptors (encoded as integers <= STREAM_HTTP_FD_BASE = -1000) are
  * handled correctly by all metadata parsers.
  *
- * filesize() is intentionally NOT redefined here.  It is also a member name
- * of struct mp3entry (expanded via FS_PREFIX in firmware/include/file.h), so
- * redefining it as a function-like macro would break every `id3->filesize`
- * struct access with a "no member named 'filesize'" compiler error.
+ * ffilesize() is intentionally NOT redefined here, so that parsers which only
+ * want the on-disk size keep the platform implementation.
  *
- * Instead, metadata parsers that need a correct file size (e.g. for CBR
- * duration estimation) must call metadata_filesize(fd), defined below.
- * stream_filesize_fd() returns Content-Length for HTTP fds and delegates to
- * the platform filesize() for regular fds. */
+ * Metadata parsers that need a correct size for a possibly-remote stream
+ * (e.g. for CBR duration estimation) must call metadata_filesize(fd), defined
+ * below.  stream_filesize_fd() returns Content-Length for HTTP fds and
+ * delegates to the platform ffilesize() for regular fds. */
 #ifdef read
 #undef read
 #endif
@@ -54,7 +52,7 @@
 #define lseek(fd, off, whence) stream_lseek((fd), (off), (whence))
 #define metadata_filesize(fd)  stream_filesize_fd((fd))
 #else
-#define metadata_filesize(fd)  filesize(fd)
+#define metadata_filesize(fd)  ffilesize(fd)
 #endif /* SIMULATOR || APPLICATION */
 
 #ifdef ROCKBOX_BIG_ENDIAN

@@ -55,6 +55,9 @@ struct usb_class_driver;
 
 void usb_core_init(void);
 void usb_core_exit(void);
+/* IRQ context, after both EP0 directions and their stale completions have
+ * been cancelled. Does not release a request buffer still owned by a handler. */
+void usb_core_control_cancelled(void);
 void usb_core_setup_received(struct usb_ctrlrequest* req);
 void usb_core_control_response(enum usb_control_response response, const void* data, size_t size);
 void usb_core_transfer_complete(int endpoint,int dir,int status,int length);
@@ -67,7 +70,8 @@ void usb_core_handle_transfer_completion(
 #endif
 void usb_core_handle_notify(long id, intptr_t data);
 /* For controllers which handle SET ADDR and/or SET CONFIG in hardware */
-void usb_core_notify_set_address(uint8_t addr);
+/* Address state only; hardware programming and status timing belong to drivers. */
+void usb_core_notify_set_address(uint8_t addr); /* IRQ-safe notification */
 void usb_core_notify_set_config(uint8_t config);
 
 #ifdef HAVE_HOTSWAP

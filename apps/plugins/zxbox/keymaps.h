@@ -250,14 +250,6 @@
 #define ZX_UP           BUTTON_HOME
 #define ZX_DOWN         BUTTON_OPTION
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define ZX_SELECT       BUTTON_PLAY
-#define ZX_MENU         BUTTON_POWER
-#define ZX_LEFT         BUTTON_PREV
-#define ZX_RIGHT        BUTTON_NEXT
-#define ZX_UP           BUTTON_HOME
-#define ZX_DOWN         BUTTON_OPTION
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #define ZX_SELECT       BUTTON_PLAY
 #define ZX_MENU         BUTTON_POWER
@@ -282,7 +274,7 @@
 #define ZX_UP           BUTTON_UP
 #define ZX_DOWN         BUTTON_DOWN
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == MA_PAD
@@ -301,7 +293,7 @@
 #define ZX_SELECT       BUTTON_A
 #define ZX_MENU         BUTTON_START
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 
 #define ZX_UP           BUTTON_UP
 #define ZX_DOWN         BUTTON_DOWN
@@ -318,6 +310,15 @@
 #define ZX_RIGHT        BUTTON_RIGHT
 #define ZX_SELECT       BUTTON_A
 #define ZX_MENU         BUTTON_POWER
+
+#elif CONFIG_KEYPAD == PSP_PAD
+
+#define ZX_UP           BUTTON_UP
+#define ZX_DOWN         BUTTON_DOWN
+#define ZX_LEFT         BUTTON_LEFT
+#define ZX_RIGHT        BUTTON_RIGHT
+#define ZX_SELECT       BUTTON_SELECT
+#define ZX_MENU         BUTTON_MENU
 
 #else
 #error Keymap not defined!

@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2005 Dave Chapman
  *
@@ -58,3 +57,4 @@ bool get_sgc_metadata(int fd, struct mp3entry* id3);
 bool get_vgm_metadata(int fd, struct mp3entry* id3);
 bool get_kss_metadata(int fd, struct mp3entry* id3);
 bool get_aac_metadata(int fd, struct mp3entry* id3);
+bool get_dsd_metadata(int fd, struct mp3entry* id3);

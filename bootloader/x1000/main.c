@@ -19,6 +19,7 @@
  ****************************************************************************/
 
 #include "x1000bootloader.h"
+#include "ingenic/gui-ingenic.h"
 #include "system.h"
 #include "core_alloc.h"
 #include "kernel/kernel-internal.h"
@@ -28,19 +29,10 @@
 #include "disk.h"
 #include "file_internal.h"
 #include "usb.h"
-#include "i2c-x1000.h"
+#include "i2c-ingenic.h"
 #include "boot-x1000.h"
 #include <stdbool.h>
 
-static int read_btn(void)
-{
-#ifdef HAVE_BUTTON_DATA
-    int bdata;
-    return button_read_device(&bdata);
-#else
-    return button_read_device();
-#endif
-}
 
 void main(uint32_t saved_cpm_scratch)
 {
@@ -72,7 +64,7 @@ void main(uint32_t saved_cpm_scratch)
      * present, blocking with an "insert SD card" prompt if appropriate. */
     disk_mount_all();
 
-#ifdef SHANLING_Q1
+#if defined(SHANLING_Q1) || defined(AGPTEK_ROCKER_NATIVE)
     /* This is needed for OF updates. The OF extracts the update package
      * to the SD card and reboots to the recovery kernel to complete the
      * update. */

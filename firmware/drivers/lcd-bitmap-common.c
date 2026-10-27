@@ -911,6 +911,18 @@ void LCDFN(drawline)(int x1, int y1, int x2, int y2)
         dinc2 = (deltay - deltax) * 2;
         xinc1 = 1;
         yinc1 = 0;
+        if (x1 > x2)
+        {
+            xinc1 = -xinc1;
+            xinc2 = -xinc2;
+        }
+
+        if (y1 > y2)
+        {
+            d += dinc2;
+            yinc1 = -yinc1;
+            yinc2 = -yinc2;
+        }
     }
     else
     {
@@ -920,20 +932,20 @@ void LCDFN(drawline)(int x1, int y1, int x2, int y2)
         dinc2 = (deltax - deltay) * 2;
         xinc1 = 0;
         yinc1 = 1;
+        if (x1 > x2)
+        {
+            d += dinc2;
+            xinc1 = -xinc1;
+            xinc2 = -xinc2;
+        }
+
+        if (y1 > y2)
+        {
+            yinc1 = -yinc1;
+            yinc2 = -yinc2;
+        }
     }
     numpixels++; /* include endpoints */
-
-    if (x1 > x2)
-    {
-        xinc1 = -xinc1;
-        xinc2 = -xinc2;
-    }
-
-    if (y1 > y2)
-    {
-        yinc1 = -yinc1;
-        yinc2 = -yinc2;
-    }
 
     x = x1;
     y = y1;

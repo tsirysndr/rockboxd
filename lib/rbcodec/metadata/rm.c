@@ -504,6 +504,6 @@ bool get_rm_metadata(int fd, struct mp3entry* id3)
     id3->bitrate = (rmctx->bit_rate + 500) / 1000;
     id3->frequency = rmctx->sample_rate;
     id3->length = rmctx->duration;
-    id3->FS_PREFIX(filesize) = metadata_filesize(fd);
+    id3->filesize = metadata_filesize(fd);
     return true;
 }

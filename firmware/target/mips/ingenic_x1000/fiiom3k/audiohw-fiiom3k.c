@@ -23,8 +23,8 @@
 #include "system.h"
 #include "pcm_sampr.h"
 #include "aic-x1000.h"
-#include "i2c-x1000.h"
-#include "gpio-x1000.h"
+#include "i2c-ingenic.h"
+#include "gpio-ingenic.h"
 #include "logf.h"
 
 static int cur_audio_source = AUDIO_SRC_PLAYBACK;
@@ -54,7 +54,7 @@ void audiohw_init(void)
     aic_enable_i2s_master_clock(true);
 
     /* Initialize DAC */
-    i2c_x1000_set_freq(AK4376_BUS, I2C_FREQ_400K);
+    i2c_ingenic_set_freq(AK4376_BUS, I2C_FREQ_400K);
     ak4376_open();
     set_ak_freqmode();
 }

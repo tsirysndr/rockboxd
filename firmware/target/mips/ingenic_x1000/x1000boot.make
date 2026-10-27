@@ -46,7 +46,7 @@ $(BUILDDIR)/bootloader.elf: $$(OBJ) $(FIRMLIB) $(CORE_LIBS) $$(BOOTLINK)
 $(BUILDDIR)/bootloader.bin: $(BUILDDIR)/bootloader.elf
 	$(call PRINTS,OC $(@F))$(call objcopy,$<,$@)
 
-$(BUILDDIR)/bootloader.ucl: $(BUILDDIR)/bootloader.bin
+$(BUILDDIR)/bootloader.ucl: $(BUILDDIR)/bootloader.bin $(TOOLSDIR)/uclpack
 	$(call PRINTS,UCLPACK $(@F))$(TOOLSDIR)/uclpack --nrv2e -9 $< $@ >/dev/null
 
 
@@ -66,7 +66,7 @@ $(BUILDDIR)/spl.elf: $$(OBJ) $(FIRMLIB) $(CORE_LIBS) $$(SPLLINK)
 $(BUILDDIR)/spl.bin: $(BUILDDIR)/spl.elf
 	$(call PRINTS,OC $(@F))$(call objcopy,$<,$@)
 
-$(BUILDDIR)/$(SPLBINARY): $(BUILDDIR)/spl.bin
+$(BUILDDIR)/$(SPLBINARY): $(BUILDDIR)/spl.bin $(MKFIRMWARE_TOOL)
 	$(call PRINTS,MKSPL $(@F))$(MKFIRMWARE) $< $@
 
 

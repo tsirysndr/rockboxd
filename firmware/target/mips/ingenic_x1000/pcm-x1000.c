@@ -26,7 +26,7 @@
 #include "pcm-internal.h"
 #include "pcm_sink.h"
 #include "panic.h"
-#include "dma-x1000.h"
+#include "dma-ingenic.h"
 #include "irq-x1000.h"
 #include "x1000/aic.h"
 #include "x1000/cpm.h"
@@ -70,16 +70,21 @@ static void sink_dma_init(void)
     audiohw_init();
 
 #if (PCM_NATIVE_BITDEPTH > 16)
-    /* Program audio format (stereo, 24 bit samples) */
-    jz_writef(AIC_CCR, PACK16(0), CHANNEL_V(STEREO),
-              OSS_V(24BIT), ISS_V(24BIT), M2S(0));
-    jz_writef(AIC_I2SCR, SWLH(0));
-#else
-    /* Program audio format (stereo, packed 16 bit samples) */
-    jz_writef(AIC_CCR, PACK16(1), CHANNEL_V(STEREO),
-              OSS_V(16BIT), ISS_V(16BIT), M2S(0));
-    jz_writef(AIC_I2SCR, SWLH(0));
+    if (builtin_pcm_sink.caps.volume_type != PCM_SINK_HWVOL)
+    {
+        /* Program audio format (stereo, 24 bit samples) */
+        jz_writef(AIC_CCR, PACK16(0), CHANNEL_V(STEREO),
+                OSS_V(24BIT), ISS_V(24BIT), M2S(0));
+        jz_writef(AIC_I2SCR, SWLH(0));
+    }
+    else
 #endif
+    {
+        /* Program audio format (stereo, packed 16 bit samples) */
+        jz_writef(AIC_CCR, PACK16(1), CHANNEL_V(STEREO),
+                OSS_V(16BIT), ISS_V(16BIT), M2S(0));
+        jz_writef(AIC_I2SCR, SWLH(0));
+    }
 
     /* Set DMA settings */
     jz_writef(AIC_CFG, TFTH(16), RFTH(15));
@@ -208,6 +213,7 @@ struct pcm_sink builtin_pcm_sink = {
         .samprs       = hw_freq_sampr,
         .num_samprs   = HW_NUM_FREQ,
         .default_freq = HW_FREQ_DEFAULT,
+        .volume_type  = PCM_NATIVE_VOLUME_TYPE,
     },
     .ops = {
         .init     = sink_dma_init,

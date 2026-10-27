@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2009 Mohamed Tarek
  *
@@ -64,7 +63,7 @@ enum codec_status codec_run(void)
     ci->memset(&q,0,sizeof(ATRAC3Context));
  
     ci->configure(DSP_SET_FREQUENCY, ci->id3->frequency);
-    ci->configure(DSP_SET_SAMPLE_DEPTH, 17); /* Remark: atrac3 uses s15.0 by default, s15.2 was hacked. */
+    ci->configure(DSP_SET_SAMPLE_DEPTH, ATRAC3_OUTPUT_DEPTH);
     const uint8_t channels = 2;
     ci->configure(DSP_SET_STEREO_MODE, channels == 1 ?
         STEREO_MONO : STEREO_NONINTERLEAVED);

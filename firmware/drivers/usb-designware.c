@@ -147,6 +147,17 @@ static uint32_t epmis_msk;
 static uint32_t ep_periodic_msk;
 #endif
 
+static bool address_status;
+static bool handle_set_address(struct usb_ctrlrequest *req);
+
+/* SET_ADDRESS status belongs to this driver, not the core EP0 machine. */
+static void complete_transfer(int ep, int dir, int status, int length)
+{
+    if(ep == EP_CONTROL && address_status)
+        return;
+    usb_core_transfer_complete(ep, dir, status, length);
+}
+
 static struct usb_dw_ep *usb_dw_get_ep(int epnum, enum usb_dw_epdir epdir)
 {
     return &usb_dw_ep_list[epnum][epdir];
@@ -708,6 +719,12 @@ static void usb_dw_epstart(int epnum, enum usb_dw_epdir epdir,
 #endif
 #ifdef USB_DW_SHARED_FIFO
         eptsiz |= MCCNT((ep_periodic_msk >> epnum) & 1);
+#else
+        /* Dedicated FIFO mode still requires a non-zero multi-count for
+         * periodic IN endpoints. MCCNT(0) transmits no packets. */
+        uint32_t eptype = (DWC_DIEPCTL(epnum) >> 18) & 0x3;
+        if (eptype == EPTYP_ISOCHRONOUS || eptype == EPTYP_INTERRUPT)
+            eptsiz |= MCCNT(packets);  /* rarely, if ever, not 1 */
 #endif
 
     }
@@ -722,7 +739,27 @@ static void usb_dw_epstart(int epnum, enum usb_dw_epdir epdir,
     DWC_EPDMA(epnum, epdir) = USB_DW_PHYSADDR((uint32_t)buf);
 #endif
     DWC_EPTSIZ(epnum, epdir) = eptsiz;
-    DWC_EPCTL(epnum, epdir) |= EPENA | nak;
+    if (((DWC_EPCTL(epnum, epdir) >> 18) & 0x3) == EPTYP_ISOCHRONOUS)
+    {
+        /*
+         * Handle frame scheduling for isochronous endpoints.
+         *
+         * TODO: this needs to take into account the endpoint's bInterval,
+         * and currently will not work for USB 2.0 endpoints that require
+         * one packet per microframe. For slower USB 2.0 endpoints data is
+         * only transferred on *even* frames; SETD1PIDOF is not used.
+         * This also breaks for USB 1.0 endpoints with bInterval > 1 for
+         * the same reason.
+         */
+        if (usb_drv_port_speed() || (usb_drv_get_frame_number() & 1))
+            DWC_EPCTL(epnum, epdir) |= EPENA | nak | SETD0PIDEF;
+        else
+            DWC_EPCTL(epnum, epdir) |= EPENA | nak | SETD1PIDOF;
+    }
+    else
+    {
+        DWC_EPCTL(epnum, epdir) |= EPENA | nak;
+    }
 
 #ifdef USB_DW_ARCH_SLAVE
     /* Enable interrupts to start pushing data into the FIFO */
@@ -735,19 +772,31 @@ static void usb_dw_epstart(int epnum, enum usb_dw_epdir epdir,
 #endif
 }
 
-static void usb_dw_transfer(int epnum, enum usb_dw_epdir epdir,
-                            void* buf, uint32_t size)
+static int usb_dw_transfer(int epnum, enum usb_dw_epdir epdir,
+                           void* buf, uint32_t size)
 {
     struct usb_dw_ep* dw_ep = usb_dw_get_ep(epnum, epdir);
 
     if (!dw_ep->active)
+    {
         logf("%s: %s%d inactive", __func__, dw_dir_str[epdir], epnum);
+        return -1;
+    }
+    /* Do not program a stale hardware endpoint. usb_dw_epstart() uses the
+     * packet size as a divisor, so zero cannot be allowed through even if
+     * the software endpoint still appears active. */
+    if (epnum && usb_dw_maxpktsize(epnum, epdir) == 0)
+    {
+        logf("%s: %s%d unconfigured", __func__, dw_dir_str[epdir], epnum);
+        return -1;
+    }
     if (dw_ep->busy)
         logf("%s: %s%d busy", __func__, dw_dir_str[epdir], epnum);
 
     dw_ep->req_addr = buf;
     dw_ep->req_size = size;
     usb_dw_epstart(epnum, epdir, buf, size);
+    return 0;
 }
 
 static void usb_dw_ep0_recv(void)
@@ -768,7 +817,7 @@ static void usb_dw_abort_endpoint(int epnum, enum usb_dw_epdir epdir)
     if (dw_ep->busy)
     {
         usb_dw_flush_endpoint(epnum, epdir);
-        usb_core_transfer_complete(epnum, (epdir == USB_DW_EPDIR_OUT) ?
+        complete_transfer(epnum, (epdir == USB_DW_EPDIR_OUT) ?
                                         USB_DIR_OUT : USB_DIR_IN, -1, 0);
     }
 }
@@ -853,7 +902,7 @@ static void usb_dw_handle_xfer_complete(int epnum, enum usb_dw_epdir epdir)
     semaphore_release(&dw_ep->complete);
 
     int total_bytes = dw_ep->req_size - dw_ep->sizeleft;
-    usb_core_transfer_complete(epnum, (epdir == USB_DW_EPDIR_OUT) ?
+    complete_transfer(epnum, (epdir == USB_DW_EPDIR_OUT) ?
                 USB_DIR_OUT : USB_DIR_IN, dw_ep->status, total_bytes);
 }
 
@@ -864,15 +913,15 @@ static void usb_dw_handle_setup_received(void)
 #endif
     struct usb_ctrlrequest req;
     memcpy(&req, ep0_buffer, sizeof(struct usb_ctrlrequest));
+    /* Abort both old data/status directions before delivering the new SETUP.
+     * Flush does not report completions, so notify the core explicitly once. */
     usb_dw_flush_endpoint(0, USB_DW_EPDIR_IN);
+    usb_dw_flush_endpoint(0, USB_DW_EPDIR_OUT);
+    usb_core_control_cancelled();
     usb_dw_ep0_recv();
 
-    if ((req.bRequestType & USB_RECIP_MASK) == USB_RECIP_DEVICE &&
-        (req.bRequestType & USB_TYPE_MASK) == USB_TYPE_STANDARD &&
-        (req.bRequest == USB_REQ_SET_ADDRESS))
-        usb_dw_set_address(req.wValue);
-
-    usb_core_setup_received(&req);
+    if(!handle_set_address(&req))
+        usb_core_setup_received(&req);
 }
 
 #ifdef USB_DW_SHARED_FIFO
@@ -971,6 +1020,9 @@ static void usb_dw_oepint(int ep)
         if (epints & STUP)
         {
             usb_dw_handle_setup_received();
+            /* SETUP cancelled the old transfer, including any XFRC captured
+             * in this interrupt snapshot. Do not complete the new request. */
+            return;
         }
 
         if (epints & XFRC)
@@ -1077,6 +1129,7 @@ static void usb_dw_irq(void)
         DWC_GINTSTS = USBRST;
         usb_dw_set_address(0);
         usb_dw_reset_endpoints();
+        address_status = false;
         usb_core_bus_reset();
     }
 
@@ -1336,21 +1389,6 @@ void usb_drv_stall(int endpoint, bool stall, bool in)
     usb_dw_target_enable_irq();
 }
 
-void usb_drv_set_address(int address)
-{
-#if 1
-    /* Ignored intentionally, because the controller requires us to set the
-       new address before sending the response for some reason. So we'll
-       already set it when the control request arrives, before passing that
-       into the USB core, which will then call this dummy function. */
-    (void)address;
-#else
-    usb_dw_target_disable_irq();
-    usb_dw_set_address(address);
-    usb_dw_target_enable_irq();
-#endif
-}
-
 int usb_drv_port_speed(void)
 {
     return ((DWC_DSTS & 0x6) == 0);
@@ -1444,7 +1482,7 @@ void usb_drv_ep_init(const struct usb_drv_ep_alloc_ctx* ctx, int ep)
     {
         if(type == EPTYP_ISOCHRONOUS)
         {
-            mps = 1023;
+            mps = usb_drv_port_speed() ? 1024 : 1023;
         }
         else
         {
@@ -1474,18 +1512,22 @@ void usb_drv_ep_deinit(const struct usb_drv_ep_alloc_ctx* ctx, int ep)
 
 int usb_drv_recv_nonblocking(int endpoint, void* ptr, int length)
 {
+    int rc;
+
     usb_dw_target_disable_irq();
-    usb_dw_transfer(EP_NUM(endpoint), USB_DW_EPDIR_OUT, ptr, length);
+    rc = usb_dw_transfer(EP_NUM(endpoint), USB_DW_EPDIR_OUT, ptr, length);
     usb_dw_target_enable_irq();
-    return 0;
+    return rc;
 }
 
 int usb_drv_send_nonblocking(int endpoint, void *ptr, int length)
 {
+    int rc;
+
     usb_dw_target_disable_irq();
-    usb_dw_transfer(EP_NUM(endpoint), USB_DW_EPDIR_IN, ptr, length);
+    rc = usb_dw_transfer(EP_NUM(endpoint), USB_DW_EPDIR_IN, ptr, length);
     usb_dw_target_enable_irq();
-    return 0;
+    return rc;
 }
 
 int usb_drv_send(int endpoint, void *ptr, int length)
@@ -1495,7 +1537,9 @@ int usb_drv_send(int endpoint, void *ptr, int length)
 
     semaphore_wait(&dw_ep->complete, 0);
 
-    usb_drv_send_nonblocking(endpoint, ptr, length);
+    int rc = usb_drv_send_nonblocking(endpoint, ptr, length);
+    if (rc < 0)
+        return rc;
 
     if (semaphore_wait(&dw_ep->complete, HZ) == OBJ_WAIT_TIMEDOUT)
     {
@@ -1507,10 +1551,36 @@ int usb_drv_send(int endpoint, void *ptr, int length)
     return dw_ep->status;
 }
 
-int usb_drv_get_frame_number()
+int usb_drv_get_frame_number(void)
 {
-    // SOFFN is 14 bits, the least significant 3 appear to be some sort of microframe count.
-    // The USB spec says a frame number is 11 bits. This way we get 1 frame per millisecond,
-    // just like we're supposed to!
-    return (DWC_DSTS >> 11) & 0x7FF;
+    /*
+     * SOFFN is a 14-bit microframe number for high-speed hosts and
+     * a plain frame number for full-speed hosts.
+     */
+    if (usb_drv_port_speed())
+        return (DWC_DSTS >> 11) & 0x7FF;
+    else
+        return (DWC_DSTS >> 8) & 0x3FFF;
+}
+
+static bool handle_set_address(struct usb_ctrlrequest *req)
+{
+    address_status = false;
+    if(!usb_drv_is_set_address(req))
+        return false;
+
+    const uint8_t address = req->wValue & 0x7f;
+    address_status = true;
+    /* Already in the IRQ handler: avoid the public IRQ-mask wrappers. */
+    for(int ep = 1; ep < USB_NUM_ENDPOINTS; ep++)
+        for(int dir = 0; dir < USB_DW_NUM_DIRS; dir++)
+            if((usb_endpoints & (1 << (ep + USB_DW_DIR_OFF(dir)))) &&
+               usb_dw_get_ep(ep, dir)->active) {
+                usb_dw_abort_endpoint(ep, dir);
+                DWC_EPCTL(ep, dir) |= SETD0PIDEF;
+            }
+    usb_dw_set_address(address);
+    usb_dw_transfer(0, USB_DW_EPDIR_IN, NULL, 0);
+    usb_core_notify_set_address(address);
+    return true;
 }

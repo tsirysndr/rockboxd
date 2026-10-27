@@ -50,7 +50,7 @@
 #include "gui/skin_engine/skin_engine.h"
 #endif
 
-#if defined(HIBY_R3PROII) || defined(HIBY_R1)
+#if defined(HIBY_R3PROII) || defined(HIBY_R1) || defined(HIDIZS_AP80MAX)
 #include "usb-hiby-gadget.h"
 #endif
 #if defined(DX50) || defined(DX90)
@@ -91,7 +91,7 @@ void usb_set_mode(int mode)
     usb_mode = mode;
 #if defined(DX50) || defined(DX90)
     ibasso_set_usb_mode(mode);
-#elif defined(HIBY_R3PROII) || defined(HIBY_R1)
+#elif defined(HIBY_R3PROII) || defined(HIBY_R1) || defined(HIDIZS_AP80MAX)
     hiby_set_usb_mode(mode);
 #endif
 }
@@ -116,6 +116,9 @@ static bool exclusive_storage_requested = false;
 static struct event_queue usb_queue SHAREDBSS_ATTR;
 #ifdef USB_ENABLE_HID
 static bool usb_hid = true;
+#endif
+#ifdef USB_ENABLE_SERIAL
+static bool usb_serial = false;
 #endif
 #ifdef USB_ENABLE_AUDIO
 static int usb_audio = 0;
@@ -215,6 +218,9 @@ static inline void usb_configure_drivers(int for_state)
         usb_core_enable_driver(USB_DRIVER_HID, true);
 #endif /* USB_ENABLE_CHARGING_ONLY */
 #endif /* USB_ENABLE_HID */
+#ifdef USB_ENABLE_SERIAL
+        usb_core_enable_driver(USB_DRIVER_SERIAL, usb_serial);
+#endif
 #ifdef USB_ENABLE_AUDIO
         usb_core_enable_driver(USB_DRIVER_AUDIO, (usb_audio == 1) || (usb_audio == 2)); // while "always" or "only in charge-only mode"
 #endif /* USB_ENABLE_AUDIO */
@@ -236,6 +242,9 @@ static inline void usb_configure_drivers(int for_state)
 #endif
 #ifdef USB_ENABLE_HID
         usb_core_enable_driver(USB_DRIVER_HID, usb_hid);
+#endif
+#ifdef USB_ENABLE_SERIAL
+        usb_core_enable_driver(USB_DRIVER_SERIAL, usb_serial);
 #endif
 #ifdef USB_ENABLE_AUDIO
         usb_core_enable_driver(USB_DRIVER_AUDIO, (usb_audio == 1) || (usb_audio == 3)); // while "always" or "only in mass-storage mode"
@@ -422,6 +431,15 @@ static void NORETURN_ATTR usb_thread(void)
 
 #ifdef HAVE_USBSTACK
         case USB_NOTIFY_SET_ADDR:
+#ifdef USB_DETECT_BY_REQUEST
+            /* first sign of a host that addresses before anything else;
+             * the class drivers must be on before interfaces are assigned */
+            if(usb_state > USB_EXTRACTED) {
+                usb_state = USB_INSERTED;
+                usb_set_host_present(true);
+            }
+#endif
+            /* intentional fallthrough */
         case USB_NOTIFY_SET_CONFIG:
         case USB_NOTIFY_BUS_RESET:
         case USB_NOTIFY_CLASS_DRIVER:
@@ -495,6 +513,9 @@ static void NORETURN_ATTR usb_thread(void)
             if(usb_host_present && exclusive_storage_requested) {
                 usb_slave_mode(true);
                 exclusive_storage_enabled = true;
+#ifdef USB_ENABLE_STORAGE
+                usb_signal_class_notify(USB_DRIVER_MASS_STORAGE, 0);
+#endif
             }
             break;
             /* SYS_USB_CONNECTED_ACK */
@@ -853,10 +874,20 @@ bool usb_exclusive_storage(void)
 
 void usb_request_exclusive_storage(void)
 {
+    if(exclusive_storage_requested)
+        return;
+
     exclusive_storage_requested = true;
     usb_broadcast_seqnum += 1;
     usb_num_acks_to_expect = queue_broadcast(SYS_USB_CONNECTED, usb_broadcast_seqnum) - 1;
     DEBUGF("usb: waiting for %d acks...\n", usb_num_acks_to_expect);
+    if(usb_num_acks_to_expect == 0 && usb_host_present) {
+        usb_slave_mode(true);
+        exclusive_storage_enabled = true;
+#ifdef USB_ENABLE_STORAGE
+        usb_signal_class_notify(USB_DRIVER_MASS_STORAGE, 0);
+#endif
+    }
 }
 
 void usb_release_exclusive_storage(void)
@@ -866,6 +897,7 @@ void usb_release_exclusive_storage(void)
         return;
     }
     exclusive_storage_requested = false;
+    usb_num_acks_to_expect = 0;
 
     if(exclusive_storage_enabled) {
         usb_slave_mode(false);
@@ -889,6 +921,19 @@ void usb_set_hid(bool enable)
     usb_core_enable_driver(USB_DRIVER_HID, usb_hid);
 }
 #endif /* USB_ENABLE_HID */
+
+#ifdef USB_ENABLE_SERIAL
+void usb_set_serial(bool enable)
+{
+    usb_serial = enable;
+    usb_core_enable_driver(USB_DRIVER_SERIAL, usb_serial);
+}
+
+bool usb_get_serial(void)
+{
+    return usb_serial;
+}
+#endif /* USB_ENABLE_SERIAL */
 
 #ifdef USB_ENABLE_AUDIO
 void usb_set_audio(int value)

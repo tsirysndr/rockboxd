@@ -10,8 +10,9 @@
 use strict;
 use Getopt::Long qw(:config pass_through);	# pass_through so not confused by -DTYPE_STUFF
 use IPC::Open2;
+use File::Basename;
 
-my $ROOT="..";
+my $ROOT=dirname($0) . "/..";
 my $wpsdir;
 my $verbose;
 my $rbdir=".rockbox";
@@ -46,8 +47,12 @@ my $has_rsbs;
 my $rsbs;
 my $has_fms;
 my $fms;
+my $has_wrs;
+my $wrs;
 my $has_rfms;
 my $rfms;
+my $has_rwrs;
+my $rwrs;
 my $width;
 my $height;
 my $font;
@@ -143,6 +148,7 @@ STOP
 
 sub mkdirs
 {
+    mkdir "$tempdir", 0777;
     mkdir "$tempdir/wps", 0777;
     mkdir "$tempdir/themes", 0777;
     mkdir "$tempdir/icons", 0777;
@@ -214,9 +220,11 @@ sub copywps
     my %skinfiles = ("wps", $wps,
                      "sbs", $sbs,
                      "fms", $fms,
+                     "wrs", $wrs,
                      "rwps", $rwps,
                      "rsbs", $rsbs,
-                     "rfms", $rfms);
+                     "rfms", $rfms,
+                     "rwrs", $rwrs);
     my @filelist;
     my $file;
 
@@ -231,6 +239,13 @@ sub copywps
             open(SKIN, "$dir/$file");
             while (<SKIN>) {
                 $filelist[$#filelist + 1] = $1 if (/[\(,]([^,]*?.bmp)[\),]/);
+                # fonts the skin loads itself ship with it, as the theme
+                # font does: a default theme must not need the font pack.
+                # A copy of $1: copythemefont()'s own matching resets it.
+                if (/%Fl\(\d+,([^,\)]+\.fnt)[,\)]/) {
+                    my $skinfont = $1;
+                    copythemefont($skinfont);
+                }
             }
             close(SKIN);
         }
@@ -265,10 +280,12 @@ MOO
     my %skinfiles = ("wps" => $wps,
                      "sbs" => $sbs,
                      "fms" => $fms,
+                     "wrs" => $wrs,
                      "rwps" => $rwps,
                      "rsbs" => $rsbs,
-                     "rfms" => $rfms);
-    for my $skin (keys %skinfiles) {
+                     "rfms" => $rfms,
+                     "rwrs" => $rwrs);
+    for my $skin (sort keys %skinfiles) {
         my $val = $skinfiles{$skin};
         if (!defined($val)) {
             # dont put value if not defined (e.g. rwps when there's no remote)
@@ -283,10 +300,13 @@ MOO
     }
 
     push @out, "selector type: $selecttype\n"   if (defined($selecttype));
-    push @out, "backdrop: $backdrop\n"          if (defined($backdrop));
-    push @out, "filetype colours: $filetylecolor\n" if (defined($filetylecolor));
+
+    if ($main_depth > 1) {
+        push @out, "backdrop: $backdrop\n"          if (defined($backdrop));
+    }
 
     if ($main_depth > 2) {
+        push @out, "filetype colours: $filetylecolor\n" if (defined($filetylecolor));
         push @out, "foreground color: $fgcolor\n"                     if($fgcolor);
         push @out, "background color: $bgcolor\n"                     if($bgcolor);
         push @out, "line selector start color: $lineselectstart\n"    if($lineselectstart);
@@ -400,7 +420,7 @@ $wpsdir = $1;
 open(WPS, "<$wpslist");
 while(<WPS>) {
     my $l = $_;
-    
+
     # remove CR
     $l =~ s/\r//g;
     if($l =~ /^ *\#/) {
@@ -421,13 +441,17 @@ while(<WPS>) {
         undef $has_sbs;
         undef $has_rsbs;
         undef $has_fms;
+        undef $has_wrs;
         undef $has_rfms;
+        undef $has_rwrs;
         undef $wps;
         undef $rwps;
         undef $sbs;
         undef $rsbs;
         undef $fms;
+        undef $wrs;
         undef $rfms;
+        undef $rwrs;
         undef $width;
         undef $height;
         undef $font;
@@ -477,6 +501,12 @@ while(<WPS>) {
     elsif ($l =~ /^RFMS: *(yes|no)/i) {
         $has_rfms = $1;
     }
+    elsif ($l =~ /^WRS: *(yes|no)/i) {
+        $has_wrs = $1;
+    }
+    elsif ($l =~ /^RWRS: *(yes|no)/i) {
+        $has_rwrs = $1;
+    }
     elsif($l =~ /^ *<main>/i) {
         # parse main unit settings
         while(<WPS>) {
@@ -492,6 +522,9 @@ while(<WPS>) {
             }
             elsif($_ = check_res_feature($l, "fms")) {
                 $fms = $_;
+            }
+            elsif($_ = check_res_feature($l, "wrs")) {
+                $wrs = $_;
             }
             elsif($_ = check_res_feature($l, "Font")) {
                 $font = $_;
@@ -562,6 +595,9 @@ while(<WPS>) {
             elsif($_ = check_res_feature($l, "rfms", 1)) {
                 $rfms = $_;
             }
+            elsif($_ = check_res_feature($l, "rwrs", 1)) {
+                $rwrs = $_;
+            }
             elsif($_ = check_res_feature($l, "Font", 1)) {
                 $remotefont = $_;
             }
@@ -602,6 +638,15 @@ while(<WPS>) {
             $fms = '';
         }
 
+        # recording screen: a theme without one sets "wrs: -", so that it
+        # does not keep the one of the theme selected before
+        if ($has_wrs eq "yes" && !$wrs) {
+            $wrs = check_skinfile("wrs");
+        } elsif ($has_wrs eq "no") {
+            $wrs = '';
+        }
+        $wrs = '' unless (defined($wrs));
+
         # now check for remote skin files (use main screen's extension)
         if ($has_remote) {
             if ($has_rwps eq "yes" && !$rwps) {
@@ -621,6 +666,14 @@ while(<WPS>) {
             } elsif ($has_rfms eq "no") {
                 $rfms = '';
             }
+
+            # as the main screen's: "rwrs: -" for a theme without one
+            if ($has_rwrs eq "yes" && !$rwrs) {
+                $rwrs = check_skinfile("wrs");
+            } elsif ($has_rwrs eq "no") {
+                $rwrs = '';
+            }
+            $rwrs = '' unless (defined($rwrs));
         }
         #print "LCD: $wps wants $width x $height\n";
 

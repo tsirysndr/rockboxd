@@ -58,7 +58,7 @@ bool get_au_metadata(int fd, struct mp3entry* id3)
     int offset;
 
     id3->vbr      = false;   /* All Sun audio files are CBR */
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     id3->length   = 0;
 
     lseek(fd, 0, SEEK_SET);
@@ -71,7 +71,7 @@ bool get_au_metadata(int fd, struct mp3entry* id3)
          * bits per sample: 8 bit
          * channel:         mono
          */
-        numbytes = id3->FS_PREFIX(filesize);
+        numbytes = id3->filesize;
         id3->frequency = 8000;
         id3->bitrate   = 8;
     }
@@ -89,7 +89,7 @@ bool get_au_metadata(int fd, struct mp3entry* id3)
         /* data size */
         numbytes = get_long_be(buf + 8);
         if (numbytes == (uint32_t)0xffffffff)
-            numbytes = id3->FS_PREFIX(filesize) - offset;
+            numbytes = id3->filesize - offset;
 
         id3->frequency = get_long_be(buf + 16);
         id3->bitrate = get_au_bitspersample(get_long_be(buf + 12)) * get_long_be(buf + 20)

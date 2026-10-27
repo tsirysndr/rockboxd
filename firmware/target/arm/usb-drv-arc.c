@@ -343,6 +343,8 @@ struct queue_head {
 static struct queue_head qh_array[USB_NUM_ENDPOINTS*2]
     USB_QHARRAY_ATTR;
 
+static int pending_device_address = -1;
+
 static struct semaphore transfer_completion_signal[USB_NUM_ENDPOINTS*2]
     SHAREDBSS_ATTR;
 
@@ -360,7 +362,7 @@ static const unsigned int pipe2mask[USB_NUM_ENDPOINTS*2] = {
 
 /*-------------------------------------------------------------------------*/
 static void transfer_completed(void);
-static void control_received(void);
+static void setup_received(void);
 static void sof_received(void);
 static int prime_transfer(int ep_num, void* ptr, int len, bool send, bool wait);
 static void prepare_td(struct transfer_descriptor* td,
@@ -368,6 +370,17 @@ static void prepare_td(struct transfer_descriptor* td,
 static void bus_reset(void);
 static void init_control_queue_heads(void);
 /*-------------------------------------------------------------------------*/
+static bool address_status;
+static bool handle_set_address(struct usb_ctrlrequest *req);
+
+/* SET_ADDRESS status belongs to this driver, not the core EP0 machine. */
+static void complete_transfer(int ep, int dir, int status, int length)
+{
+    if(ep == EP_CONTROL && address_status)
+        return;
+    usb_core_transfer_complete(ep, dir, status, length);
+}
+
 static void usb_drv_stop(void)
 {
     /* disable interrupts */
@@ -551,6 +564,16 @@ void usb_drv_int(void)
     unsigned int usbintr = REG_USBINTR; /* Only watch enabled ints */
     unsigned int status = REG_USBSTS & usbintr;
 
+    /* Reset invalidates all old completions, including the audio ring.
+     * Do not dispatch a simultaneous SOF or IOC using stale descriptors. */
+    if (status & USBSTS_RESET) {
+        REG_USBSTS = status;
+        bus_reset();
+        address_status = false;
+        usb_core_bus_reset();
+        return;
+    }
+
 #if 0
     if (status & USBSTS_INT) logf("int: usb ioc");
     if (status & USBSTS_ERR) logf("int: usb err");
@@ -564,7 +587,7 @@ void usb_drv_int(void)
 
         /* a control packet? */
         if (REG_ENDPTSETUPSTAT & EPSETUP_STATUS_EP0) {
-            control_received();
+            setup_received();
         }
 
         if (REG_ENDPTCOMPLETE)
@@ -575,13 +598,6 @@ void usb_drv_int(void)
     if (status & USBSTS_ERR) {
         REG_USBSTS = USBSTS_ERR;
         logf("usb error int");
-    }
-
-    /* reset interrupt */
-    if (status & USBSTS_RESET) {
-        REG_USBSTS = USBSTS_RESET;
-        bus_reset();
-        usb_core_bus_reset(); /* tell mom */
     }
 
     /* port change */
@@ -617,7 +633,10 @@ void usb_drv_stall(int endpoint, bool stall, bool in)
             REG_ENDPTCTRL(ep_num) |= EPCTRL_TX_EP_STALL;
         }
         else {
-            REG_ENDPTCTRL(ep_num) &= ~EPCTRL_TX_EP_STALL;
+            /* CLEAR_FEATURE(ENDPOINT_HALT) also resets the data toggle.
+             * EP0 owns its toggle through SETUP, not these register bits. */
+            REG_ENDPTCTRL(ep_num) = (REG_ENDPTCTRL(ep_num) & ~EPCTRL_TX_EP_STALL) |
+                (ep_num ? EPCTRL_TX_DATA_TOGGLE_RST : 0);
         }
     }
     else {
@@ -625,7 +644,8 @@ void usb_drv_stall(int endpoint, bool stall, bool in)
             REG_ENDPTCTRL(ep_num) |= EPCTRL_RX_EP_STALL;
         }
         else {
-            REG_ENDPTCTRL(ep_num) &= ~EPCTRL_RX_EP_STALL;
+            REG_ENDPTCTRL(ep_num) = (REG_ENDPTCTRL(ep_num) & ~EPCTRL_RX_EP_STALL) |
+                (ep_num ? EPCTRL_RX_DATA_TOGGLE_RST : 0);
         }
     }
 }
@@ -673,11 +693,6 @@ bool usb_drv_powered(void)
 {
     /* true = bus 4V4 ok */
     return (REG_OTGSC & OTGSC_A_VBUS_VALID) ? true : false;
-}
-
-void usb_drv_set_address(int address)
-{
-    REG_DEVICEADDR = address << USBDEVICEADDRESS_BIT_POS;
 }
 
 void usb_drv_reset_endpoint(int endpoint, bool send)
@@ -1060,7 +1075,7 @@ static void prepare_td(struct transfer_descriptor* td,
     }
 }
 
-static void control_received(void)
+static void setup_received(void)
 {
     int i;
     /* copy setup data from packet */
@@ -1071,6 +1086,13 @@ static void control_received(void)
     /* acknowledge packet recieved */
     REG_ENDPTSETUPSTAT = EPSETUP_STATUS_EP0;
 
+    /* A new SETUP cancels both halves of the old control transfer. Flush
+     * only EP0: cancelling storage/HID here would lose unrelated traffic.
+     * Discard its completion bits before the core primes the new request. */
+    usb_drv_reset_endpoint(EP_CONTROL, false);
+    usb_drv_reset_endpoint(EP_CONTROL, true);
+    REG_ENDPTCOMPLETE = pipe2mask[0] | pipe2mask[1];
+
     /* Stop pending control transfers */
     for(i=0;i<2;i++) {
         if(qh_array[i].wait) {
@@ -1080,7 +1102,15 @@ static void control_received(void)
         }
     }
 
-    usb_core_setup_received((struct usb_ctrlrequest*)tmp);
+    usb_core_control_cancelled();
+
+    struct usb_ctrlrequest *req = (struct usb_ctrlrequest*)tmp;
+
+    /* A new setup packet supersedes any unfinished SET_ADDRESS request. */
+    pending_device_address = -1;
+
+    if(!handle_set_address(req))
+        usb_core_setup_received(req);
 }
 
 static void transfer_completed(void)
@@ -1113,12 +1143,21 @@ static void transfer_completed(void)
                         ((td->size_ioc_sts & DTD_PACKET_SIZE) >> DTD_LENGTH_BIT_POS));
                     td=(struct transfer_descriptor*) td->next_td_ptr;
                 }
+                if (ep == EP_CONTROL && dir == DIR_IN &&
+                    pending_device_address >= 0 &&
+                    qh->status == 0 && length == 0) {
+                    REG_DEVICEADDR =
+                        pending_device_address << USBDEVICEADDRESS_BIT_POS;
+                    usb_core_notify_set_address(pending_device_address);
+                    pending_device_address = -1;
+                }
+
                 if(qh->wait) {
                     qh->wait=0;
                     semaphore_release(&transfer_completion_signal[pipe]);
                 }
 
-                usb_core_transfer_complete(ep, dir?USB_DIR_IN:USB_DIR_OUT,
+                complete_transfer(ep, dir?USB_DIR_IN:USB_DIR_OUT,
                         qh->status, length);
                 Lskip:
                 continue;
@@ -1133,7 +1172,11 @@ static void bus_reset(void)
     int i;
     logf("usb bus_reset");
 
+    REG_USBINTR &= ~USBINTR_SOF_EN;
+    batch_stopped = true;
+
     REG_DEVICEADDR = 0;
+    pending_device_address = -1;
     REG_ENDPTSETUPSTAT = REG_ENDPTSETUPSTAT;
     REG_ENDPTCOMPLETE  = REG_ENDPTCOMPLETE;
 
@@ -1169,4 +1212,20 @@ static void init_control_queue_heads(void)
     qh_array[EP_CONTROL].dtd.next_td_ptr = QH_NEXT_TERMINATE;
     qh_array[EP_CONTROL+1].max_pkt_length = 64 << QH_MAX_PKT_LEN_POS | QH_ZLT_SEL;
     qh_array[EP_CONTROL+1].dtd.next_td_ptr = QH_NEXT_TERMINATE;
+}
+
+static bool handle_set_address(struct usb_ctrlrequest *req)
+{
+    address_status = false;
+    if(!usb_drv_is_set_address(req))
+        return false;
+
+    const uint8_t address = req->wValue & 0x7f;
+    address_status = true;
+    /* Capture before sending; the completion IRQ writes DEVICEADDR and
+     * notifies the core after the successful zero-length status packet. */
+    pending_device_address = address;
+    usb_drv_cancel_all_transfers();
+    usb_drv_send_nonblocking(EP_CONTROL, NULL, 0);
+    return true;
 }

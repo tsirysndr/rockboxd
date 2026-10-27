@@ -37,6 +37,19 @@
 #include "opus_types.h"
 #include "opus_defines.h"
 
+/* Placement of the hot decode path in fast on-chip memory.  Rockbox config.h
+   sets this to ICODE_ATTR on the targets whose codec IRAM window has room;
+   everywhere else, and in the standalone test harness, it is nothing. */
+#ifndef ICODE_ATTR_OPUS
+# define ICODE_ATTR_OPUS
+#endif
+#ifndef ICODE_ATTR_OPUS_MR
+# define ICODE_ATTR_OPUS_MR
+#endif
+#ifndef ICONST_ATTR_OPUS_MR
+# define ICONST_ATTR_OPUS_MR ICONST_ATTR
+#endif
+
 # if !defined(__GNUC_PREREQ)
 #  if defined(__GNUC__)&&defined(__GNUC_MINOR__)
 #   define __GNUC_PREREQ(_maj,_min) \
@@ -160,9 +173,9 @@ static OPUS_INLINE opus_int16 SAT16(opus_int32 x) {
 
 #ifdef OPUS_ARM_PRESUME_AARCH64_NEON_INTR
 #include "arm/fixed_arm64.h"
-#elif defined (OPUS_ARM_INLINE_EDSP)
+#elif defined (OPUS_ARM_ASM_ARMV5E_AND_LATER)
 #include "arm/fixed_armv5e.h"
-#elif defined (OPUS_ARM_INLINE_ASM)
+#elif defined (OPUS_ARM_ASM_ARMV4_ONLY)
 #include "arm/fixed_armv4.h"
 #elif defined (BFIN_ASM)
 #include "fixed_bfin.h"

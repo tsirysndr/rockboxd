@@ -58,6 +58,8 @@
 /* include order matters, include driver header before usb_drv.h */
 #if CONFIG_USBOTG == USBOTG_DESIGNWARE
 #include "usb-designware.h"
+#elif CONFIG_USBOTG == USBOTG_RK27XX
+#include "usb-rk27xx.h"
 #endif
 #include "usb_drv.h"
 
@@ -225,6 +227,7 @@ enum {
     EP0_EXPECT_RX_STATUS_COMP,      /* sending status */
 };
 static volatile int ep0_state;
+static bool control_cancelled;
 
 #define TRACE_EP0_STATE 0
 #if TRACE_EP0_STATE == 1
@@ -779,7 +782,7 @@ static void request_handler_device_get_descriptor(struct usb_ctrlrequest* req, u
 
         case USB_DT_OTHER_SPEED_CONFIG:
         case USB_DT_CONFIG: {
-            if(index > NUM_CONFIGS) {
+            if(index >= NUM_CONFIGS) {
                 logf("invalid config dt index %u", index);
                 break;
             }
@@ -806,7 +809,7 @@ static void request_handler_device_get_descriptor(struct usb_ctrlrequest* req, u
             size = sizeof(struct usb_config_descriptor);
 
             for(i = 0; i < USB_NUM_DRIVERS; i++) {
-                if(drivers[i]->enabled && drivers[i]->config == index + 1 && drivers[i]->get_config_descriptor) {
+                if(drivers[i]->enabled && !drivers[i]->error && drivers[i]->config == index + 1 && drivers[i]->get_config_descriptor) {
                     size += drivers[i]->get_config_descriptor(reqdata + size, max_packet_size);
                 }
             }
@@ -862,9 +865,22 @@ static void request_handler_device_get_descriptor(struct usb_ctrlrequest* req, u
     }
 }
 
-static void usb_core_do_set_addr(uint8_t address)
+static void usb_core_init_interfaces(void)
+{
+    if(usb_state == DEFAULT) {
+        set_serial_descriptor();
+        usb_core_set_serial_function_id();
+        allocate_interfaces_and_endpoints();
+    }
+}
+
+static void usb_core_set_address(uint8_t address)
 {
     logf("usb_core: SET_ADR %d", address);
+    /* A host may address the device before making any other request;
+      * the driver answers SET_ADDRESS itself, so nothing has been
+      * allocated yet. */
+    usb_core_init_interfaces();
     usb_address = address;
     usb_state = ADDRESS;
 }
@@ -922,13 +938,18 @@ static int usb_core_do_set_config(uint8_t new_config)
     }
 
     if(require_exclusive) {
-        if(!usb_exclusive_storage()) {
-            usb_release_exclusive_storage();
-            usb_request_exclusive_storage();
-        }
-    } else {
+        /* Also preserve a pending handover across repeated SET_CONFIG.
+         * Restarting it discards acknowledgements and races the USB UI. */
+        usb_request_exclusive_storage();
+    } else if(!bus_reset_pending) {
         usb_release_exclusive_storage();
     }
+    /* A bus reset is not a physical disconnect. Keep the storage handover
+     * (and its acknowledgement epoch) until the host selects a new config
+     * or the cable is removed; remounting here races re-enumeration.
+     * If the host never sends SET_CONFIGURATION again, local storage stays
+     * unavailable until unplug. We expect reconfiguration promptly after a
+     * reset, but deliberately do not remount on a timer. */
     if(require_cpu_boost) {
         trigger_cpu_boost();
         thread_set_priority(thread_self(), PRIORITY_REALTIME);
@@ -936,6 +957,7 @@ static int usb_core_do_set_config(uint8_t new_config)
         thread_set_priority(thread_self(), PRIORITY_SYSTEM);
         cancel_cpu_boost();
     }
+
 
     #ifdef HAVE_USB_CHARGING_ENABLE
     usb_charging_maxcurrent_change(usb_charging_maxcurrent());
@@ -956,8 +978,6 @@ static void usb_core_do_clear_feature(int recip, int recip_nr, int feature)
 
 static void request_handler_device(struct usb_ctrlrequest* req, uint8_t* reqdata, size_t reqdata_size)
 {
-    unsigned address;
-
     switch(req->bRequest) {
         case USB_REQ_GET_CONFIGURATION:
             logf("usb_core: GET_CONFIG");
@@ -971,16 +991,6 @@ static void request_handler_device(struct usb_ctrlrequest* req, uint8_t* reqdata
             } else {
                 usb_core_control_response(USB_CONTROL_STALL, NULL, 0);
             }
-            break;
-        case USB_REQ_SET_ADDRESS:
-            /* NOTE: We really have no business handling this and drivers
-             * should just handle it themselves. We don't care beyond
-             * knowing if we've been assigned an address yet, or not. */
-            address = req->wValue;
-            usb_drv_cancel_all_transfers();
-            usb_core_control_response(USB_CONTROL_ACK, NULL, 0);
-            usb_drv_set_address(address);
-            usb_core_do_set_addr(address);
             break;
         case USB_REQ_GET_DESCRIPTOR:
             logf("usb_core: GET_DESC %d", req->wValue >> 8);
@@ -1139,12 +1149,7 @@ static void usb_core_control_request_handler(struct usb_ctrlrequest* req, uint8_
         usb_charging_maxcurrent_change(usb_charging_maxcurrent());
     }
 #endif
-    if(usb_state == DEFAULT) {
-        set_serial_descriptor();
-        usb_core_set_serial_function_id();
-
-        allocate_interfaces_and_endpoints();
-    }
+    usb_core_init_interfaces();
 
     switch(req->bRequestType & USB_RECIP_MASK) {
         case USB_RECIP_DEVICE:
@@ -1199,6 +1204,7 @@ static void signal_xfer_complete(int ep, struct usb_ctrlrequest* req, int status
 }
 
 static void process_setup_request(struct usb_ctrlrequest* req) {
+    control_cancelled = false;
     set_ep0_state(req->bRequestType & USB_DIR_IN ? EP0_HANDLING_TX_CONTROL : EP0_HANDLING_RX_CONTROL);
 
     if(ep0_state == EP0_HANDLING_TX_CONTROL || req->wLength == 0) {
@@ -1210,6 +1216,7 @@ static void process_setup_request(struct usb_ctrlrequest* req) {
     if(req->wLength > sizeof(usb_control_data)) {
         logf("usb_core: control write too large %u > %u", req->wLength, sizeof(usb_control_data));
         usb_drv_stall(EP_CONTROL, true, false);
+        set_ep0_state(EP0_READY);
         return;
     }
     set_ep0_state(EP0_EXPECT_RX_DATA_COMP);
@@ -1254,7 +1261,7 @@ void usb_core_transfer_complete(int ep, int dir, int status, int length) {
 
     /* Control packet handling */
     switch(dir | ep0_state) {
-    /* EXPECT_TX_DATA_STATUS_COMP -(status comp)-> EXPECT_TX_DATA_COMP -(data comp)-> READY 
+    /* EXPECT_TX_DATA_STATUS_COMP -(status comp)-> EXPECT_TX_DATA_COMP -(data comp)-> READY
      *                            -(data comp)-> EXPECT_TX_STATUS_COMP -(status comp)-> READY */
     case USB_DIR_OUT | EP0_EXPECT_TX_DATA_STATUS_COMP:
         logf("usb_core: control-in done success=%d", status == 0 && length == 0);
@@ -1295,7 +1302,7 @@ void usb_core_handle_notify(long id, intptr_t data)
     switch(id)
     {
         case USB_NOTIFY_SET_ADDR:
-            usb_core_do_set_addr(data);
+            usb_core_set_address(data);
             break;
         case USB_NOTIFY_SET_CONFIG:
             usb_core_do_set_config(data);
@@ -1326,17 +1333,32 @@ void usb_core_handle_notify(long id, intptr_t data)
     }
 }
 
+void usb_core_control_cancelled(void)
+{
+    /* A newer SETUP supersedes even a request deferred behind a handler. */
+    have_pending_request = false;
+    /* A queued/running handler still owns handling_request and the shared
+     * buffer. Suppress its response; a later SETUP may replace it on return. */
+    if(ep0_state == EP0_HANDLING_TX_CONTROL || ep0_state == EP0_HANDLING_RX_CONTROL)
+        control_cancelled = true;
+    else
+        set_ep0_state(EP0_READY);
+}
+
 void usb_core_setup_received(struct usb_ctrlrequest* req) {
     if(bus_reset_pending) {
         logf("usb_core: bus resetting tick=%lu", current_tick);
         return;
     }
+    /* Drivers cancel abandoned EP0 transfers before delivering replacement
+     * SETUP. A handler may still own the request buffer; defer until it returns. */
     if(ep0_state != EP0_READY) {
         logf("usb_core: control pending tick=%lu", current_tick);
         pending_request = *req;
         have_pending_request = true;
         return;
     }
+    have_pending_request = false;
     handling_request = *req;
     process_setup_request(&handling_request);
 }
@@ -1344,13 +1366,27 @@ void usb_core_setup_received(struct usb_ctrlrequest* req) {
 void usb_core_control_response(enum usb_control_response response, const void* data, size_t size) {
     logf("usb_core: response ack=%d size=%u ep0_state=%d tick=%lu", response, size, ep0_state, current_tick);
 
+    int oldlevel = disable_irq_save();
+    if(bus_reset_pending) {
+        restore_irq(oldlevel);
+        return;
+    }
     if((ep0_state == EP0_HANDLING_TX_CONTROL || ep0_state == EP0_HANDLING_RX_CONTROL) && check_for_new_setup()) {
+        restore_irq(oldlevel);
+        return;
+    }
+
+    if(control_cancelled) {
+        control_cancelled = false;
+        set_ep0_state(EP0_READY);
+        restore_irq(oldlevel);
         return;
     }
 
     if(response == USB_CONTROL_STALL) {
         set_ep0_state(EP0_READY);
         usb_drv_stall(EP_CONTROL, true, true);
+        restore_irq(oldlevel);
         return;
     }
 
@@ -1387,6 +1423,7 @@ void usb_core_control_response(enum usb_control_response response, const void* d
         panicf("usb_core: invalid control response ep_state=%d", ep0_state);
         break;
     }
+    restore_irq(oldlevel);
 }
 
 void usb_core_notify_set_address(uint8_t addr)

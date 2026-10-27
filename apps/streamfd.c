@@ -110,7 +110,7 @@ off_t stream_filesize_fd(int fd)
              fd, (long long)result, (long long)len);
         return result;
     }
-    return filesize(fd);
+    return ffilesize(fd);
 }
 
 ssize_t stream_content_type(int fd, char *buf, size_t n)

@@ -273,14 +273,6 @@
 #define CLIX_BUTTON_RIGHT         BUTTON_NEXT
 #define CLIX_BUTTON_CLICK         BUTTON_PLAY
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define CLIX_BUTTON_QUIT          BUTTON_POWER
-#define CLIX_BUTTON_UP            BUTTON_HOME
-#define CLIX_BUTTON_DOWN          BUTTON_OPTION
-#define CLIX_BUTTON_LEFT          BUTTON_PREV
-#define CLIX_BUTTON_RIGHT         BUTTON_NEXT
-#define CLIX_BUTTON_CLICK         BUTTON_PLAY
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #define CLIX_BUTTON_QUIT          BUTTON_POWER
 #define CLIX_BUTTON_UP            BUTTON_PREV
@@ -305,7 +297,7 @@
 #define CLIX_BUTTON_RIGHT       BUTTON_RIGHT
 #define CLIX_BUTTON_CLICK       BUTTON_SELECT
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 #define CLIX_BUTTON_QUIT        BUTTON_POWER
 
 #elif CONFIG_KEYPAD == MA_PAD
@@ -324,7 +316,7 @@
 #define CLIX_BUTTON_UP          BUTTON_UP
 #define CLIX_BUTTON_DOWN        BUTTON_DOWN
 
-#elif (CONFIG_KEYPAD == CTRU_PAD)
+#elif (CONFIG_KEYPAD == N3DS_PAD)
 #define CLIX_BUTTON_QUIT        BUTTON_BACK
 #define CLIX_BUTTON_LEFT        BUTTON_LEFT
 #define CLIX_BUTTON_RIGHT       BUTTON_RIGHT
@@ -337,6 +329,14 @@
 #define CLIX_BUTTON_LEFT        BUTTON_LEFT
 #define CLIX_BUTTON_RIGHT       BUTTON_RIGHT
 #define CLIX_BUTTON_CLICK       BUTTON_A
+#define CLIX_BUTTON_UP          BUTTON_UP
+#define CLIX_BUTTON_DOWN        BUTTON_DOWN
+
+#elif (CONFIG_KEYPAD == PSP_PAD)
+#define CLIX_BUTTON_QUIT        BUTTON_BACK
+#define CLIX_BUTTON_LEFT        BUTTON_LEFT
+#define CLIX_BUTTON_RIGHT       BUTTON_RIGHT
+#define CLIX_BUTTON_CLICK       BUTTON_SELECT
 #define CLIX_BUTTON_UP          BUTTON_UP
 #define CLIX_BUTTON_DOWN        BUTTON_DOWN
 
@@ -490,7 +490,7 @@ static void clix_init_new_level(struct clix_game_state_t* state)
     state->y = BOARD_HEIGHT / 2;
     state->x = BOARD_WIDTH / 2;
 
-    rb->srand( *rb->current_tick);
+
     /* create a random colored board, according to the current level */
     for(i = 0; i < BOARD_HEIGHT * BOARD_WIDTH; ++i)
     {

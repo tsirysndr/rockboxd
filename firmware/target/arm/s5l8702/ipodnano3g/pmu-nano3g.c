@@ -112,16 +112,26 @@ void pmu_set_cpu_voltage(bool high)
 #endif
 
 #if (CONFIG_RTC == RTC_NANO3G)
+/* The RTC, as the original firmware uses it:
+ * registers 0x40..0x45 hold seconds, minutes, hours, day, month and year
+ * (since 2000), in binary. Bit 6 of the seconds register is set whenever
+ * the time is written and masked off when it is read. The buffer holds the
+ * six values in that order. */
 void pmu_read_rtc(unsigned char* buffer)
 {
-    // TODO
-    (void) buffer;
+    pmu_read_multiple(D1671_REG_RTCSEC, 6, buffer);
+    buffer[0] &= ~D1671_RTCSEC_SET;
 }
 
 void pmu_write_rtc(unsigned char* buffer)
 {
-    // TODO
-    (void) buffer;
+    int i;
+
+    /* One register at a time, seconds first, as the original firmware
+     * does */
+    for (i = 0; i < 6; i++)
+        pmu_write(D1671_REG_RTCSEC + i,
+                  buffer[i] | (i == 0 ? D1671_RTCSEC_SET : 0));
 }
 #endif
 
@@ -132,7 +142,10 @@ void pmu_set_usblimit(bool fast_charge)
 }
 
 /*
- * ADC
+ * ADC, as the original firmware drives it: write the channel's
+ * input selection to register 0x30 with bit 3 set to start a conversion,
+ * wait for bit 3 to clear, and read the 10-bit result from 0x32 (bits 9..2)
+ * and 0x31 (bits 1..0). 0x30 idles at 0x20.
  */
 static struct mutex pmu_adc_mutex;
 
@@ -140,21 +153,31 @@ static struct mutex pmu_adc_mutex;
 unsigned short pmu_adc_raw2mv(
         const struct pmu_adc_channel *ch, unsigned short raw)
 {
-    // TODO
-    (void) ch;
-    (void) raw;
-    return 0;
+    return ch->offset_mv + raw * ch->span_mv / 1023;
 }
 
-/* returns raw value */
+/* returns raw value, averaged over ch->samples conversions */
 unsigned short pmu_read_adc(const struct pmu_adc_channel *ch)
 {
-    // TODO
-    int raw = 0;
+    unsigned int sum = 0;
+    int i, tries;
+
     mutex_lock(&pmu_adc_mutex);
-    (void) ch;
+    for (i = 0; i < ch->samples; i++)
+    {
+        pmu_write(D1671_REG_ADCCTL, ch->mux | D1671_ADCCTL_START);
+        for (tries = 0; tries < 20; tries++)
+        {
+            udelay(50);
+            if (!(pmu_read(D1671_REG_ADCCTL) & D1671_ADCCTL_START))
+                break;
+        }
+        sum += (pmu_read(D1671_REG_ADCHI) << 2)
+             | (pmu_read(D1671_REG_ADCLO) & 3);
+    }
+    pmu_write(D1671_REG_ADCCTL, D1671_ADCCTL_IDLE);
     mutex_unlock(&pmu_adc_mutex);
-    return raw;
+    return ch->samples ? sum / ch->samples : 0;
 }
 
 /*
@@ -201,7 +224,8 @@ int pmu_firewire_present(void)
 }
 #endif
 
-#if defined(BOOTLOADER)   // XXX: from usb-s5l8702.c
+/* XXX: from usb-s5l8702.c */
+#if defined(BOOTLOADER) && !defined(HAVE_BOOTLOADER_USB_MODE)
 #include "usb.h"
 static int usb_status = USB_EXTRACTED;
 
@@ -339,7 +363,7 @@ void pmu_preinit(void)
     pmu_wr(0x16, 0x14);
     pmu_wr(0x15, 0x14);     // TBC: Vnand = 2000 + val*50 = 3000 mV
     pmu_wr(0x18, 0x18);     // TBC TBC TBC: Vaccy = 3200 mV ???
-    pmu_wr(0x10, (pmu_rd(0x10) & 0xdb) | 0x8);  // TBC: bit4 is related to NAND, LDO_0x15 on/off ???
+    pmu_wr(0x10, (pmu_rd(0x10) & 0xdf) | 0x8);  /* keep bit 2: NAND needs it */
 
                             // TBC: 0x30, 0x31 y 0x32 seems related to ADC (norboot)
     pmu_wr(0x34, 0x72);     // TBC: en DA9030: TBATHIGH (0-255, TBAT high temperature threshold

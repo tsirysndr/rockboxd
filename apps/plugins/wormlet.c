@@ -360,15 +360,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define BTN_QUIT          BUTTON_POWER
 #define BTN_STOPRESET     (BUTTON_HOME | BUTTON_POWER)
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define BTN_DIR_UP        BUTTON_HOME
-#define BTN_DIR_DOWN      BUTTON_OPTION
-#define BTN_DIR_LEFT      BUTTON_PREV
-#define BTN_DIR_RIGHT     BUTTON_NEXT
-#define BTN_STARTPAUSE    BUTTON_PLAY
-#define BTN_QUIT          BUTTON_POWER
-#define BTN_STOPRESET     (BUTTON_HOME | BUTTON_POWER)
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #define BTN_DIR_UP        BUTTON_PREV
 #define BTN_DIR_DOWN      BUTTON_NEXT
@@ -396,7 +387,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define BTN_QUIT        BUTTON_POWER
 #define BTN_STOPRESET   BUTTON_BACK
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -420,7 +411,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define BTN_QUIT        BUTTON_START
 #define BTN_STOPRESET   BUTTON_B
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 
 #define BTN_DIR_UP      BUTTON_UP
 #define BTN_DIR_DOWN    BUTTON_DOWN
@@ -439,6 +430,16 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define BTN_STARTPAUSE  BUTTON_START
 #define BTN_QUIT        BUTTON_POWER
 #define BTN_STOPRESET   BUTTON_SELECT
+
+#elif CONFIG_KEYPAD == PSP_PAD
+
+#define BTN_DIR_UP      BUTTON_UP
+#define BTN_DIR_DOWN    BUTTON_DOWN
+#define BTN_DIR_LEFT    BUTTON_LEFT
+#define BTN_DIR_RIGHT   BUTTON_RIGHT
+#define BTN_STARTPAUSE  BUTTON_SELECT
+#define BTN_QUIT        BUTTON_BACK
+#define BTN_STOPRESET   BUTTON_MENU
 
 #else
 #error No keymap defined!
@@ -525,9 +526,10 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define SPEED 4
 #define MAX_WORM_SEGMENTS 512
 #elif ((LCD_WIDTH == 240) && (LCD_HEIGHT == 240)) || \
-    ((LCD_WIDTH == 320) && (LCD_HEIGHT == 240)) || \
+    (((LCD_WIDTH == 320) || (LCD_WIDTH == 400)) && (LCD_HEIGHT == 240)) || \
     ((LCD_WIDTH == 240) && ((LCD_HEIGHT == 320) || (LCD_HEIGHT == 400))) || \
-    ((LCD_WIDTH == 360) && (LCD_HEIGHT == 400))
+    ((LCD_WIDTH == 360) && ((LCD_HEIGHT == 400) || (LCD_HEIGHT == 640))) || \
+    ((LCD_WIDTH == 480) && (LCD_HEIGHT == 272))
 #define FOOD_SIZE 7
 #define ARGH_SIZE 8
 #define SPEED 4
@@ -2369,16 +2371,15 @@ static void test_make_argh(void)
 
     rb->lcd_update();
 
-    for (seed = 0; hit < 20; seed += 2) {
+    while (hit < 20) {
         int x, y;
-        rb->srand(seed);
+        ;
         x = rb->rand() % (FIELD_RECT_WIDTH  - argh_size);
         y = rb->rand() % (FIELD_RECT_HEIGHT - argh_size);
 
         for (worm_idx = 0; worm_idx < worm_count; worm_idx++){
             if (expensive_worm_in_rect(&worms[worm_idx], x, y, argh_size, argh_size)) {
                 int tries = 0;
-                rb->srand(seed);
 
                 tries = make_argh(0);
                 if ((x == arghx[0] && y == arghy[0]) || tries < 2) {

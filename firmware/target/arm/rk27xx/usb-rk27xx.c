@@ -31,10 +31,6 @@ int usb_status = USB_EXTRACTED;
 
 void usb_init_device(void)
 {
-    /* enable UDC interrupt */
-    INTC_IMR |= (1<<16);
-    INTC_IECR |= (1<<16);
-
     EN_INT = EN_SUSP_INTR   |  /* Enable Suspend Interrupt */
              EN_RESUME_INTR |  /* Enable Resume Interrupt */
              EN_USBRST_INTR |  /* Enable USB Reset Interrupt */
@@ -54,10 +50,16 @@ void usb_attach(void)
     usb_enable(true);
 }
 
+void usb_drv_connect(void);   /* usb-drv-rk27xx.c */
+
 void usb_enable(bool on)
 {
     if(on)
+    {
         usb_core_init();
+        /* attach only once the core is fully set up - see usb_drv_connect() */
+        usb_drv_connect();
+    }
     else
         usb_core_exit();
 }

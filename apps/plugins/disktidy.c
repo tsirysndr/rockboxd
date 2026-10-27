@@ -51,6 +51,12 @@ struct run_statistics {
 #endif
 };
 
+struct stats_text {
+    struct viewport vp;
+    char** arr;
+    int len;
+};
+
 struct tidy_type {
     char filestring[64];
     int  pre;
@@ -223,9 +229,23 @@ static bool load_run_stats(void)
     return load_success;
 }
 
+static void display_run_stats_cb(unsigned short id, void *data, void *userdata)
+{
+    (void)id;
+    (void)data;
+    struct stats_text *text = (struct stats_text *) userdata;
+    display_text(text->len, text->arr, NULL, &text->vp, false);
+}
+
+static void display_run_stats_cleanup(void *userdata)
+{
+    struct stats_text *text = (struct stats_text *) userdata;
+    rb->remove_event_ex(GUI_EVENT_NEED_UI_UPDATE, display_run_stats_cb, text);
+}
+
 static enum plugin_status display_run_stats(void)
 {
-    struct viewport vp;
+    struct stats_text text;
 
     if (!load_run_stats()) {
         rb->splash(HZ * 2, "Unable to load last run stats");
@@ -307,22 +327,22 @@ static enum plugin_status display_run_stats(void)
         dirs_removed , run_stats.dirs_removed == 1 ? "dir" : "dirs", "",
         run_time     , "",
     };
-    char** text_arr = last_run_text;
-    int len = ARRAYLEN(last_run_text);
+    text.arr = last_run_text;
+    text.len = ARRAYLEN(last_run_text);
     if (!num_removed)
     {
         /* Hide superfluous zeros if nothing was removed */
-        text_arr[len - 9] = "";
-        text_arr[len - 8] = run_time;
-        text_arr[len - 7] = "";
-        len -= 6;
+        text.arr[text.len - 9] = "";
+        text.arr[text.len - 8] = run_time;
+        text.arr[text.len - 7] = "";
+        text.len -= 6;
     }
 #if CONFIG_RTC
     sbs_has_title = rb->sb_set_title_text(last_run, Icon_NOICON, SCREEN_MAIN);
     if (sbs_has_title)
     {
-        text_arr += 2;
-        len -=2;
+        text.arr += 2;
+        text.len -=2;
 #else
     sbs_has_title = rb->sb_set_title_text("Last Run", Icon_NOICON, SCREEN_MAIN);
     if (sbs_has_title)
@@ -331,21 +351,23 @@ static enum plugin_status display_run_stats(void)
         rb->send_event(GUI_EVENT_ACTIONREDRAW, (void*)1);
     }
 
-    rb->viewport_set_defaults(&vp, SCREEN_MAIN);
+    rb->viewport_set_defaults(&text.vp, SCREEN_MAIN);
 
-    if (display_text(len, text_arr, NULL, &vp, false))
-    {
+    if (display_text(text.len, text.arr, NULL, &text.vp, false))
         return PLUGIN_USB_CONNECTED;
-    }
+
+    rb->add_event_ex(GUI_EVENT_NEED_UI_UPDATE, false, display_run_stats_cb, &text);
     while (true) /* keep info on screen until cancelled */
     {
         int button = rb->get_action(CONTEXT_STD, HZ/2);
         if (button == ACTION_STD_CANCEL || button == ACTION_STD_MENU)
             break;
 
-        if (rb->default_event_handler(button) == SYS_USB_CONNECTED)
+        if (rb->default_event_handler_ex(button, display_run_stats_cleanup, &text)
+             == SYS_USB_CONNECTED)
             return PLUGIN_USB_CONNECTED;
     }
+    display_run_stats_cleanup(&text);
     return PLUGIN_OK;
 }
 

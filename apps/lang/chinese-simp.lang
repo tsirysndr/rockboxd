@@ -764,10 +764,10 @@
   desc: in the equalizer settings menu
   user: core
   <source>
-    *: "Peak Filter %d"
+    *: "Peak Filter"
   </source>
   <dest>
-    *: "带通滤波器%d"
+    *: "带通滤波器"
   </dest>
   <voice>
     *: "带通滤波器"
@@ -8888,15 +8888,15 @@
   user: core
   <source>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Bass Cutoff"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Bass Cutoff"
   </source>
   <dest>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "低频截止频率"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "低频截止频率"
   </dest>
   <voice>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "低频截止频率"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "低频截止频率"
   </voice>
 </phrase>
 <phrase>
@@ -9094,15 +9094,15 @@
   user: core
   <source>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "Treble Cutoff"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "Treble Cutoff"
   </source>
   <dest>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "高频截止频率"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "高频截止频率"
   </dest>
   <voice>
     *: none
-    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100: "高频截止频率"
+    gigabeatfx,ipod6g,ipodnano3g,ipodnano4g,ipodvideo,mpiohd200,mpiohd300,mrobe100,samsungypcp3: "高频截止频率"
   </voice>
 </phrase>
 <phrase>
@@ -17104,5 +17104,135 @@
   </dest>
   <voice>
     *: "设置上下文项目"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_EQUALIZER_BAND
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "Filter %d"
+  </source>
+  <dest>
+    *: "滤波器 %d"
+  </dest>
+  <voice>
+    *: "滤波器"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_EQUALIZER_FILTER_TYPE
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "Filter Type"
+  </source>
+  <dest>
+    *: "滤波器类型"
+  </dest>
+  <voice>
+    *: "滤波器类型"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_COMPOSITE_VIDEO_OUTPUT
+  desc: Enables composite video framebuffer mirroring on supported targets
+  user: core
+  <source>
+    *: none
+    videoout: "Composite Video Output"
+  </source>
+  <dest>
+    *: none
+    videoout: "复合视频(AV)输出"
+  </dest>
+  <voice>
+    *: none
+    videoout: "复合视频输出"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TOUCHSCREEN_FLICK_SHORTCUTS
+  desc: in settings menu
+  user: core
+  <source>
+    *: none
+    touchscreen: "Touchscreen Flick Shortcuts"
+  </source>
+  <dest>
+    *: none
+    touchscreen: "触控滑动快捷方式"
+  </dest>
+  <voice>
+    *: none
+    touchscreen: "触控滑动快捷方式"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_RECORDING_SCREEN
+  desc: in the theme menu: browse recording screen skins
+  user: core
+  <source>
+    *: none
+    recording: "Recording Screen"
+  </source>
+  <dest>
+    *: none
+    recording: "录音界面"
+  </dest>
+  <voice>
+    *: none
+    recording: "录音界面"
+  </voice>
+</phrase>
+<phrase>
+  id: VOICE_EXT_WRS
+  desc: spoken only, for file extension
+  user: core
+  <source>
+    *: none
+    recording: ""
+  </source>
+  <dest>
+    *: none
+    recording: ""
+  </dest>
+  <voice>
+    *: none
+    recording: "录音界面皮肤"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_REMOTE_RECORDING_SCREEN
+  desc: in the theme menu: browse remote recording screen skins
+  user: core
+  <source>
+    *: none
+    recording_remote: "Remote Recording Screen"
+  </source>
+  <dest>
+    *: none
+    recording_remote: "线控录音界面"
+  </dest>
+  <voice>
+    *: none
+    recording_remote: "线控录音界面"
+  </voice>
+</phrase>
+<phrase>
+  id: VOICE_EXT_RWRS
+  desc: spoken only, for file extension
+  user: core
+  <source>
+    *: none
+    recording_remote: ""
+  </source>
+  <dest>
+    *: none
+    recording_remote: ""
+  </dest>
+  <voice>
+    *: none
+    recording_remote: "线控录音界面皮肤"
   </voice>
 </phrase>

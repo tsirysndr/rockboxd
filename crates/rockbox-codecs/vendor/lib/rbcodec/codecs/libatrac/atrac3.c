@@ -86,6 +86,13 @@ static int          vlcs_initialized = 0;
                           int32_t *inlo,
                           int32_t *inhi,
                           unsigned int nIn);
+    /* The same, with the results scaled up by ATRAC3_OUT_SHIFT bits
+     * (ARMv5 and later) */
+    extern void
+    atrac3_iqmf_matrixing_out(int32_t *p3,
+                              int32_t *inlo,
+                              int32_t *inhi,
+                              unsigned int nIn);
 #else
     static inline void
     atrac3_iqmf_matrixing(int32_t *p3,
@@ -99,6 +106,22 @@ static int          vlcs_initialized = 0;
             p3[2*i+1] = inlo[i  ] - inhi[i  ];
             p3[2*i+2] = inlo[i+1] + inhi[i+1];
             p3[2*i+3] = inlo[i+1] - inhi[i+1];
+        }
+    }
+
+    /* The same, with the results scaled up by ATRAC3_OUT_SHIFT bits */
+    static inline void
+    atrac3_iqmf_matrixing_out(int32_t *p3,
+                              int32_t *inlo,
+                              int32_t *inhi,
+                              unsigned int nIn)
+    {
+        uint32_t i;
+        for(i=0; i<nIn; i+=2){
+            p3[2*i+0] = (inlo[i  ] + inhi[i  ]) * (1 << ATRAC3_OUT_SHIFT);
+            p3[2*i+1] = (inlo[i  ] - inhi[i  ]) * (1 << ATRAC3_OUT_SHIFT);
+            p3[2*i+2] = (inlo[i+1] + inhi[i+1]) * (1 << ATRAC3_OUT_SHIFT);
+            p3[2*i+3] = (inlo[i+1] - inhi[i+1]) * (1 << ATRAC3_OUT_SHIFT);
         }
     }
 #endif
@@ -150,6 +173,15 @@ static int          vlcs_initialized = 0;
                             int32_t *in,
                             int32_t *win,
                             unsigned int nIn);    
+    /* The same, with the results scaled up by ATRAC3_OUT_SHIFT bits. The
+     * ARMv4 multiplier takes longer for large operands, so there the last
+     * stage is scaled here and not in its matrixing. */
+    #define ATRAC3_SCALE_IN_DEWINDOWING
+    extern void
+    atrac3_iqmf_dewindowing_out(int32_t *out,
+                                int32_t *in,
+                                int32_t *win,
+                                unsigned int nIn);
                             
 #elif defined (CPU_COLDFIRE)
     #define MULTIPLY_ADD_BLOCK \
@@ -252,10 +284,15 @@ atrac3_imdct_windowing(int32_t *buffer,
                        const int32_t *win)
 {
     int32_t i;
-    /* win[0..127] = win[511..384], win[128..383] = 1 */
+    /* win[0..127] = win[511..384] */
     for(i = 0; i<128; i++) {
         buffer[    i] = fixmul31(win[i], buffer[    i]);
         buffer[511-i] = fixmul31(win[i], buffer[511-i]);
+    }
+    /* win[128..255] = win[383..256] = 1 + window_lookup_mid[] */
+    for(i = 0; i<128; i++) {
+        buffer[128+i] += fixmul31(window_lookup_mid[i], buffer[128+i]);
+        buffer[383-i] += fixmul31(window_lookup_mid[i], buffer[383-i]);
     }
 }
 
@@ -269,19 +306,35 @@ atrac3_imdct_windowing(int32_t *buffer,
  * @param pOut      out buffer
  * @param delayBuf  delayBuf buffer
  * @param temp      temp buffer
+ * @param last      true for the stage that makes the output, which is
+ *                  scaled up by ATRAC3_OUT_SHIFT bits
  */
  
-static void iqmf (int32_t *inlo, int32_t *inhi, unsigned int nIn, int32_t *pOut, int32_t *delayBuf, int32_t *temp)
+static void iqmf (int32_t *inlo, int32_t *inhi, unsigned int nIn, int32_t *pOut, int32_t *delayBuf, int32_t *temp, bool last)
 {
 
     /* Restore the delay buffer */
     memcpy(temp, delayBuf, 46*sizeof(int32_t));
 
+#ifdef ATRAC3_SCALE_IN_DEWINDOWING
     /* loop1: matrixing */
     atrac3_iqmf_matrixing(temp + 46, inlo, inhi, nIn);
 
     /* loop2: dewindowing */
+    if (last)
+        atrac3_iqmf_dewindowing_out(pOut, temp, qmf_window, nIn);
+    else
+        atrac3_iqmf_dewindowing(pOut, temp, qmf_window, nIn);
+#else
+    /* loop1: matrixing */
+    if (last)
+        atrac3_iqmf_matrixing_out(temp + 46, inlo, inhi, nIn);
+    else
+        atrac3_iqmf_matrixing(temp + 46, inlo, inhi, nIn);
+
+    /* loop2: dewindowing */
     atrac3_iqmf_dewindowing(pOut, temp, qmf_window, nIn);
+#endif
 
     /* Save the delay buffer */
     memcpy(delayBuf, temp + (nIn << 1), 46*sizeof(int32_t));
@@ -297,8 +350,17 @@ static void iqmf (int32_t *inlo, int32_t *inhi, unsigned int nIn, int32_t *pOut,
  * @param odd_band  1 if the band is an odd band
  */
 
-static void IMLT(int32_t *pInput, int32_t *pOutput)
+static void IMLT(int32_t *pInput, int32_t *pOutput, int odd_band)
 {
+    if (odd_band) {
+        /* Reverse the odd bands before the IMDCT; this is an effect of the
+         * QMF transform. The whole band is reversed, tonal components
+         * included, so it cannot be done as the coefficients are decoded. */
+        int i;
+        for (i = 0; i < 128; i++)
+            FFSWAP(int32_t, pInput[i], pInput[255-i]);
+    }
+
     /* Apply the imdct. */
     ff_imdct_calc(9, pOutput, pInput);
 
@@ -438,31 +500,16 @@ static void inverseQuantizeSpectrum(int *mantissas, int32_t *pOut,
     int *pIn = mantissas;
     
     /* Inverse quantize the coefficients. */
-    if((first/256) &1) {
-        /* Odd band - Reverse coefficients */
-        do {
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-            pOut[last--] = fixmul16(*pIn++, SF);
-        } while (last>first);
-    } else {
-         /* Even band - Do not reverse coefficients */
-         do {
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-            pOut[first++] = fixmul16(*pIn++, SF);
-        } while (first<last);
-    }
+    do {
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+        pOut[first++] = fixmul16(*pIn++, SF);
+    } while (first<last);
 }
 
 
@@ -718,8 +765,10 @@ static int applyVariableGain (int32_t *pIn, int32_t *pPrev, int32_t *pOut,
 {
     int32_t i = start;
     
-    /* Apply fix gains until end index is reached */
-    do {
+    /* Apply fix gains until end index is reached. There is nothing to do
+     * here when the gain point is where the previous one ended, or at the
+     * start of the block. */
+    while (i < end) {
         pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
         pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
         pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
@@ -728,7 +777,7 @@ static int applyVariableGain (int32_t *pIn, int32_t *pPrev, int32_t *pOut,
         pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
         pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
         pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
-    } while (i < end);
+    }
 
     /* Interpolation is done over next eight samples */
     pOut[i] = fixmul16((fixmul16(pIn[i], gain1) + pPrev[i]), gain2); i++;
@@ -998,7 +1047,7 @@ static int decodeChannelSoundUnit (GetBitContext *gb, channel_unit *pSnd, int32_
     for (band=0; band<4; band++) {
         /* Perform the IMDCT step without overlapping. */
         if (band <= numBands) {
-            IMLT(&(pSnd->spectrum[band*256]), pSnd->IMDCT_buf);
+            IMLT(&(pSnd->spectrum[band*256]), pSnd->IMDCT_buf, band & 1);
         } else {
             memset(pSnd->IMDCT_buf, 0, 512 * sizeof(int32_t));
         }
@@ -1104,9 +1153,9 @@ static int decodeFrame(ATRAC3Context *q, const uint8_t* databuf, int off)
         p2= p1+256;
         p3= p2+256;
         p4= p3+256;
-        iqmf (p1, p2, 256, p1, q->pUnits[i].delayBuf1, q->tempBuf);
-        iqmf (p4, p3, 256, p3, q->pUnits[i].delayBuf2, q->tempBuf);
-        iqmf (p1, p3, 512, p1, q->pUnits[i].delayBuf3, q->tempBuf);
+        iqmf (p1, p2, 256, p1, q->pUnits[i].delayBuf1, q->tempBuf, false);
+        iqmf (p4, p3, 256, p3, q->pUnits[i].delayBuf2, q->tempBuf, false);
+        iqmf (p1, p3, 512, p1, q->pUnits[i].delayBuf3, q->tempBuf, true);
         p1 +=1024;
     }
 

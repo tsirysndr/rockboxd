@@ -75,6 +75,12 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_compile_definitions(USE_LIBUSBAPI)
 
     # optional system libs.
+    pkg_check_modules(libmtp QUIET IMPORTED_TARGET libmtp)
+    if (${libmtp_FOUND})
+        message("-- Found libmtp: ${libmtp_LINK_LIBRARIES}")
+    else()
+        message("-- Could not find libmtp, Gigabeat S bootloader install disabled.")
+    endif()
     pkg_check_modules(speex QUIET IMPORTED_TARGET speex speexdsp)
     if (${speex_FOUND})
         message("-- Found speex: ${speex_LINK_LIBRARIES}")
@@ -124,6 +130,38 @@ else()
     set(QUAZIP_LIBRARY quazip)
 endif()
 
+# Setup code signing for macOS
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # Signing the binaries
+    set(CODESIGN_IDENTITY "-" CACHE STRING
+            "Code signing identity to use for macOS signing")
+
+    if(DEFINED ENV{CODESIGN_IDENTITY})
+        set(CODESIGN_IDENTITY "$ENV{CODESIGN_IDENTITY}")
+    endif()
+
+    if("${CODESIGN_IDENTITY}" STREQUAL "-")
+        message("-- Using ad-hoc Apple code signing")
+    else()
+        message("-- Using Apple code signing identity: ${CODESIGN_IDENTITY}")
+    endif()
+
+    # Submitting the .dmg file to Apple's service to get a
+    # notarization ticket for distributing outside the App store
+    set(KEYCHAIN_PROFILE "" CACHE STRING
+            "Apple Keychain profile name to use for notarization")
+
+    if(DEFINED ENV{KEYCHAIN_PROFILE})
+        set(KEYCHAIN_PROFILE "$ENV{KEYCHAIN_PROFILE}")
+    endif()
+
+    if("${KEYCHAIN_PROFILE}" STREQUAL "")
+        message("-- Skipping Apple notarization")
+    else()
+        message("-- Using Apple notarization keychain profile: ${KEYCHAIN_PROFILE}")
+    endif()
+endif()
+
 add_executable(ipodpatcher-bin
     ipodpatcher/main.c
     ipodpatcher/ipodpatcher_aupd.c
@@ -133,6 +171,13 @@ target_compile_definitions(ipodpatcher-bin PRIVATE VERSION="none")
 set_target_properties(ipodpatcher-bin PROPERTIES OUTPUT_NAME ipodpatcher)
 if(APPLE)
     target_link_libraries(ipodpatcher-bin ${FRAMEWORK_IOKIT} ${FRAMEWORK_COREFOUNDATION})
+
+    add_custom_command(TARGET ipodpatcher-bin POST_BUILD
+        COMMAND codesign --force --options runtime
+                --sign "${CODESIGN_IDENTITY}"
+                "$<TARGET_FILE:ipodpatcher-bin>"
+        VERBATIM
+    )
 endif()
 
 add_library(ipodpatcher
@@ -163,6 +208,15 @@ add_executable(sansapatcher-bin
 target_link_libraries(sansapatcher-bin sansapatcher)
 target_compile_definitions(sansapatcher-bin PRIVATE VERSION="none")
 set_target_properties(sansapatcher-bin PROPERTIES OUTPUT_NAME sansapatcher)
+
+if(APPLE)
+    add_custom_command(TARGET sansapatcher-bin POST_BUILD
+        COMMAND codesign --force --options runtime
+                --sign "${CODESIGN_IDENTITY}"
+                "$<TARGET_FILE:sansapatcher-bin>"
+        VERBATIM
+    )
+endif()
 
 add_library(sansapatcher
     sansapatcher/parttypes.h
@@ -327,6 +381,15 @@ target_include_directories(mks5lboot PUBLIC ${CMAKE_CURRENT_LIST_DIR}/mks5lboot)
 if(WIN32)
 target_link_libraries(mks5lboot PRIVATE setupapi)
 endif()
+
+add_library(mknkboot
+    MTP/beastpatcher/md5.c
+    MTP/beastpatcher/md5.h
+    MTP/beastpatcher/mknkboot.c
+    MTP/beastpatcher/mknkboot.h
+    )
+target_include_directories(mknkboot PUBLIC ${CMAKE_CURRENT_LIST_DIR}/MTP/beastpatcher)
+target_compile_definitions(mknkboot PRIVATE MKNKBOOT_LIBRARY)
 
 add_library(bspatch
     bspatch/bspatch.c

@@ -41,6 +41,7 @@
 #include "statusbar-skinned.h"
 #include "debug.h"
 #include "line.h"
+#include "fixedpoint.h"
 
 #define ICON_PADDING 1
 #define ICON_PADDING_S "1"
@@ -540,15 +541,15 @@ static int swipe_scroll(struct gui_synclist *gui_list, int delta)
  */
 
 #define SIGN(a) ((a) < 0 ? -1 : 1)
-/* these could possibly be configurable */
-/* the lower the smoother */
 #define RELOAD_INTERVAL (HZ/25)
-/* the higher the earler the list stops */
-#define DECELERATION (1000*RELOAD_INTERVAL/HZ)
+#define RELOAD_INTERVAL_FP ((RELOAD_INTERVAL << LIST_KINETIC_FRACBITS) / HZ)
 
 struct kinetic_cb_data {
     struct gui_synclist *list;
-    int velocity;
+    long velocity;
+    long distance;
+    long scroll_duration;
+    long press_duration;
 };
 
 struct kinetic {
@@ -560,10 +561,42 @@ struct kinetic {
 static struct kinetic kinetic;
 static struct gesture_vel list_gvel;
 
+/*
+ * NOTE: defaults were chosen for the Shanling Q1, and may need
+ *       tuning for other devices
+ */
+
+const struct list_kinetic_scroll_settings list_kinetic_scroll_accel_default = {
+    .a0 = 200 << LIST_KINETIC_FRACBITS,         /* 200.0 */
+    .a1 = (6 << LIST_KINETIC_FRACBITS) / 5,     /* 1.2 */
+};
+
+const struct list_kinetic_scroll_settings list_kinetic_scroll_brake_default = {
+    .a0 = 200 << LIST_KINETIC_FRACBITS,         /* 200.0 */
+    .a1 = (1 << LIST_KINETIC_FRACBITS) / 2,     /* 0.5 */
+};
+
+const struct list_kinetic_scroll_settings list_kinetic_scroll_decel_default = {
+    .a0 = 2000 << LIST_KINETIC_FRACBITS,        /* 2000.0 */
+    .a1 = (1 << LIST_KINETIC_FRACBITS) / 2,     /* 0.5 */
+    .delay = 125 * HZ / 1000,                   /* 125 ms */
+};
+
+const struct list_kinetic_scroll_settings list_kinetic_scroll_press_default = {
+    .a0 = 35000 << LIST_KINETIC_FRACBITS,       /* 35000.0 */
+    .a1 = 4 << LIST_KINETIC_FRACBITS,           /* 4.0 */
+    .delay = 250 * HZ / 1000,                   /* 250 ms */
+};
+
 static void kinetic_stop_scrolling(struct kinetic *k, struct gui_synclist *list)
 {
     if (k->cb_data.list == list)
+    {
+        k->cb_data.list = NULL;
+        k->cb_data.velocity = 0;
+        k->cb_data.distance = 0;
         timeout_cancel(&k->tmo);
+    }
 }
 
 /* helper for gui/list.c to cancel scrolling if a normal button event comes */
@@ -576,32 +609,66 @@ void _gui_synclist_stop_kinetic_scrolling(struct gui_synclist *list)
     }
 }
 
+static long kinetic_calc_accel(long input, long duration,
+                               const struct list_kinetic_scroll_settings *param)
+{
+    if (duration < param->delay)
+        return 0;
+
+    long x1 = input < 0 ? -input : input;
+    long r = fp_mul(param->a1, x1, LIST_KINETIC_FRACBITS) +
+             param->a0 + (1 << (LIST_KINETIC_FRACBITS - 1));
+
+    return SIGN(input) * r;
+}
+
 static int kinetic_callback(struct timeout *tmo)
 {
     struct kinetic_cb_data *data = (struct kinetic_cb_data*)tmo->data;
     struct gui_synclist *list = data->list;
+    int pixel_diff, action;
 
     /* deal with cancellation */
-    if (list->scroll_mode != SCROLL_KINETIC)
+    if (!list || list->scroll_mode != SCROLL_KINETIC)
         return 0;
 
-    /* ds = v*dt */
-    int pixel_diff = data->velocity * RELOAD_INTERVAL / HZ;
-    int action = swipe_scroll(list, pixel_diff);
+    long abs_vel = data->velocity < 0 ? -data->velocity : data->velocity;
+    long vel_sgn = SIGN(data->velocity);
+
+    data->distance += fp_mul(abs_vel, RELOAD_INTERVAL_FP, LIST_KINETIC_FRACBITS);
+    data->scroll_duration += RELOAD_INTERVAL;
+
+    pixel_diff = data->distance >> LIST_KINETIC_FRACBITS;
+    data->distance -= pixel_diff << LIST_KINETIC_FRACBITS;
+
+    action = swipe_scroll(list, pixel_diff * vel_sgn);
     if (action == ACTION_REDRAW)
     {
         /* force the list to redraw */
         button_queue_post(BUTTON_REDRAW, 0);
     }
 
-    /* apply deceleration */
-    int old_sign = SIGN(data->velocity);
-    data->velocity -= SIGN(data->velocity) * DECELERATION;
-    if (SIGN(data->velocity) != old_sign)
+    /* calculate and apply deceleration */
+    long abs_decel = 0;
+    abs_decel += kinetic_calc_accel(abs_vel, data->scroll_duration,
+                                    &global_settings.kinetic_scroll_decel);
+    abs_decel += kinetic_calc_accel(abs_vel, data->press_duration,
+                                    &global_settings.kinetic_scroll_press);
+    abs_decel = fp_mul(abs_decel, RELOAD_INTERVAL_FP, LIST_KINETIC_FRACBITS);
+
+    /*
+     * Ensure velocity is smoothly reduced to zero to avoid jerky
+     * scrolling near the end of scrolling.
+     */
+    if (abs_vel < (3 << LIST_KINETIC_FRACBITS))
         data->velocity = 0;
+    else if (abs_vel < abs_decel)
+        data->velocity /= 3;
+    else
+        data->velocity -= SIGN(data->velocity) * abs_decel;
 
     /* stop scrolling if we didn't move, it means we hit the end */
-    if (list->y_pos == list->scroll_base_y)
+    if (list->y_pos == list->scroll_base_y && pixel_diff != 0)
         data->velocity = 0;
     else
         /* update base y since our scroll distance doesn't accumulate. */
@@ -624,8 +691,31 @@ static bool kinetic_start_scrolling(struct kinetic *k, struct gui_synclist *list
     if (yvel == 0)
         return false;
 
+    long yvel_fp = yvel << LIST_KINETIC_FRACBITS;
+    int vel_sgn = SIGN(k->cb_data.velocity);
+
+    if (list->scroll_mode == SCROLL_KINETIC)
+    {
+        long accel;
+        if (SIGN(yvel) == vel_sgn)
+            accel = kinetic_calc_accel(k->cb_data.velocity, LONG_MAX,
+                                       &global_settings.kinetic_scroll_accel);
+        else
+            accel = -kinetic_calc_accel(k->cb_data.velocity, LONG_MAX,
+                                        &global_settings.kinetic_scroll_brake);
+
+        yvel_fp += accel;
+    }
+
     k->cb_data.list = list;
-    k->cb_data.velocity = yvel;
+    k->cb_data.velocity += yvel_fp;
+    /* also reset distance & scroll duration after a direction change */
+    if (list->scroll_mode != SCROLL_KINETIC ||
+        vel_sgn != SIGN(k->cb_data.velocity))
+    {
+        k->cb_data.distance = 0;
+        k->cb_data.scroll_duration = 0;
+    }
 
     list->scroll_mode = SCROLL_KINETIC;
     list->scroll_base_y = list->y_pos;
@@ -709,6 +799,25 @@ static int get_click_location(struct gui_synclist *list, int x, int y)
     return retval;
 }
 
+
+static int list_do_flick(const struct gesture_event *gevent)
+{
+    if (!global_settings.touch_enable_flick_shortcuts)
+        return ACTION_NONE;
+
+    switch (gesture_flick_get(gevent))
+    {
+    case GESTURE_FLICK_TOP:
+        return ACTION_STD_QUICKSCREEN;
+    case GESTURE_FLICK_LEFT:
+        return ACTION_STD_CANCEL;
+    case GESTURE_FLICK_RIGHT:
+        return ACTION_TREE_WPS;
+    default:
+        return ACTION_NONE;
+    }
+}
+
 unsigned gui_synclist_do_touchscreen(struct gui_synclist *list)
 {
     struct touchevent tevent;
@@ -728,6 +837,11 @@ unsigned gui_synclist_do_touchscreen(struct gui_synclist *list)
     int action = ACTION_NONE;
     int click_loc;
 
+    if (action_gesture_is_pressed())
+        kinetic.cb_data.press_duration = gevent.last_tick - gevent.start_tick;
+    else
+        kinetic.cb_data.press_duration = -1;
+
     switch (gevent.id)
     {
     case GESTURE_NONE:
@@ -737,7 +851,15 @@ unsigned gui_synclist_do_touchscreen(struct gui_synclist *list)
 
     case GESTURE_TAP:
     case GESTURE_LONG_PRESS:
-        _gui_synclist_stop_kinetic_scrolling(list);
+        /* In kinetic mode taps and presses only decelerate scrolling.
+         * User needs to wait until scrolling stops to select an item. */
+        if (list->scroll_mode == SCROLL_KINETIC)
+        {
+            if (gevent.id != GESTURE_NONE)
+                gesture_vel_reset(&list_gvel);
+            break;
+        }
+
         click_loc = get_click_location(list, gevent.x, gevent.y);
         if (click_loc & LIST)
         {
@@ -789,17 +911,24 @@ unsigned gui_synclist_do_touchscreen(struct gui_synclist *list)
         break;
 
     case GESTURE_DRAGSTART:
-        _gui_synclist_stop_kinetic_scrolling(list);
         gesture_vel_reset(&list_gvel);
-        list->scroll_base_y = list->y_pos;
         /* fallthrough */
 
     case GESTURE_DRAG:
         gesture_vel_process(&list_gvel, &tevent);
 
+        action = list_do_flick(&gevent);
+        if (action != ACTION_NONE)
+        {
+            action_gesture_reset();
+            break;
+        }
+
         if (list->scroll_mode == SCROLL_NONE)
         {
+            list->scroll_base_y = list->y_pos;
             click_loc = get_click_location(list, gevent.ox, gevent.oy);
+
             if (click_loc & SCROLLBAR)
                 list->scroll_mode = SCROLL_BAR;
             else if (click_loc & LIST)
@@ -810,15 +939,14 @@ unsigned gui_synclist_do_touchscreen(struct gui_synclist *list)
             action = scrollbar_scroll(list, gevent.y);
         else if (list->scroll_mode == SCROLL_SWIPE)
             action = swipe_scroll(list, gevent.y - gevent.oy);
-
         break;
 
     case GESTURE_RELEASE:
-        if (list->scroll_mode != SCROLL_SWIPE ||
-            !kinetic_start_scrolling(&kinetic, list))
-        {
+        if (list->scroll_mode == SCROLL_BAR)
             list->scroll_mode = SCROLL_NONE;
-        }
+        else if(!kinetic_start_scrolling(&kinetic, list) &&
+                list->scroll_mode != SCROLL_KINETIC)
+            list->scroll_mode = SCROLL_NONE;
 
         action_gesture_reset();
         action = ACTION_REDRAW;

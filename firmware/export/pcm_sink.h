@@ -23,10 +23,16 @@
 
 #include "config.h"
 
+#define PCM_SINK_HWVOL 0
+#ifdef WANT_SWVOL
+#define PCM_SINK_SWVOL 1
+#endif
+
 struct pcm_sink_caps {
     const unsigned long* samprs;
-    uint16_t             num_samprs;
-    uint16_t             default_freq;
+    uint8_t              num_samprs;
+    uint8_t              default_freq;
+    uint8_t              volume_type;
 };
 
 struct pcm_sink_ops {
@@ -41,7 +47,7 @@ struct pcm_sink_ops {
 
 struct pcm_sink {
     /* characteristics */
-    const struct pcm_sink_caps caps;
+    struct pcm_sink_caps caps;
 
     /* operations */
     const struct pcm_sink_ops ops;

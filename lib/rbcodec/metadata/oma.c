@@ -180,7 +180,7 @@ bool get_oma_metadata(int fd, struct mp3entry* id3)
 
     /* Currently, there's no means of knowing the duration *
      * directly from the the file so we calculate it.      */
-    id3->FS_PREFIX(filesize) = filesize(fd);
-    id3->length   = ((id3->FS_PREFIX(filesize) - id3->first_frame_offset) * 8) / id3->bitrate;
+    id3->filesize = ffilesize(fd);
+    id3->length   = ((id3->filesize - id3->first_frame_offset) * 8) / id3->bitrate;
     return true;
 }

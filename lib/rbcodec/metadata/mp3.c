@@ -72,14 +72,14 @@ static int getsonglength(int fd, struct mp3entry *entry)
 
     /* Subtract the meta information from the file size to get
        the true size of the MP3 stream */
-    entry->FS_PREFIX(filesize) -= entry->id3v1len + entry->id3v2len;
+    entry->filesize -= entry->id3v1len + entry->id3v2len;
 
     /* Validate byte count, in case the file has been edited without
      * updating the header.
      */
     if (info.byte_count)
     {
-        const unsigned long expected = entry->FS_PREFIX(filesize) - entry->id3v1len
+        const unsigned long expected = entry->filesize - entry->id3v1len
             - entry->id3v2len;
         const unsigned long diff = MAX(10240, info.byte_count / 20);
 
@@ -100,7 +100,7 @@ static int getsonglength(int fd, struct mp3entry *entry)
         }
     }
 
-    entry->FS_PREFIX(filesize) -= bytecount;
+    entry->filesize -= bytecount;
     bytecount += entry->id3v2len;
 
     entry->bitrate   = info.bitrate;
@@ -129,7 +129,7 @@ static int getsonglength(int fd, struct mp3entry *entry)
         if (info.bitrate < 8)
             filetime = 0;
         else
-            filetime = entry->FS_PREFIX(filesize) / (info.bitrate >> 3);
+            filetime = entry->filesize / (info.bitrate >> 3);
         /* bitrate is in kbps so this delivers milliseconds. Doing bitrate / 8
          * instead of filesize * 8 is exact, because mpeg audio bitrates are
          * always multiples of 8, and it avoids overflows. */
@@ -162,7 +162,7 @@ static int getsonglength(int fd, struct mp3entry *entry)
 bool get_mp3_metadata(int fd, struct mp3entry *entry)
 {
     entry->title = NULL;
-    entry->FS_PREFIX(filesize) = metadata_filesize(fd);
+    entry->filesize = metadata_filesize(fd);
     entry->id3v1len = getid3v1len(fd);
     entry->id3v2len = getid3v2len(fd);
 
@@ -178,7 +178,7 @@ bool get_mp3_metadata(int fd, struct mp3entry *entry)
         setid3v1title(fd, entry);
     }
 
-    if(!entry->length || (entry->FS_PREFIX(filesize) < 8 ))
+    if(!entry->length || (entry->filesize < 8 ))
         /* no song length or less than 8 bytes is hereby considered to be an
            invalid mp3 and won't be played by us! */
         return false;

@@ -42,7 +42,7 @@
 #endif
 
 /* firmware/common/filefuncs — implemented via fstat in rbmeta_shim.c */
-off_t filesize(int fd);
+off_t ffilesize(int fd);
 
 /* Some parsers (au.c, …) use DEBUGF without including debug.h; on
  * firmware builds the target config.h provides it. logf is NOT defined

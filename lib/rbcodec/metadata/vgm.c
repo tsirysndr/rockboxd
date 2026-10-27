@@ -57,12 +57,12 @@ static byte const* get_gd3_str( byte const* in, byte const* end, char* field )
     {
         len = len < (int) max_field ? len : (int) max_field;
 
-        field [len] = 0;
-        /* Conver to utf8 */
-        utf16LEdecode( in, field, len );
-        
-        /* Copy string back to id3v2buf */
-        strcpy( (char*) in, field );
+        /* Convert to utf8, no longer than the UTF-16 string with its
+         * nil, as it is copied back over it in id3v2buf */
+        char* fend = (char*) utf16decode( in, field, len, mid - in - 1,
+                                          true );
+        *fend = 0;
+        memcpy( (char*) in, field, fend - field + 1 );
     }
     return mid;
 }
@@ -153,7 +153,7 @@ bool get_vgm_metadata(int fd, struct mp3entry* id3)
     }
 
     id3->vbr = false;
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
 
     id3->bitrate = 1411;
     id3->frequency = 44100;
@@ -179,7 +179,7 @@ bool get_vgm_metadata(int fd, struct mp3entry* id3)
 
     /*  Seek to gd3 offset and read as 
          many bytes posible */
-    gd3_offset = id3->FS_PREFIX(filesize) - (header_size + gd3_offset);
+    gd3_offset = id3->filesize - (header_size + gd3_offset);
     if ((lseek(fd, -gd3_offset, SEEK_END) < 0) 
          || ((read_bytes = read(fd, buf, ID3V2_BUF_SIZE)) <= 0))
         return true;

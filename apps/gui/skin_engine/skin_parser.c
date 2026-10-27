@@ -115,8 +115,9 @@ get_param(struct skin_element *element, int param_number)
     return &params[param_number];
 }
 
-/* which screen are we parsing for? */
+/* which screen and skin are we parsing for? */
 static enum screen_type curr_screen;
+static enum skinnable_screens curr_skin;
 
 /* the current viewport */
 static struct skin_element *curr_viewport_element;
@@ -595,6 +596,9 @@ static int parse_listitemviewport(struct skin_element *element,
         cfg->tile = true;
     token->value.data = PTRTOSKINOFFSET(skin_buffer, (void*)cfg);
 #endif
+    (void)element;
+    (void)token;
+    (void)wps_data;
     return 0;
 }
 
@@ -977,7 +981,9 @@ static int parse_progressbar_tag(struct skin_element* element,
     struct viewport *vp = &curr_vp->vp;
     struct skin_tag_parameter *param = get_param(element, 0);
     int curr_param = 0;
+#ifndef __PCTOOL__
     int setting_offset = 0;
+#endif
     char *image_filename = NULL;
 #ifdef HAVE_TOUCHSCREEN
     bool suppress_touchregion = false;
@@ -997,6 +1003,10 @@ static int parse_progressbar_tag(struct skin_element* element,
     pb->nofill = false;
     pb->noborder = false;
     pb->nobar = false;
+    pb->hold = false;
+    pb->hold_size = 1;
+    pb->level = pb->hold_pos = 0;
+    pb->last_tick = pb->hold_tick = 0;
     pb->image = PTRTOSKINOFFSET(skin_buffer, NULL);
     pb->slider = PTRTOSKINOFFSET(skin_buffer, NULL);
     pb->backdrop = PTRTOSKINOFFSET(skin_buffer, NULL);
@@ -1082,14 +1092,16 @@ static int parse_progressbar_tag(struct skin_element* element,
     {
         eINVERT = 0, eNOFILL, eNOBORDER, eNOBAR, eSLIDER, eIMAGE,
         eBACKDROP, eVERTICAL, eHORIZONTAL, eNOTOUCH, eSETTING, eSETTING_OFFSET,
-        e_PB_TAG_COUNT
+        eHOLD, e_PB_TAG_COUNT
     };
 
     static const char *pb_options[e_PB_TAG_COUNT + 1] = {[eINVERT] = "invert",
                  [eNOFILL] = "nofill", [eNOBORDER] = "noborder", [eNOBAR] = "nobar",
                  [eSLIDER] = "slider", [eIMAGE] = "image", [eBACKDROP] = "backdrop",
                  [eVERTICAL] = "vertical", [eHORIZONTAL] = "horizontal",
-                 [eNOTOUCH] = "notouch", [eSETTING] = "setting", [eSETTING_OFFSET] = "soffset", [e_PB_TAG_COUNT] = NULL};
+                 [eNOTOUCH] = "notouch", [eSETTING] = "setting",
+                 [eSETTING_OFFSET] = "soffset", [eHOLD] = "hold",
+                 [e_PB_TAG_COUNT] = NULL};
     int pb_op;
 
     while (curr_param < element->params_count)
@@ -1107,6 +1119,32 @@ static int parse_progressbar_tag(struct skin_element* element,
             pb->noborder = true;
         else if (pb_op == eNOBAR)
             pb->nobar = true;
+        else if (pb_op == eHOLD)
+        {
+            pb->hold = true;
+            /* optional: the thickness of the held peak */
+            if (curr_param+1 < element->params_count)
+            {
+                struct skin_tag_parameter *next = param + 1;
+                int size = -1;
+                if (next->type == INTEGER)
+                    size = next->data.number;
+                else if (next->type == STRING)
+                {
+                    text = SKINOFFSETTOPTR(skin_buffer, next->data.text);
+                    if (isdigit(*text))
+                        size = atoi(text);
+                }
+                if (size >= 0)
+                {
+                    if (size == 0)
+                        return WPS_ERROR_INVALID_PARAM;
+                    pb->hold_size = size;
+                    curr_param++;
+                    param++;
+                }
+            }
+        }
         else if (pb_op == eSLIDER)
         {
             if (curr_param+1 < element->params_count)
@@ -1174,7 +1212,9 @@ static int parse_progressbar_tag(struct skin_element* element,
             {
                 curr_param++;
                 param++;
+#ifndef __PCTOOL__
                 setting_offset = param->data.number;
+#endif
             }
         }
         else if (token->type == SKIN_TOKEN_SETTING && pb_op == eSETTING)
@@ -2449,6 +2489,14 @@ static int skin_element_callback(struct skin_element* element, void* data)
                 case SKIN_TOKEN_DRAW_INBUILTBAR:
                     function = parse_statusbar_tags;
                     break;
+#if defined(HAVE_QUICKSCREEN) && !defined(__PCTOOL__)
+                case SKIN_TOKEN_TOP_QUICKSETTING_NAME:
+                    /* Disable built-in Quickscreen UI if skin draws its own,
+                       as suggested by the use of the %QT tag */
+                    if (curr_skin == CUSTOM_STATUSBAR)
+                        quickscreen_set_skinned(curr_screen, true);
+                    break;
+#endif
                 case SKIN_TOKEN_LIST_TITLE_TEXT:
 #ifndef __PCTOOL__
                     sb_skin_has_title(curr_screen);
@@ -2591,10 +2639,11 @@ static int skin_element_callback(struct skin_element* element, void* data)
     return CALLBACK_OK;
 }
 
-/* to setup up the wps-data from a format-buffer (isfile = false)
-   from a (wps-)file (isfile = true)*/
-bool skin_data_load(enum screen_type screen, struct wps_data *wps_data,
-                    const char *buf, bool isfile, struct skin_stats *stats)
+/* Set up skin data from a format buffer (isfile = false)
+                       or from skin file (isfile = true) */
+bool skin_data_load(enum skinnable_screens skin, enum screen_type screen,
+                    struct wps_data *wps_data, const char *buf, bool isfile,
+                    struct skin_stats *stats)
 {
     char *wps_buffer = NULL;
     if (!wps_data || !buf)
@@ -2624,6 +2673,7 @@ bool skin_data_load(enum screen_type screen, struct wps_data *wps_data,
     skin_data_reset(wps_data);
     wps_data->wps_loaded = false;
     curr_screen = screen;
+    curr_skin = skin;
     curr_line = NULL;
     curr_vp = NULL;
     curr_viewport_element = NULL;

@@ -25,9 +25,9 @@
 #include "panic.h"
 #include "axp-pmu.h"
 #include "ft6x06.h"
-#include "gpio-x1000.h"
+#include "gpio-ingenic.h"
 #include "irq-x1000.h"
-#include "i2c-x1000.h"
+#include "i2c-ingenic.h"
 #include <string.h>
 #include <stdbool.h>
 
@@ -345,7 +345,7 @@ static void ft_init(void)
     touchpad_set_sensitivity(DEFAULT_TOUCHPAD_SENSITIVITY_SETTING);
 
     /* Bring up I2C bus */
-    i2c_x1000_set_freq(FT6x06_BUS, I2C_FREQ_400K);
+    i2c_ingenic_set_freq(FT6x06_BUS, I2C_FREQ_400K);
 
     /* Driver init */
     ft6x06_init();

@@ -58,6 +58,11 @@
 /* define this to enable JPEG decoding */
 #define HAVE_JPEG
 
+/* S5L8702 VPU-B hardware H.264 decoder. */
+#ifndef SIMULATOR
+#define HAVE_HW_H264
+#endif
+
 /* define this if you can invert the colours on your LCD */
 //#define HAVE_LCD_INVERT
 
@@ -89,6 +94,11 @@
 
 /* Define this if your LCD can be enabled/disabled */
 #define HAVE_LCD_ENABLE
+
+/* Define this if the target supports composite video output. */
+#ifndef SIMULATOR
+#define HAVE_COMPOSITE_VIDEO_OUT
+#endif
 
 /* Define this if your LCD can be put to sleep. HAVE_LCD_ENABLE
    should be defined as well. */
@@ -137,7 +147,7 @@
 
 /* Buffer for plugins and codecs. */
 #define PLUGIN_BUFFER_SIZE  0x200000 /* 2 MiB */
-#define CODEC_SIZE          0x100000 /* 1 MiB */
+#define CODEC_SIZE          0x80000 /* 512 KiB */
 
 /* 6g has a standard battery of 550mAh, except for the thick 6g (2007 160gb)
  * which has a standard battery of 850mAh.
@@ -262,6 +272,8 @@
 #ifndef LOGF_SERIAL
 #define IPOD_ACCESSORY_PROTOCOL
 #endif
+/* Inline earphone remote, decoded by the jack "Mikey" controller */
+#define HAVE_MIKEY_REMOTE
 #endif
 
 /* Define this if you can switch on/off the accessory power supply */

@@ -21,6 +21,7 @@
 #include "system.h"
 #include "kernel.h"
 #include "sfc-x1000.h"
+#include "gpio-ingenic.h"
 #include "clk-x1000.h"
 #include "irq-x1000.h"
 
@@ -38,6 +39,11 @@ static struct semaphore sfc_sema;
  * just to wait on a semaphore. */
 static void(*sfc_wait)(void) = sfc_poll_wait;
 #endif
+
+void sfc_configure_pins(void)
+{
+    gpioz_configure(GPIO_A, 0x3f << 26, GPIOF_DEVICE(1));
+}
 
 void sfc_open(void)
 {
@@ -82,7 +88,7 @@ void sfc_irq_end(void)
 #endif
 }
 
-void sfc_set_clock(uint32_t freq)
+int sfc_set_clock(uint32_t freq)
 {
     /* FIXME: Get rid of this hack & allow defining a real clock tree... */
     x1000_clk_t clksrc = X1000_CLK_MPLL;
@@ -97,6 +103,7 @@ void sfc_set_clock(uint32_t freq)
               SFC_CS(clksrc == X1000_CLK_MPLL ? 1 : 0));
     while(jz_readf(CPM_SSICDR, BUSY));
     jz_writef(CPM_SSICDR, CE(0));
+    return 0;
 }
 
 #ifndef USE_DMA
@@ -127,7 +134,7 @@ static void sfc_fifo_rdwr(bool write, void* buffer, uint32_t data_bytes)
 }
 #endif
 
-void sfc_exec(uint32_t cmd, uint32_t addr, void* data, uint32_t size)
+int sfc_exec(uint32_t cmd, uint32_t addr, void* data, uint32_t size)
 {
     /* Deal with transfer direction */
     bool write = (size & SFC_WRITE) != 0;
@@ -172,6 +179,7 @@ void sfc_exec(uint32_t cmd, uint32_t addr, void* data, uint32_t size)
 #else
     sfc_wait();
 #endif
+    return 0;
 }
 
 static void sfc_poll_wait(void)

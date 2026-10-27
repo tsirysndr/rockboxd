@@ -326,16 +326,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define HK_SELECT "PLAY"
 #define HK_CANCEL "POWER"
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-#define JEWELS_UP     BUTTON_HOME
-#define JEWELS_DOWN   BUTTON_OPTION
-#define JEWELS_LEFT   BUTTON_PREV
-#define JEWELS_RIGHT  BUTTON_NEXT
-#define JEWELS_SELECT BUTTON_PLAY
-#define JEWELS_CANCEL BUTTON_POWER
-#define HK_SELECT "PLAY"
-#define HK_CANCEL "POWER"
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 #define JEWELS_UP     BUTTON_PREV
 #define JEWELS_DOWN   BUTTON_NEXT
@@ -366,7 +356,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define HK_SELECT "SELECT"
 #define HK_CANCEL "BACK"
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -391,7 +381,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define HK_SELECT "A"
 #define HK_CANCEL "START"
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define JEWELS_UP     BUTTON_UP
 #define JEWELS_DOWN   BUTTON_DOWN
 #define JEWELS_LEFT   BUTTON_LEFT
@@ -410,6 +400,16 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define JEWELS_CANCEL BUTTON_POWER
 #define HK_SELECT "A"
 #define HK_CANCEL "POWER"
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define JEWELS_UP     BUTTON_UP
+#define JEWELS_DOWN   BUTTON_DOWN
+#define JEWELS_LEFT   BUTTON_LEFT
+#define JEWELS_RIGHT  BUTTON_RIGHT
+#define JEWELS_SELECT BUTTON_SELECT
+#define JEWELS_CANCEL BUTTON_BACK
+#define HK_SELECT "Cross"
+#define HK_CANCEL "Circle"
 
 #else
 #error No keymap defined!
@@ -1374,7 +1374,7 @@ static unsigned int jewels_initlevel(struct game_context* bj) {
 ******************************************************************************/
 static void jewels_init(struct game_context* bj) {
     /* seed the rand generator */
-    rb->srand(*rb->current_tick);
+
 
     bj->type = bj->tmp_type;
     bj->level = 1;

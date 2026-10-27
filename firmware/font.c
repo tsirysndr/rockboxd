@@ -98,7 +98,7 @@
 /* compiled-in font */
 extern struct font sysfont;
 
-#if !defined(BOOTLOADER) || defined(SONY_NWZ_LINUX) || defined(HIBY_LINUX) || defined(FIIO_M3K_LINUX)
+#if !defined(BOOTLOADER) || defined(SONY_NWZ_LINUX) || defined(HIBY_LINUX)
 
 struct buflib_alloc_data {
     struct font font;    /* must be the first member! */
@@ -435,7 +435,7 @@ int font_load_ex( const char *path, size_t buf_size, int glyphs )
 #endif
 
     /* load font struct f with file header */
-    int file_size = filesize( fd );
+    int file_size = ffilesize( fd );
     struct font header;
     struct font f;
 
@@ -1021,7 +1021,7 @@ static NO_INLINE void glyph_cache_load(const char *font_path, struct font *pf)
             if (hdr != FC_HEADER_VAL)
                 goto latin;
             /* only read what fits */
-            glyph_file_size = filesize( fd );
+            glyph_file_size = ffilesize( fd );
             if (glyph_file_size < sizeof(uint32_t))
                 goto latin;
             glyph_file_size -= sizeof(uint32_t);

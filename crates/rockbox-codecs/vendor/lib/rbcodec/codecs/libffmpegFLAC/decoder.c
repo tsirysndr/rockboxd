@@ -61,7 +61,9 @@ static const int blocksize_table[] ICONST_ATTR = {
 256<<0, 256<<1, 256<<2, 256<<3, 256<<4, 256<<5, 256<<6, 256<<7 
 };
 
-static const uint8_t table_crc8[256] ICONST_ATTR = {
+/* Only the frame header is checked against it, a few bytes a frame, so it
+   is not worth the IRAM. */
+static const uint8_t table_crc8[256] = {
     0x00, 0x07, 0x0e, 0x09, 0x1c, 0x1b, 0x12, 0x15,
     0x38, 0x3f, 0x36, 0x31, 0x24, 0x23, 0x2a, 0x2d,
     0x70, 0x77, 0x7e, 0x79, 0x6c, 0x6b, 0x62, 0x65,
@@ -134,6 +136,17 @@ static int get_crc8(const uint8_t *buf, int count)
     return crc;
 }
 
+/* Escaped partitions are rare, so their reader stays out of IRAM. A width of
+   0 means all residuals are zero, and a width can reach 31, beyond the 25
+   bits get_sbits() can read. */
+static NO_INLINE int32_t *decode_escaped(GetBitContext *gb, int32_t *decoded,
+                                         int count, int width)
+{
+    while (count--)
+        *decoded++ = width ? get_sbits_long(gb, width) : 0;
+    return decoded;
+}
+
 static int decode_residuals(FLACContext *s, int32_t* decoded, int pred_order) ICODE_ATTR_FLAC;
 static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
 {
@@ -161,17 +174,32 @@ static int decode_residuals(FLACContext *s, int32_t *decoded, int pred_order)
         tmp = get_bits(&gb, rice_bits);
         if (tmp == rice_esc) {
             tmp = get_bits(&gb, 5);
-            for (; i < samples; i++)
-                *decoded++ = get_sbits(&gb, tmp);
+            decoded = decode_escaped(&gb, decoded, samples - i, tmp);
         } else {
-            int real_limit = tmp ? (INT_MAX >> tmp) + 2 : INT_MAX;
-            for (; i < samples; i++) {
+            unsigned lim = tmp ? (UINT_MAX >> tmp) + 2 : INT_MAX;
+            int real_limit = lim > INT_MAX ? INT_MAX : lim;
+            while (i < samples) {
+#if defined(CPU_ARM_CLASSIC) && !defined(FLAC_NO_RICE_ASM)
+                /* The assembly decodes the common case and falls through
+                   anything it does not handle. Every unusual code still goes
+                   through the C reader, and k <= 17 keeps a code inside the
+                   window the assembly reads. */
+                if (tmp <= 17) {
+                    int got = flac_rice_decode_arm(decoded, samples - i, tmp,
+                                                   &gb);
+                    decoded += got;
+                    i       += got;
+                    if (i >= samples)
+                        break;
+                }
+#endif
                 int v = get_sr_golomb_flac(&gb, tmp, real_limit, 0);
                 if ((unsigned) v == 0x80000000){
                     return -3;
                 }
 
                 *decoded++ = v;
+                i++;
             }
         }
         i= 0;
@@ -236,8 +264,16 @@ int decode_subframe_fixed(FLACContext *s, int32_t* decoded, int pred_order, int 
 }
 
 #if !defined(CPU_COLDFIRE)
+/* The assembler kernels in arm.S implement flac_lpc_32_c exactly; keep the C
+   version compiled anyway when they are in use, so that a build can A/B the
+   two by defining FLAC_NO_LPC32_ASM. */
+#if defined(CPU_ARM_CLASSIC) && !defined(FLAC_NO_LPC32_ASM)
+#define FLAC_LPC32_ASM
+#endif
+
 static void flac_lpc_32_c(int32_t *decoded, int coeffs[],
-                          int pred_order, int qlevel, int len) ICODE_ATTR_FLAC;
+                          int pred_order, int qlevel, int len)
+                          ICODE_ATTR_FLAC UNUSED_ATTR;
 static void flac_lpc_32_c(int32_t *decoded, int coeffs[],
                           int pred_order, int qlevel, int len)
 {
@@ -315,7 +351,9 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order,
     if (decode_residuals(s, decoded, pred_order) < 0)
         return -8;
 
-    if ((s->bps + coeff_prec + av_log2(pred_order)) <= 32) {
+    /* bps is this subframe's width, one more than the stream's on a side
+       channel, and it is what decides whether the sum fits in 32 bits. */
+    if ((bps + coeff_prec + av_log2(pred_order)) <= 32) {
         #if defined(CPU_COLDFIRE)
         (void)sum;
         lpc_decode_emac(s->blocksize - pred_order, qlevel, pred_order,
@@ -338,9 +376,22 @@ static int decode_subframe_lpc(FLACContext *s, int32_t* decoded, int pred_order,
         lpc_decode_emac_wide(s->blocksize - pred_order, qlevel, pred_order,
                              decoded + pred_order, coeffs);
         #else
-        flac_lpc_32_c(decoded, coeffs, pred_order, qlevel, s->blocksize);
-
+        #if defined(FLAC_LPC32_ASM)
+        /* The 16-bit multiply kernel needs every history sample to fit a
+           signed halfword, which bps <= 16 guarantees, and checks its other
+           precondition itself. */
+        #if (ARM_ARCH >= 5) && defined(FLAC_LPC32_NARROW_ASM)
         if (bps <= 16)
+            flac_lpc_32_arm_narrow(decoded, coeffs, pred_order, qlevel,
+                                   s->blocksize);
+        else
+        #endif
+        flac_lpc_32_arm(decoded, coeffs, pred_order, qlevel, s->blocksize);
+        #else
+        flac_lpc_32_c(decoded, coeffs, pred_order, qlevel, s->blocksize);
+        #endif
+
+        if (s->bps <= 16)
             lpc_analyze_remodulate(decoded, coeffs, pred_order, qlevel, s->blocksize, bps);
         #endif
     }
@@ -528,7 +579,9 @@ static int decode_frame(FLACContext *s,
     return 0;
 }
 
-static int flac_downmix(FLACContext *s) ICODE_ATTR_FLAC;
+/* Only streams of three channels or more run this, so it stays out of line
+   and out of IRAM, which the stereo paths need more. */
+static NO_INLINE int flac_downmix(FLACContext *s);
 static int flac_downmix(FLACContext *s)
 {
     int32_t *FL, *FR, *FC, *SB, *RL, *RR, *RC;
@@ -630,7 +683,6 @@ int flac_decode_frame(FLACContext *s,
                       void (*yield)(void))
 {
     int tmp;
-    int i;
     int framesize;
     int scale;
 
@@ -656,33 +708,40 @@ int flac_decode_frame(FLACContext *s,
 
     yield();
     
-#define DECORRELATE(left, right)\
-             for (i = 0; i < s->blocksize; i++) {\
+#if defined(CPU_ARM_CLASSIC) && !defined(FLAC_NO_DECORRELATE_ASM)
+/* arm.S does the same, four pairs at a time. */
+#define DECORRELATE(arm, left, right)\
+             arm(s->decoded[0], s->decoded[1], s->blocksize, scale);
+#else
+#define DECORRELATE(arm, left, right)\
+             for (int i = 0; i < s->blocksize; i++) {\
                 int32_t a = s->decoded[0][i];\
                 int32_t b = s->decoded[1][i];\
                 s->decoded[0][i] = (left)  << scale;\
                 s->decoded[1][i] = (right) << scale;\
-             }\
+             }
+#endif
 
     scale=FLAC_OUTPUT_DEPTH-s->bps;
     switch(s->ch_mode)
     {
         case INDEPENDENT:
             if (s->channels <= 2) {
-                DECORRELATE(a, b) /* Always decorrelate exactly the two supported channels. */
+                /* Always decorrelate exactly the two supported channels. */
+                DECORRELATE(flac_decorrelate_indep_arm, a, b)
             } else {
                 if ((tmp=flac_downmix(s)) != 0)
                     return tmp;
             }
             break;
         case LEFT_SIDE:
-            DECORRELATE(a, a-b)
+            DECORRELATE(flac_decorrelate_ls_arm, a, a-b)
             break;
         case RIGHT_SIDE:
-            DECORRELATE(a+b, b)
+            DECORRELATE(flac_decorrelate_rs_arm, a+b, b)
             break;
         case MID_SIDE:
-            DECORRELATE( (a-=b>>1) + b, a)
+            DECORRELATE(flac_decorrelate_ms_arm, (a-=b>>1) + b, a)
             break;
     }
 

@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2002 by Daniel Stenberg
  *
@@ -348,12 +347,36 @@ static int parsealbumart( struct mp3entry* entry, char* tag, int bufferpos )
         tag += 3;
     }
 
+    /* what was read of the frame ends with a nil, at end */
+    char *end = entry->id3v2buf + bufferpos - 1;
+
     if (entry->albumart.type != AA_TYPE_UNKNOWN)
     {
         /* skip picture type */
         tag += 1;
-        /* skip description */
-        tag = strchr(tag, '\0') + 1;
+        /* skip description: in UTF-16 (encodings 1 and 2) it ends with
+         * two nils at an even offset, otherwise with one */
+        if (*start == 0x01 || *start == 0x02)
+        {
+            while (tag + 1 < end && (tag[0] != '\0' || tag[1] != '\0'))
+                tag += 2;
+            tag += 2;
+        }
+        else if (tag < end)
+        {
+            tag = strchr(tag, '\0') + 1;
+        }
+        else
+        {
+            tag = end + 1;
+        }
+        /* no end found before the end of what was read */
+        if (tag > end)
+            entry->albumart.type = AA_TYPE_UNKNOWN;
+    }
+
+    if (entry->albumart.type != AA_TYPE_UNKNOWN)
+    {
         /* fixup offset&size for image data */
         entry->albumart.pos  += tag - start;
         entry->albumart.size -= tag - start;
@@ -672,15 +695,20 @@ bool setid3v1title(int fd, struct mp3entry *entry)
                 break;
 
             case 3:
+            {
+                /* the comment is 30 characters in v1.0, 28 in v1.1,
+                 * where a nil at 125 says the track number follows */
+                int len = buffer[125] ? 30 : 28;
                 /* kill trailing space in strings */
-                for (j=27; j && (ptr[j]==0 || ptr[j]==' '); j--)
+                for (j=len-1; j && (ptr[j]==0 || ptr[j]==' '); j--)
                     ptr[j] = 0;
                 /* convert string to utf8 */
                 utf8 = (unsigned char *)entry->id3v1buf[3];
-                utf8 = iso_decode(ptr, utf8, -1, 28);
+                utf8 = iso_decode(ptr, utf8, -1, len);
                 /* make sure string is terminated */
                 *utf8 = 0;
                 break;
+            }
 
             case 4:
                 ptr[4] = 0;

@@ -32,6 +32,9 @@
 #include "sound.h"
 #include "pcm_sink.h"
 #include "settings.h"
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+#include "videoout.h"
+#endif
 #include "rbpaths.h"
 #include "settings_list.h"
 #include "usb.h"
@@ -42,6 +45,9 @@
 #include "open_plugin.h"
 #include "misc.h"
 #include "playback.h"
+#ifndef __PCTOOL__
+#include "fixedpoint.h"
+#endif
 #ifdef HAVE_REMOTE_LCD
 #include "lcd-remote.h"
 #endif
@@ -94,7 +100,8 @@
  || defined(ONDA_VX747)  \
  || defined(ONDA_VX767)  \
  || defined(ONDA_VX747P) \
- || defined(ONDA_VX777)
+ || defined(ONDA_VX777) \
+ || defined(HIBY_R1_NATIVE)
 #define DEFAULT_TOUCHSCREEN_MODE TOUCHSCREEN_POINT
 #else
 #define DEFAULT_TOUCHSCREEN_MODE TOUCHSCREEN_BUTTON
@@ -330,6 +337,7 @@ static const char graphic_numeric[] = "graphic,numeric";
 #define DEFAULT_WPSNAME  "cabbiev2"
 #define DEFAULT_SBSNAME  "-"
 #define DEFAULT_FMS_NAME "cabbiev2"
+#define DEFAULT_WRS_NAME "cabbiev2"
 
 #if LCD_HEIGHT <= 64
   #define DEFAULT_FONT_HEIGHT 8
@@ -347,7 +355,7 @@ static const char graphic_numeric[] = "graphic,numeric";
   #define DEFAULT_FONT_HEIGHT 15
 #elif LCD_HEIGHT <= 320
   #define DEFAULT_FONT_HEIGHT 18
-#elif defined(SHANLING_Q1)
+#elif defined(SHANLING_Q1) || defined(SONY_PSP)
   /* 16pt font looks pretty aliased & ugly */
   #define DEFAULT_FONT_HEIGHT 18
 #elif LCD_HEIGHT <= 400
@@ -375,6 +383,10 @@ static const char graphic_numeric[] = "graphic,numeric";
   #elif DEFAULT_FONT_HEIGHT >= 23
     #define DEFAULT_ICONSET "tango_icons.24x24"
     #define DEFAULT_VIEWERS_ICONSET "tango_icons_viewers.24x24"
+  #elif defined(SONY_PSP)
+    /* 16pt icons looks too small on the PSP screen */
+    #define DEFAULT_ICONSET "tango_icons.18x18"
+    #define DEFAULT_VIEWERS_ICONSET "tango_icons_viewers.18x18"
   #elif DEFAULT_FONT_HEIGHT >= 15
     #define DEFAULT_ICONSET "tango_icons.16x16"
     #define DEFAULT_VIEWERS_ICONSET "tango_icons_viewers.16x16"
@@ -420,7 +432,7 @@ static const char graphic_numeric[] = "graphic,numeric";
 #  define DEFAULT_REC_MIC_GAIN 0
 #  define DEFAULT_REC_LEFT_GAIN 0
 #  define DEFAULT_REC_RIGHT_GAIN 0
-# elif defined(HAVE_WM8975)
+# elif defined(HAVE_WM8975) || defined(HAVE_WM1870)
 #  define DEFAULT_REC_MIC_GAIN 16
 #  define DEFAULT_REC_LEFT_GAIN 0
 #  define DEFAULT_REC_RIGHT_GAIN 0
@@ -676,16 +688,16 @@ static int32_t get_precut_talkid(int value, int unit)
 #endif /* __PCTOOL__ */
 
 struct eq_band_setting eq_defaults[EQ_NUM_BANDS] = {
-    { 32, 7, 0 },
-    { 64, 10, 0 },
-    { 125, 10, 0 },
-    { 250, 10, 0 },
-    { 500, 10, 0 },
-    { 1000, 10, 0 },
-    { 2000, 10, 0 },
-    { 4000, 10, 0 },
-    { 8000, 10, 0 },
-    { 16000, 7, 0 },
+    { EQ_FILTER_LOW_SHELF, 32, 7, 0 },
+    { EQ_FILTER_PEAK, 64, 10, 0 },
+    { EQ_FILTER_PEAK, 125, 10, 0 },
+    { EQ_FILTER_PEAK, 250, 10, 0 },
+    { EQ_FILTER_PEAK, 500, 10, 0 },
+    { EQ_FILTER_PEAK, 1000, 10, 0 },
+    { EQ_FILTER_PEAK, 2000, 10, 0 },
+    { EQ_FILTER_PEAK, 4000, 10, 0 },
+    { EQ_FILTER_PEAK, 8000, 10, 0 },
+    { EQ_FILTER_HIGH_SHELF, 16000, 7, 0 },
 };
 
 static const int wps_context_menu_default =
@@ -704,7 +716,7 @@ static const int tree_hotkey_default = HOTKEY_OFF;
 #endif
 
 #ifndef __PCTOOL__
-static void eq_load_from_cfg(void *setting, char *value)
+static void eq_load_from_cfg(void *setting, char *value, bool new)
 {
     struct eq_band_setting *eq = setting;
     char *val_end, *end;
@@ -728,14 +740,68 @@ static void eq_load_from_cfg(void *setting, char *value)
     /* gain */
     value = end + 1;
     if (value > val_end) return;
+    if (new)
+    {
+        end = strchr(value, ',');
+        if (!end) return;
+    }
     eq->gain = atoi(value);
+
+    if (!new) return;
+
+    /* type */
+    value = end + 1;
+    if (value > val_end) return;
+    value = skip_whitespace(value);
+    if (strcasecmp(value, "LOW_SHELF") == 0)
+        eq->type = EQ_FILTER_LOW_SHELF;
+    else if (strcasecmp(value, "PEAK") == 0)
+        eq->type = EQ_FILTER_PEAK;
+    else if (strcasecmp(value, "HIGH_SHELF") == 0)
+        eq->type = EQ_FILTER_HIGH_SHELF;
+}
+
+static void eq_load_from_cfg_old_low_shelf(void *setting, char *value)
+{
+    eq_load_from_cfg(setting, value, false);
+    ((struct eq_band_setting *)setting)->type = EQ_FILTER_LOW_SHELF;
+}
+
+static void eq_load_from_cfg_old_peak(void *setting, char *value)
+{
+    eq_load_from_cfg(setting, value, false);
+    ((struct eq_band_setting *)setting)->type = EQ_FILTER_PEAK;
+}
+
+static void eq_load_from_cfg_old_high_shelf(void *setting, char *value)
+{
+    eq_load_from_cfg(setting, value, false);
+    ((struct eq_band_setting *)setting)->type = EQ_FILTER_HIGH_SHELF;
+}
+
+static void eq_load_from_cfg_new(void *setting, char *value)
+{
+    eq_load_from_cfg(setting, value, true);
 }
 
 static char* eq_write_to_cfg(void *setting, char *buf, int buf_len)
 {
     struct eq_band_setting *eq = setting;
 
-    snprintf(buf, buf_len, "%d, %d, %d", eq->cutoff, eq->q, eq->gain);
+    const char *type = "PEAK";
+    switch (eq->type)
+    {
+    case EQ_FILTER_LOW_SHELF:
+        type = "LOW_SHELF";
+        break;
+    case EQ_FILTER_PEAK:
+        type = "PEAK";
+        break;
+    case EQ_FILTER_HIGH_SHELF:
+        type = "HIGH_SHELF";
+        break;
+    }
+    snprintf(buf, buf_len, "%d, %d, %d, %s", eq->cutoff, eq->q, eq->gain, type);
     return buf;
 }
 
@@ -895,6 +961,77 @@ static bool tsc_is_changed(void* setting, void* defaultval)
 static void tsc_set_default(void* setting, void* defaultval)
 {
     memcpy(setting, defaultval, sizeof(struct touchscreen_parameter));
+}
+
+static void list_kinetic_load_from_cfg(void *setting, char *value)
+{
+    struct list_kinetic_scroll_settings *param = setting;
+    long vals[4] = { 0, 0, 0 };
+    int count = 0;
+
+    while (*value && count < 3)
+    {
+        while (isspace (*value))
+            value++;
+
+        int num = atoi(value);
+        while (!isspace(*value))
+            value++;
+
+        if (count == 2)
+            /* delay in milliseconds */
+            vals[count] = HZ * num / 1000;
+        else
+        {
+            /* polynomial coefficients in 1/100th scale */
+            int sign = 1;
+            if (num < 0)
+            {
+                num = -num;
+                sign = -1;
+            }
+
+            int frac = num % 100;
+            num /= 100;
+
+            num <<= LIST_KINETIC_FRACBITS;
+            frac <<= LIST_KINETIC_FRACBITS;
+            vals[count] = num + fp_div(frac, 100, LIST_KINETIC_FRACBITS);
+            vals[count] *= sign;
+        }
+
+        count++;
+    }
+
+    param->a1 = vals[0];
+    param->a0 = vals[1];
+    param->delay = vals[2];
+}
+
+static char *list_kinetic_write_to_cfg(void *setting, char *buf, int buf_len)
+{
+    struct list_kinetic_scroll_settings *param = setting;
+    long vals[2] = { param->a1, param->a0 };
+
+    for (int i = 0; i < 2; ++i)
+    {
+        long num = vals[i] >> LIST_KINETIC_FRACBITS;
+        long frac = vals[i] - (num << LIST_KINETIC_FRACBITS);
+        vals[i] = (num * 100) + (frac * 100) / (1 << LIST_KINETIC_FRACBITS);
+    }
+
+    snprintf(buf, buf_len, "%ld %ld %ld",
+             vals[0], vals[1], 1000 * param->delay / HZ);
+    return buf;
+}
+
+static bool list_kinetic_is_default(void *setting, void *defaultval)
+{
+    return memcmp(setting, defaultval, sizeof(struct list_kinetic_scroll_settings)) != 0;
+}
+static void list_kinetic_set_default(void *setting, void *defaultval)
+{
+    memcpy(setting, defaultval, sizeof(struct list_kinetic_scroll_settings));
 }
 #endif
 
@@ -1176,6 +1313,12 @@ const struct settings_list settings[] = {
     OFFON_SETTING(0, flip_display, LANG_FLIP_DISPLAY, false, "flip display",
                   NULL),
 #endif
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+    CHOICE_SETTING(0, composite_video_output, LANG_COMPOSITE_VIDEO_OUTPUT,
+                   VIDEOOUT_OFF, "composite video output", "off,auto,on",
+                   settings_apply_videoout, 3,
+                   ID2P(LANG_OFF), ID2P(LANG_AUTO), ID2P(LANG_ON)),
+#endif
     /* display */
      CHOICE_SETTING(F_TEMPVAR|F_THEMESETTING, cursor_style, LANG_INVERT_CURSOR,
  #ifdef HAVE_LCD_COLOR
@@ -1207,13 +1350,13 @@ const struct settings_list settings[] = {
                 "scrollbar width",UNIT_INT, 3, MAX(LCD_WIDTH/10,25), 1,
                 NULL, NULL, NULL),
 #ifdef HAVE_TOUCHSCREEN
-    TABLE_SETTING(F_ALLOW_ARBITRARY_VALS, list_line_padding, LANG_LIST_LINE_PADDING,
+    TABLE_SETTING(F_THEMESETTING|F_ALLOW_ARBITRARY_VALS, list_line_padding, LANG_LIST_LINE_PADDING,
                   -1, "list padding", "auto,off", UNIT_PIXEL, list_pad_formatter,
                   list_pad_getlang, NULL, 16,
                   -1,0,2,4,6,8,10,12,16,20,24,28,32,38,44,50),
 #endif
 #if LCD_DEPTH > 1
-    TABLE_SETTING(F_ALLOW_ARBITRARY_VALS, list_separator_height, LANG_LIST_SEPARATOR,
+    TABLE_SETTING(F_THEMESETTING|F_ALLOW_ARBITRARY_VALS, list_separator_height, LANG_LIST_SEPARATOR,
                   0, "list separator height", "auto,off", UNIT_PIXEL,
                   list_pad_formatter, list_pad_getlang, NULL, 15,
                   -1,0,1,2,3,4,5,7,9,11,13,16,20,25,30),
@@ -1232,7 +1375,7 @@ const struct settings_list settings[] = {
     CHOICE_SETTING(0, timeformat, LANG_TIMEFORMAT, 0,
         "time format", "24hour,12hour", NULL, 2,
         ID2P(LANG_24_HOUR_CLOCK), ID2P(LANG_12_HOUR_CLOCK)),
-    OFFON_SETTING(0,show_icons, LANG_SHOW_ICONS ,true,"show icons", NULL),
+    OFFON_SETTING(F_THEMESETTING,show_icons, LANG_SHOW_ICONS ,true,"show icons", NULL),
     /* system */
     INT_SETTING(F_TIME_SETTING, poweroff, LANG_POWEROFF_IDLE, 10,
                 "idle poweroff", UNIT_MIN, 0,60,1,
@@ -1471,8 +1614,8 @@ const struct settings_list settings[] = {
     OFFON_SETTING(0,play_selected,LANG_PLAY_SELECTED,true,"play selected",NULL),
     CHOICE_SETTING(0, single_mode, LANG_SINGLE_MODE, 0,
                   "single mode",
-                  "off,track,album,album artist,artist,composer,work,genre",
-                  NULL, 8,
+                  "off,track,album,album artist,artist,composer,work,genre,playlist",
+                  NULL, 9,
                   ID2P(LANG_OFF),
                   ID2P(LANG_TRACK),
                   ID2P(LANG_ID3_ALBUM),
@@ -1480,7 +1623,9 @@ const struct settings_list settings[] = {
                   ID2P(LANG_ID3_ARTIST),
                   ID2P(LANG_ID3_COMPOSER),
                   ID2P(LANG_ID3_GROUPING),
-                  ID2P(LANG_ID3_GENRE)),
+                  ID2P(LANG_ID3_GENRE),
+                  ID2P(LANG_PLAYLIST)
+                  ),
     OFFON_SETTING(0,party_mode,LANG_PARTY_MODE,false,"party mode",NULL),
     OFFON_SETTING(0,fade_on_stop,LANG_FADE_ON_STOP,true,"volume fade",NULL),
     INT_SETTING(F_TIME_SETTING, ff_rewind_min_step, LANG_FFRW_STEP, 1,
@@ -1833,21 +1978,39 @@ const struct settings_list settings[] = {
                        "eq precut", UNIT_DB, 0, 240, 1, eq_precut_format,
                        get_precut_talkid, dsp_set_eq_precut),
 
+
+#define EQ_BAND_OLD(id, string, type) \
+        CUSTOM_SETTING(F_EQSETTING|F_DEPRECATED, eq_band_settings[id], -1,   \
+                  &eq_defaults[id], string,                     \
+                  eq_load_from_cfg_old_##type, eq_write_to_cfg,            \
+                  eq_is_changed, eq_set_default)
+    EQ_BAND_OLD(0, "eq low shelf filter", low_shelf),
+    EQ_BAND_OLD(1, "eq peak filter 1", peak),
+    EQ_BAND_OLD(2, "eq peak filter 2", peak),
+    EQ_BAND_OLD(3, "eq peak filter 3", peak),
+    EQ_BAND_OLD(4, "eq peak filter 4", peak),
+    EQ_BAND_OLD(5, "eq peak filter 5", peak),
+    EQ_BAND_OLD(6, "eq peak filter 6", peak),
+    EQ_BAND_OLD(7, "eq peak filter 7", peak),
+    EQ_BAND_OLD(8, "eq peak filter 8", peak),
+    EQ_BAND_OLD(9, "eq high shelf filter", high_shelf),
+#undef EQ_BAND_OLD
+
 #define EQ_BAND(id, string) \
         CUSTOM_SETTING(F_EQSETTING, eq_band_settings[id], -1,   \
                   &eq_defaults[id], string,                     \
-                  eq_load_from_cfg, eq_write_to_cfg,            \
+                  eq_load_from_cfg_new, eq_write_to_cfg,            \
                   eq_is_changed, eq_set_default)
-    EQ_BAND(0, "eq low shelf filter"),
-    EQ_BAND(1, "eq peak filter 1"),
-    EQ_BAND(2, "eq peak filter 2"),
-    EQ_BAND(3, "eq peak filter 3"),
-    EQ_BAND(4, "eq peak filter 4"),
-    EQ_BAND(5, "eq peak filter 5"),
-    EQ_BAND(6, "eq peak filter 6"),
-    EQ_BAND(7, "eq peak filter 7"),
-    EQ_BAND(8, "eq peak filter 8"),
-    EQ_BAND(9, "eq high shelf filter"),
+    EQ_BAND(0, "eq filter 0"),
+    EQ_BAND(1, "eq filter 1"),
+    EQ_BAND(2, "eq filter 2"),
+    EQ_BAND(3, "eq filter 3"),
+    EQ_BAND(4, "eq filter 4"),
+    EQ_BAND(5, "eq filter 5"),
+    EQ_BAND(6, "eq filter 6"),
+    EQ_BAND(7, "eq filter 7"),
+    EQ_BAND(8, "eq filter 8"),
+    EQ_BAND(9, "eq filter 9"),
 #undef EQ_BAND
 
     /* dithering */
@@ -2065,6 +2228,14 @@ const struct settings_list settings[] = {
                      DEFAULT_FMS_NAME, SBS_DIR "/", ".rfms"),
 #endif
 #endif /* CONFIG_TUNER */
+#ifdef HAVE_RECORDING
+    TEXT_SETTING(F_THEMESETTING|F_NEEDAPPLY, wrs_file, "wrs",
+                     DEFAULT_WRS_NAME, WPS_DIR "/", ".wrs"),
+#ifdef HAVE_REMOTE_LCD
+    TEXT_SETTING(F_THEMESETTING|F_NEEDAPPLY, rwrs_file, "rwrs",
+                     DEFAULT_WRS_NAME, WPS_DIR "/", ".rwrs"),
+#endif
+#endif
     TEXT_SETTING(F_THEMESETTING|F_NEEDAPPLY, font_file, "font",
                      DEFAULT_FONTNAME, FONT_DIR "/", ".fnt"),
     INT_SETTING(0, glyphs_to_cache, LANG_GLYPHS, DEFAULT_GLYPHS,
@@ -2275,11 +2446,30 @@ const struct settings_list settings[] = {
     CHOICE_SETTING(0, touch_mode, LANG_TOUCHSCREEN_MODE, DEFAULT_TOUCHSCREEN_MODE,
                    "touchscreen mode", "point,grid", NULL, 2,
                    ID2P(LANG_TOUCHSCREEN_POINT), ID2P(LANG_TOUCHSCREEN_GRID)),
+    CHOICE_SETTING(0, touch_enable_flick_shortcuts, LANG_TOUCHSCREEN_FLICK_SHORTCUTS, true,
+                   "touchscreen flick shortcuts", "off,on", NULL,
+                   2, ID2P(LANG_OFF), ID2P(LANG_ON)),
     CUSTOM_SETTING(0, ts_calibration_data, -1,
                     &default_calibration_parameters, "touchscreen calibration",
                     tsc_load_from_cfg, tsc_write_to_cfg,
                     tsc_is_changed, tsc_set_default),
-#endif
+    CUSTOM_SETTING(0, kinetic_scroll_accel, -1,
+                   &list_kinetic_scroll_accel_default, "kinetic scroll accel",
+                   list_kinetic_load_from_cfg, list_kinetic_write_to_cfg,
+                   list_kinetic_is_default, list_kinetic_set_default),
+    CUSTOM_SETTING(0, kinetic_scroll_brake, -1,
+                   &list_kinetic_scroll_brake_default, "kinetic scroll brake",
+                   list_kinetic_load_from_cfg, list_kinetic_write_to_cfg,
+                   list_kinetic_is_default, list_kinetic_set_default),
+    CUSTOM_SETTING(0, kinetic_scroll_decel, -1,
+                   &list_kinetic_scroll_decel_default, "kinetic scroll decel",
+                   list_kinetic_load_from_cfg, list_kinetic_write_to_cfg,
+                   list_kinetic_is_default, list_kinetic_set_default),
+    CUSTOM_SETTING(0, kinetic_scroll_press, -1,
+                   &list_kinetic_scroll_press_default, "kinetic scroll press",
+                   list_kinetic_load_from_cfg, list_kinetic_write_to_cfg,
+                   list_kinetic_is_default, list_kinetic_set_default),
+#endif /* TOUCHSCREEN */
     OFFON_SETTING(0, prevent_skip, LANG_PREVENT_SKIPPING, false, "prevent track skip", NULL),
     OFFON_SETTING(0, rewind_across_tracks, LANG_REWIND_ACROSS_TRACKS, false, "rewind across tracks", NULL),
 #ifdef HAVE_PITCHCONTROL
@@ -2310,7 +2500,7 @@ const struct settings_list settings[] = {
     ), /* CHOICE_SETTING( usb_keypad_mode ) */
 #endif
 
-#ifdef USB_ENABLE_AUDIO
+#if defined(USB_ENABLE_AUDIO) || defined(HAVE_HOST_USB_AUDIO)
     CHOICE_SETTING(0, usb_audio, LANG_USB_DAC, 0, "usb-dac", "never,always,while_charge_only,while_mass_storage", usb_set_audio, 4,
         ID2P(LANG_NEVER), ID2P(LANG_ALWAYS), ID2P(LANG_WHILE_USB_CHARGE_ONLY), ID2P(LANG_WHILE_MASS_STORAGE_USB_ONLY)),
 #endif

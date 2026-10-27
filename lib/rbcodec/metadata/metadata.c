@@ -56,7 +56,7 @@ static bool get_shn_metadata(int fd, struct mp3entry *id3)
 {
     /* TODO: read the id3v2 header if it exists */
     id3->vbr = true;
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     return skip_id3v2(fd, id3);
 }
 
@@ -65,7 +65,7 @@ static bool get_other_asap_metadata(int fd, struct mp3entry *id3)
     id3->bitrate = 706;
     id3->frequency = 44100;
     id3->vbr = false;
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     id3->genre_string = id3_get_num_genre(36); /* GAME */
     return true;
 }
@@ -254,6 +254,8 @@ const struct afmt_entry audio_formats[AFMT_NUM_CODECS] =
     /* AAC bitstream format */
     [AFMT_AAC_BSF] =
         AFMT_ENTRY("AAC", "aac_bsf", "N/A", get_aac_metadata,   "aac\0"),
+    [AFMT_DSD] =
+        AFMT_ENTRY("DSD", "dsd", "N/A", get_dsd_metadata, "dsf\0dff\0iso\0"),
 };
 
 #if defined (HAVE_RECORDING)
@@ -582,7 +584,7 @@ bool get_metadata_afmt(struct mp3entry* id3, int fd, const char* trackname, int 
     {
         META_TRACE("[metadata] parsed OK: %s length=%lu elapsed=%lu freq=%lu filesize=%lu codectype=%u first_frame_off=%lu\n",
                 trackname, id3->length, id3->elapsed, id3->frequency,
-                id3->FS_PREFIX(filesize), id3->codectype, id3->first_frame_offset);
+                id3->filesize, id3->codectype, id3->first_frame_offset);
     }
 
 #ifdef UTF8PROC_EXPORTS

@@ -443,6 +443,7 @@ int disk_mount(int drive)
         {
             if (pinfo[i].type == 0x05 ||
                 pinfo[i].type == 0x0f ||
+                pinfo[i].type == 0x3f ||
                 (i != 0 && pinfo[i].type == 0))
                 continue;  /* skip free/extended partitions */
 
@@ -483,8 +484,12 @@ int disk_mount(int drive)
         }
 
 #if defined(MAX_VIRT_SECTOR_SIZE) && defined(MAX_PHYS_SECTOR_SIZE)
+#if (CONFIG_STORAGE & STORAGE_ATA)
         if (mounted)
             ata_set_phys_sector_mult(disk_sector_multiplier[IF_MD_DRV(drive)]);
+#else
+#error "MAX_VIRT_SECTOR_SIZE + MAX_PHYS_SECTOR_SIZE on non-ATA device; is this intentional?"
+#endif
 #endif
     }
 

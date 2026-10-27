@@ -326,15 +326,6 @@
 #define AST_RIGHT       BUTTON_NEXT
 #define AST_FIRE        BUTTON_PLAY
 
-#elif (CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD)
-#define AST_PAUSE       BUTTON_VOL_UP
-#define AST_QUIT        BUTTON_POWER
-#define AST_THRUST      BUTTON_HOME
-#define AST_HYPERSPACE  BUTTON_OPTION
-#define AST_LEFT        BUTTON_PREV
-#define AST_RIGHT       BUTTON_NEXT
-#define AST_FIRE        BUTTON_PLAY
-
 #elif (CONFIG_KEYPAD == IHIFI_770_PAD) || (CONFIG_KEYPAD == IHIFI_800_PAD)
 #define AST_PAUSE       BUTTON_PLAY
 #define AST_QUIT        BUTTON_POWER
@@ -362,7 +353,7 @@
 #define AST_RIGHT       BUTTON_RIGHT
 #define AST_FIRE        BUTTON_PLAY
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -385,7 +376,7 @@
 #define AST_RIGHT       BUTTON_RIGHT
 #define AST_FIRE        BUTTON_A
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 #define AST_PAUSE       BUTTON_MENU
 #define AST_QUIT        BUTTON_BACK
 #define AST_THRUST      BUTTON_UP
@@ -403,6 +394,15 @@
 #define AST_LEFT        BUTTON_LEFT
 #define AST_RIGHT       BUTTON_RIGHT
 #define AST_FIRE        BUTTON_A
+
+#elif CONFIG_KEYPAD == PSP_PAD
+#define AST_PAUSE       BUTTON_MENU
+#define AST_QUIT        BUTTON_BACK
+#define AST_THRUST      BUTTON_UP
+#define AST_HYPERSPACE  BUTTON_DOWN
+#define AST_LEFT        BUTTON_LEFT
+#define AST_RIGHT       BUTTON_RIGHT
+#define AST_FIRE        BUTTON_SELECT
 
 #else
 #error No keymap defined!
@@ -2162,7 +2162,7 @@ enum plugin_status plugin_start(const void* parameter)
     backlight_ignore_timeout();
 
     highscore_load(SCORE_FILE, highscores, NUM_SCORES);
-    rb->srand(*rb->current_tick);
+
 
     /* create stars once, and once only: */
     create_stars();

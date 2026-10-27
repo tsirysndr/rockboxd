@@ -45,6 +45,12 @@
 #include "version.h"
 #include "powermgmt.h"
 #include "usb.h"
+#ifdef IPOD_NANO3G
+#include "nand-target.h"
+#endif
+#ifdef NAND_CHECK
+#include "string-extra.h"
+#endif
 #ifdef HAVE_SERIAL
 #include "serial.h"
 #endif
@@ -59,6 +65,9 @@
 #include "norboot-target.h"
 #endif
 
+#if defined(IPOD_NANO3G)
+#define USE_QRCODE
+#endif
 
 #define ERR_RB      0
 #define ERR_OF      1
@@ -143,6 +152,117 @@ static void usb_mode(void)
     printf("USB mode exit     ");
 }
 #endif /* HAVE_BOOTLOADER_USB_MODE */
+
+#if defined(NAND_CHECK) && defined(HAVE_BOOTLOADER_USB_MODE) \
+    && !defined(S5L87XX_DEVELOPMENT_BOOTLOADER)
+/* The contributor NAND check (build with -DNAND_CHECK, run from DFU): show
+ * what the driver identified and how the read-only mount went, add the
+ * unit's model and firmware version, then serve the raw NAND over USB for
+ * utils/ipodnano3g/nandcheck/nandcheck.py. Nothing is written to the NAND. */
+/* The bootloader's backlight calls are stubs, and the check's screen has
+ * come up too dim to read at the default level. Full brightness draws more
+ * than a battery-less unit's USB power alone can supply and can keep it
+ * from booting at all, so this stops at the default rather than the max. */
+static void nand_check_light(void)
+{
+    backlight_hw_brightness(DEFAULT_BRIGHTNESS_SETTING);
+    backlight_hw_on();
+}
+
+/* The report's key lines, short enough for the screen; the whole report
+ * goes to nandcheck.py */
+static void nand_check_print(const char *report)
+{
+    static const char *const keys[] = {
+        "banks", "row", "mode", "pagesize", "validated", "ftl", "verdict",
+        "model", "swvr",
+    };
+    static char text[SECTOR_SIZE];
+    char *p, *nl, *sp;
+    size_t i;
+
+    strlcpy(text, report, sizeof(text));
+    for (p = text; (nl = strchr(p, '\n')); p = nl + 1)
+    {
+        *nl = '\0';
+        sp = strchr(p, ' ');
+        if (!sp)
+            continue;
+        if (!strncmp(p, "ids ", 4))
+        {
+            /* bank 0's id; the others are in the report */
+            printf("id %.8s", sp + 1);
+            continue;
+        }
+        for (i = 0; i < ARRAYLEN(keys); i++)
+            if ((size_t)(sp - p) == strlen(keys[i])
+                && !strncmp(p, keys[i], sp - p))
+                printf("%s", p);
+    }
+}
+
+static void nand_check(void)
+{
+    static struct SysCfg syscfg;
+    char line[64];
+    int rc;
+    ssize_t n;
+
+    nand_check_light();
+    snprintf(line, sizeof(line), "battery %dmV", _battery_voltage());
+    rc = storage_init();
+    /* USB mode unmounts every volume when the host configures the device,
+     * through the file system's locks and object lists */
+    filesystem_init();
+
+    lcd_set_foreground(LCD_RBYELLOW);
+    printf("Nano 3G NAND check");
+    lcd_set_foreground(LCD_WHITE);
+    printf("%s", line);
+    nand_check_note(line);
+    nand_check_light();
+    if (rc)
+        printf("storage_init %d", rc);
+
+    /* Which unit this is, but not its serial number */
+    n = syscfg_read(&syscfg);
+    if (n != -1)
+    {
+        size_t i, count = MIN(syscfg.header.num_entries, SYSCFG_MAX_ENTRIES);
+
+        for (i = 0; i < count; i++)
+        {
+            const struct SysCfgEntry *e = &syscfg.entries[i];
+            const uint32_t *w = (const uint32_t *)e->data;
+
+            if (e->tag == SYSCFG_TAG_MODN)
+                snprintf(line, sizeof(line), "model %.16s", e->data);
+            else if (e->tag == SYSCFG_TAG_SWVR)
+                snprintf(line, sizeof(line), "swvr %.16s", e->data);
+            else if (e->tag == SYSCFG_TAG_HWVR)
+                snprintf(line, sizeof(line), "hwvr %08lx",
+                         (unsigned long)w[1]);
+            else
+                continue;
+            nand_check_note(line);
+        }
+    }
+
+    nand_check_print(nand_check_report());
+    lcd_set_foreground(LCD_RBYELLOW);
+    printf("Photo, then connect USB");
+    printf("and run nandcheck.py");
+    lcd_set_foreground(LCD_WHITE);
+    /* One USB session: usb_mode() starts power management each time, so it
+     * must not run twice */
+    usb_mode();
+    nand_check_light();
+    printf("Done. Hold MENU+SELECT");
+    printf("to restart");
+    while (1)
+        sleep(HZ);
+}
+#endif
 
 void fatal_error(int err)
 {
@@ -770,6 +890,79 @@ static void devel_menu(void)
 }
 #endif /* S5L87XX_DEVELOPMENT_BOOTLOADER */
 
+#ifdef IPOD_NANO3G
+static const char qr_code_data_nano[][22] = {
+    /*
+     * qrencode -o - -t ascii -s 1 -m 0 -i 'https://rockbox.org/IPNBL' | \
+     * cut -c 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39,41 | \
+     * awk '{ print "\"" $0 "\"," }'
+     */
+
+    "#######  #    #######",
+    "#     # ## #  #     #",
+    "# ### #  ## # # ### #",
+    "# ### # # # # # ### #",
+    "# ### #  # ## # ### #",
+    "#     # ####  #     #",
+    "####### # # # #######",
+    "         ##          ",
+    "##### ######## # # # ",
+    "#   #   #### # #    #",
+    "      #    #  #     #",
+    "## # # # # ##   #### ",
+    "# ### ##  ###        ",
+    "        ## #  #  ####",
+    "####### ##  #   ### #",
+    "#     #   ###  # ##  ",
+    "# ### # # ####    ###",
+    "# ### # ### ###  ##  ",
+    "# ### # ####  # #    ",
+    "#     # # ## ##   # #",
+    "####### #    ## ##   ",
+};
+#define qr_code_data qr_code_data_nano
+#endif
+
+#ifdef USE_QRCODE
+static void lcd_qr_code(const char *data, unsigned int row_stride,
+    int x, int y, unsigned int qr_cols, unsigned int qr_rows,
+    unsigned int modules_scale, unsigned int margin_thickness)
+{
+    const unsigned int margin_size = margin_thickness * 2;
+    const unsigned int width = qr_cols * modules_scale + margin_size;
+    const unsigned int height = qr_rows * modules_scale + margin_size;
+
+    // -1 = align right, -2 = align center
+    const unsigned int x0 = x >= 0 ? (unsigned int)x : (LCD_WIDTH - width) / abs(x);
+    const unsigned int y0 = y >= 0 ? (unsigned int)y : (LCD_HEIGHT - height) / abs(y);
+
+    lcd_set_foreground(LCD_WHITE);
+    lcd_fillrect(x0, y0, width, height);
+
+    lcd_set_foreground(LCD_BLACK);
+    for (unsigned int row = 0; row < qr_rows; row++) {
+        for (unsigned int col = 0; col < qr_cols; col++) {
+            if (data[row * row_stride + col] != ' ') {
+                lcd_fillrect(
+                    x0 + margin_thickness + col * modules_scale,
+                    y0 + margin_thickness + row * modules_scale,
+                    modules_scale,
+                    modules_scale
+                );
+            }
+        }
+    }
+
+    lcd_update();
+}
+
+enum {
+    QR_COLS = sizeof(qr_code_data[0]) - 1,
+    QR_ROWS = sizeof(qr_code_data) / sizeof(qr_code_data[0]),
+    QR_STRIDE = sizeof(qr_code_data[0]),
+};
+#endif /* USE_QRCODE */
+
 void main(void)
 {
     int rc = 0;
@@ -870,6 +1063,11 @@ void main(void)
     devel_menu();
 #endif /* S5L87XX_DEVELOPMENT_BOOTLOADER */
 
+#if defined(NAND_CHECK) && defined(HAVE_BOOTLOADER_USB_MODE) \
+    && !defined(S5L87XX_DEVELOPMENT_BOOTLOADER)
+    nand_check();
+#endif
+
 #ifndef S5L87XX_DEVELOPMENT_BOOTLOADER
     if (rc == 0) {
 #if (CONFIG_STORAGE & STORAGE_ATA)
@@ -878,6 +1076,32 @@ void main(void)
 #endif
 
         rc = storage_init();
+#ifdef IPOD_NANO3G
+        if (rc == NAND_ERR_UNSUPPORTED) {
+            /* Rockbox only drives NAND chips proven on hardware. Say which
+             * one this is and how to get it validated, then leave the unit
+             * to Apple's firmware, which is untouched. */
+            lcd_set_foreground(LCD_RBYELLOW);
+            printf("NAND not supported yet");
+            lcd_set_foreground(LCD_WHITE);
+            printf("chip %08lx x %u", (unsigned long)nand_get_id(),
+                   nand_get_bank_count());
+            printf("Rockbox does not write to");
+            printf("chips it has not been");
+            printf("tested on.");
+            printf("Starting Apple firmware in 60s...");
+            lcd_qr_code(&qr_code_data[0][0], QR_STRIDE, -2, LCD_HEIGHT / 2, QR_COLS, QR_ROWS, 4, 8);
+            sleep(60 * HZ);      /* long enough to read the message and scan the QR code */
+            lcd_set_foreground(LCD_WHITE);
+            rc = kernel_launch_onb();
+            /* Only reached if the ONB could not be read from NOR */
+            printf("Apple firmware failed: %d", rc);
+            printf("Hold MENU+SELECT to reboot,");
+            printf("then SELECT+PLAY for disk mode");
+            while (1)
+                sleep(HZ);
+        }
+#endif
         if (rc != 0) {
             printf("Storage error: %d", rc);
             fatal_error(ERR_STORAGE);
@@ -964,6 +1188,12 @@ void main(void)
                 printf("P%d T%02x S%llx",
                        i, pinfo.type, (unsigned long long)pinfo.size);
         }
+#if defined(IPOD_NANO3G) && defined(DEFAULT_VIRT_SECTOR_SIZE)
+        /* Nothing mounted: show USB hosts Apple's 4096-byte sectors, which
+         * its partition table counts in */
+        disk_set_sector_multiplier(IF_MD(0,)
+                                   DEFAULT_VIRT_SECTOR_SIZE / SECTOR_SIZE);
+#endif
         fatal_error(ERR_RB);
     }
 

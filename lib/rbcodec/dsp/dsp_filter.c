@@ -269,12 +269,21 @@ void filter_copy(struct dsp_filter *dst, const struct dsp_filter *src)
 void filter_flush(struct dsp_filter *f)
 {
     memset(f->history, 0, sizeof (f->history));
+    memset(f->frac, 0, sizeof (f->frac));
 }
 
 /**
  * We realise the filters as a second order direct form 1 structure. Direct
  * form 1 was chosen because of better numerical properties for fixed point
  * implementations.
+ *
+ * The output is the sum shifted down, and the bits shifted out are kept and
+ * added to the next sum. Dropping them would bias every output downwards by
+ * half a step on average, and a filter at a low frequency has a very large
+ * gain at DC from its output history to its output: the low bands of the
+ * equalizer turned that bias into a DC offset that grew as the samples had
+ * fewer fractional bits, up to full scale. Carried over, the error has no
+ * DC component left.
  */
 #if (!defined(CPU_COLDFIRE) && !defined(CPU_ARM)) || defined(CPU_ARM_MICRO)
 void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
@@ -284,9 +293,11 @@ void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
        y[n] = b0*x[i] + b1*x[i - 1] + b2*x[i - 2] + a1*y[i - 1] + a2*y[i - 2],
        where y[] is output and x[] is input.
      */
-    unsigned int shift = f->shift;
+    const unsigned int shift = f->shift;
 
     for (unsigned int c = 0; c < channels; c++) {
+        uint32_t frac = f->frac[c];
+
         for (int i = 0; i < count; i++) {
             long long acc = (long long) buf[c][i] * f->coefs[0];
             acc += (long long) f->history[c][0] * f->coefs[1];
@@ -296,9 +307,16 @@ void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
             f->history[c][1] = f->history[c][0];
             f->history[c][0] = buf[c][i];
             f->history[c][3] = f->history[c][2];
-            buf[c][i] = (acc << shift) >> 32;
+            /* The output is the high word of the shifted sum plus what
+               was left of the sum before; the low word is left for the
+               next one. */
+            unsigned long long out = ((unsigned long long) acc << shift) + frac;
+            buf[c][i] = out >> 32;
+            frac = out;
             f->history[c][2] = buf[c][i];
         }
+
+        f->frac[c] = frac;
     }
 }
 #endif /* CPU */

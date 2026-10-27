@@ -23,6 +23,7 @@
 #include "panic.h"
 #include "button.h"
 #include "system-target.h"
+#include "lcdif-rk27xx.h"
 
 #define default_interrupt(name) \
   extern __attribute__((weak,alias("UIRQ"))) void name (void)
@@ -110,26 +111,38 @@ void fiq_dummy(void)
 }
 
 
+static void core_sleep_init(void);
+
+/* The DWDMA's clock is on while one of its users holds it: lcdif-rk27xx.c,
+ * for dwdma_init() and each LCD update. */
+static int dwdma_users = 0;
+
+void rk27xx_dwdma_clock(bool on)
+{
+    int old = disable_irq_save();
+
+    if (on)
+    {
+        if (dwdma_users++ == 0)
+            SCU_CLKCFG &= ~CLKCFG_DWDMA;
+    }
+    else if (--dwdma_users == 0)
+    {
+        SCU_CLKCFG |= CLKCFG_DWDMA;
+    }
+    restore_irq(old);
+}
+
 void system_init(void)
 {
     /* disable WDT just in case nand loader activated it */
     WDTCON &= ~(1<<3);
 
+    core_sleep_init();
+
 #ifndef BOOTLOADER
-    /* SDRAM tweaks.  Note this assumes 100MHz AHB+SDRAM clock. */
-
-#if !(defined(HM60X) || defined(HM801))
-    MCSDR_MODE = (3<<4)|3;         /* CAS=3, burst=8(2^3) -- Safe but slower */
-#else
-    MCSDR_MODE = (2<<4)|3;         /* CAS=2, burst=8(2^3) -- Ideal but causes startup issues on (some?) IHIFI devices */
-#endif
-
-    MCSDR_T_REF = (125*100) >> 3;  /* 125/8 = 15.625 autorefresh interval */
-    MCSDR_T_RFC = (64*100) / 1000; /* autorefresh period */
-    MCSDR_T_RP = 1;                /* precharge period */
-    MCSDR_T_RCD = 1;               /* active to RD/WR delay */
-
-    /* turn off clock for unused modules */
+    /* turn off clock for unused modules - not the NAND controller's: the
+     * FTL uses it, and a register access with its HCLK gated aborts */
     SCU_CLKCFG |= CLKCFG_WDT        |        /* WDT pclk */
                   CLKCFG_RTC        |        /* RTC pclk */
                   CLKCFG_HSADC      |        /* HS_ADC clock */
@@ -140,7 +153,6 @@ void system_init(void)
                   CLKCFG_VIP        |        /* VIP clock */
                   CLKCFG_HCLK_VIP   |        /* VIP HCLK */
                   CLKCFG_LCDC       |        /* LCDC clock */
-                  CLKCFG_NAND       |        /* NAND HCLK */
                   CLKCFG_UHC        |        /* USB host HCLK */
                   CLKCFG_DSP        |        /* DSP clock */
                   CLKCFG_OTP;                /* OTP clock (dunno what it is */
@@ -173,10 +185,79 @@ void system_exception_wait(void)
     while(!button_read_device());
 }
 
-int system_memory_guard(int newmode)
+/* Idle: SCU_CPUPD = 0xdeedbabe gates the core clock, the peripherals keep
+ * running. The SCU restarts the clock only when the INTC's IRQ output
+ * *rises* while the core is stopped: written while an enabled interrupt is
+ * pending - one that came in after the scheduler found nothing to do - the
+ * core never wakes again. The core cannot avoid that window itself: it
+ * stops a few cycles after the write, before it could unmask anything it
+ * masked first. So the INTC is masked, and the A2A DMA unmasks it a few
+ * microseconds later, after the core has stopped: anything pending then
+ * raises the line and wakes the core. Interrupts that arrive meanwhile are
+ * delayed by those microseconds. (Tested with hwstub: 2.4 million sleeps
+ * under 25 kHz of interrupts without a hang; without the DMA, a hang within
+ * 60000.) The zeros the DMA writes first are the delay: the core must stop
+ * before the first unmask lands. Measured in Rockbox during playback, the
+ * DMA has written at most 1 word when the core writes SCU_CPUPD, normal or
+ * boosted, and every sleep with an interrupt pending was woken by the
+ * first unmask after 7 zeros; with 3 zeros, and a write to SDRAM between
+ * starting the DMA and SCU_CPUPD, it sometimes took the next one, and with
+ * a single unmask playback hung within seconds. The DMA still unmasks
+ * twice, masking again in between, as a margin: each unmask is a new edge
+ * if anything is pending.
+ *
+ * A2A channel 0 is used for nothing else (the SD driver uses channel 1),
+ * so it is set up once, by core_sleep_init(). The DWDMA cannot reach the
+ * INTC; borrowing the HDMA channel playback did not use hung the player as
+ * soon as playback started. */
+#define A2A_CON_UNMASK      ((1<<5) | /* fixed destination address */ \
+                             (1<<3) | /* DMA start */ \
+                             (2<<1) | /* word transfer size */ \
+                             (1<<0))  /* software mode */
+
+/* written to INTC_IMR one after the other (~1.6 us per word at 50 MHz
+ * HCLK): 7 zeros, the mask, zero, the mask */
+static unsigned long core_sleep_imr[10] __attribute__((aligned(16)));
+
+static void core_sleep_init(void)
 {
-    (void)newmode;
-    return 0;
+    SCU_CLKCFG &= ~CLKCFG_A2A;
+    A2A_DOMAIN = 0;                 /* both channels on AHB0 */
+    A2A_ISRC0 = (unsigned long)core_sleep_imr;
+    A2A_IDST0 = (unsigned long)&INTC_IMR;
+    A2A_ICNT0 = sizeof(core_sleep_imr);
+    A2A_LCNT0 = 1;
+}
+
+void rk27xx_core_sleep(void)
+{
+    unsigned long imr = INTC_IMR;
+
+    if (imr != 0)                   /* else nothing could wake the core */
+    {
+        core_sleep_imr[7] = imr;
+        core_sleep_imr[9] = imr;
+        /* the buffer must be in memory before the DMA reads it */
+        asm volatile ("" : : : "memory");
+
+        /* nothing between starting the DMA and SCU_CPUPD: it eats into
+         * the delay */
+        INTC_IMR = 0;
+        A2A_CON0 = A2A_CON_UNMASK;
+
+        /* reading the register back makes sure the write has reached the
+         * SCU (ARMv5 has no barrier instruction); the core stops a few
+         * cycles later, before it gets past the next instructions */
+        SCU_CPUPD = 0xdeedbabe;
+        (void)SCU_CPUPD;
+
+        /* the INTC must be unmasked again before IRQs are. The channel
+         * reads as idle once it has read its last word; the write of that
+         * word to INTC_IMR may still be on its way. */
+        while (A2A_DMA_STS & 1);
+        for (int n = 1000; INTC_IMR != imr && n > 0; n--);
+    }
+    enable_irq();
 }
 
 /* usecs may be at most 2^32/200 (~21 seconds) for 200MHz max cpu freq */
@@ -191,34 +272,30 @@ void udelay(unsigned usecs)
         cycles_per_usec = (CPUFREQ_NORMAL + 999999) / 1000000;
     }
 
-    delay = (usecs * cycles_per_usec) / 5;
+    delay = (usecs * cycles_per_usec) / 4;
+    if (delay == 0)                 /* the loop below would run 2^32 times */
+        return;
 
     asm volatile(
         "1: subs %0, %0, #1  \n"    /* 1 cycle  */
-        "   nop              \n"    /* 1 cycle  */
         "   bne  1b          \n"    /* 3 cycles */
-        : : "r"(delay)
+        : "+r"(delay)               /* modified by the loop: in/out */
+	:
+	: "cc"                      /* flags clobbered */
     );
 }
 
-static void cache_invalidate_way(int way)
-{
-    /* Issue invalidata way command to the cache controler */
-    CACHEOP = ((way<<31)|0x2);
-
-    /* wait for invalidate process to complete */
-    while (CACHEOP & 0x03);
-}
-
+/* No whole-cache invalidate at run time, as in the original firmware: it
+ * invalidates the ways once, at power-on with the cache off (crt0.S), and
+ * after that only single lines. Invalidating the ways while running from
+ * cached SDRAM crashed depending on where code happened to lie - with the
+ * cache on in the poll loop, and with it off later, as code was fetched
+ * again. None is needed: the cache is unified and write-through, so what
+ * the CPU writes, code included, is in memory and in any cached copy, and
+ * every DMA into memory discards the lines of its own buffer first
+ * (commit_discard_dcache_range()). */
 void commit_discard_idcache(void)
 {
-    int old_irq = disable_irq_save();
-
-    cache_invalidate_way(0);
-
-    cache_invalidate_way(1);
-
-    restore_irq(old_irq);
 }
 void commit_discard_dcache (void) __attribute__((alias("commit_discard_idcache")));
 
@@ -240,12 +317,8 @@ void commit_discard_dcache_range (const void *base, unsigned int size)
 #if !defined(BOOTLOADER) && defined(HAVE_ADJUSTABLE_CPU_FREQ)
 static inline void set_sdram_timing(int ahb_freq)
 {
-#if 1
-    if (ahb_freq > 100000000)
-        MCSDR_MODE = (3<<4)|3;         /* CAS=3, burst=8(2^3) */
-    else
-        MCSDR_MODE = (2<<4)|3;         /* CAS=2, burst=8(2^3) */
-#endif
+    /* refresh only: the mode register - CAS latency - stays as the boot set
+     * it (see system_init()) */
     MCSDR_T_REF = (125*ahb_freq/1000000) >> 3;
     MCSDR_T_RFC = (64*ahb_freq/1000000)/1000;
 }
@@ -261,6 +334,9 @@ void set_cpu_frequency(long frequency)
 
     if (frequency == CPUFREQ_MAX)
     {
+        /* the LCD strobes take twice the clocks at twice the clock */
+        lcdif_set_bus_timing(true);
+
         /* PLL set to 200 Mhz
          * PLL:ARM = 1:1
          * ARM:AHB = 2:1
@@ -294,6 +370,8 @@ void set_cpu_frequency(long frequency)
         SCU_DIVCON1 &= ~1;
 
         set_sdram_timing(CPUFREQ_NORMAL);
+
+        lcdif_set_bus_timing(false);
     }
 
     cpu_frequency = frequency;

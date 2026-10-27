@@ -45,7 +45,7 @@
 #endif
 
 /* implemented in rockbox-metadata's rbmeta_shim.c (linked alongside) */
-off_t filesize(int fd);
+off_t ffilesize(int fd);
 
 #ifndef DEBUGF
 #define DEBUGF(...) do { } while (0)

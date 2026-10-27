@@ -494,12 +494,23 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
 
     while (p_src < p_end)
     {
+        int marker;
         if (*p_src++ != 0xFF) /* no marker? */
         {
             continue; /* discard */
         }
+        if (p_src >= p_end)
+            break;
+        marker = *p_src++;
+        if (marker != 0xFF && marker != 0x00 && marker != 0x01
+         && (marker < 0xD0 || marker > 0xD9))
+        {   /* a marker segment: it must lie within the file */
+            if (p_end - p_src < 2 || (p_src[0] << 8 | p_src[1]) < 2
+             || (p_src[0] << 8 | p_src[1]) > p_end - p_src)
+                return -13; /* segment runs past the end of the file */
+        }
 
-        switch (*p_src++)
+        switch (marker)
         {
         case 0xFF: /* Previous FF was fill byte */
             p_src--; /* This FF could be start of a marker */
@@ -508,6 +519,7 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
             break;
 
         case 0xC0: /* SOF Huff  - Baseline DCT */
+        case 0xC1: /* SOF Huff  - Extended sequential DCT (8 bit samples) */
             {
                 ret |= SOF0;
                 marker_size = *p_src++ << 8; /* Highbyte */
@@ -533,15 +545,31 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
                     p_jpeg->frameheader[i].horizontal_sampling = *p_src >> 4;
                     p_jpeg->frameheader[i].vertical_sampling = *p_src++ & 0x0F;
                     p_jpeg->frameheader[i].quanttable_select = *p_src++;
+                    if (p_jpeg->frameheader[i].quanttable_select > 3)
+                        return -8; /* Unsupported quantization table */
                     if (p_jpeg->frameheader[i].horizontal_sampling > 2
                      || p_jpeg->frameheader[i].vertical_sampling > 2)
                     return -3; /* Unsupported SOF0 subsampling */
                 }
                 p_jpeg->blocks = n;
+                for (i=1; i<n; i++)
+                {   /* chroma must be one block per MCU */
+                    if (p_jpeg->frameheader[i].horizontal_sampling != 1
+                     || p_jpeg->frameheader[i].vertical_sampling != 1)
+                        return -3; /* Unsupported SOF0 subsampling */
+                }
+                if (p_jpeg->x_size == 0 || p_jpeg->y_size == 0)
+                    return -12; /* Height defined by DNL not supported */
+                /* A single-component scan is non-interleaved: the MCU is one
+                   8x8 block regardless of the sampling factors (T.81 A.2.2) */
+                if (n == 1)
+                {
+                    p_jpeg->frameheader[0].horizontal_sampling = 1;
+                    p_jpeg->frameheader[0].vertical_sampling = 1;
+                }
             }
             break;
 
-        case 0xC1: /* SOF Huff  - Extended sequential DCT*/
         case 0xC2: /* SOF Huff  - Progressive DCT*/
         case 0xC3: /* SOF Huff  - Spatial (sequential) lossless*/
         case 0xC5: /* SOF Huff  - Differential sequential DCT*/
@@ -582,7 +610,8 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
                             sum += *p_src;
                             p_jpeg->hufftable[i].huffmancodes_ac[j] = *p_src++;
                         }
-                        if(16 + sum > AC_LEN)
+                        if(16 + sum > AC_LEN
+                           || p_src + sum > p_temp + marker_size - 2)
                             return -10; /* longer than allowed */
 
                         for (; j < 16 + sum; j++)
@@ -595,7 +624,8 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
                             sum += *p_src;
                             p_jpeg->hufftable[i].huffmancodes_dc[j] = *p_src++;
                         }
-                        if(16 + sum > DC_LEN)
+                        if(16 + sum > DC_LEN
+                           || p_src + sum > p_temp + marker_size - 2)
                             return -11; /* longer than allowed */
 
                         for (; j < 16 + sum; j++)
@@ -622,16 +652,38 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
                 marker_size |= *p_src++; /* Lowbyte */
 
                 n = (marker_size-2-1-3)/2;
-                if (*p_src++ != n || (n != 1 && n != 3))
+                if (*p_src++ != n || (n != 1 && n != 3)
+                    /* one scan with all components; multi-scan files and
+                       SOS before SOF are not supported (blocks = Nf here) */
+                    || n != p_jpeg->blocks)
                 {
                     return (-7); /* Unsupported SOS component specification */
                 }
                 for (i=0; i<n; i++)
                 {
                     p_jpeg->scanheader[i].ID = *p_src++;
+                    if (p_jpeg->scanheader[i].ID != p_jpeg->frameheader[i].ID)
+                    {
+                        return (-7); /* components out of frame order */
+                    }
                     p_jpeg->scanheader[i].DC_select = *p_src >> 4;
                     p_jpeg->scanheader[i].AC_select = *p_src++ & 0x0F;
+                    if (p_jpeg->scanheader[i].DC_select > 1
+                     || p_jpeg->scanheader[i].AC_select > 1)
+                    {
+                        return (-5); /* Huffman table index out of range */
+                    }
                 }
+                p_jpeg->rgb = n == 3 && jpeg_is_rgb(p_jpeg->jfif, p_jpeg->adobe,
+                    p_jpeg->frameheader[0].ID, p_jpeg->frameheader[1].ID,
+                    p_jpeg->frameheader[2].ID);
+                /* RGB needs every component in one block per MCU: the
+                   planes are converted to YCbCr in place (colour) or
+                   combined per block (greyscale) */
+                if (p_jpeg->rgb
+                 && (p_jpeg->frameheader[0].horizontal_sampling != 1
+                  || p_jpeg->frameheader[0].vertical_sampling != 1))
+                    return -3; /* Unsupported SOF0 subsampling */
                 p_src += 3; /* skip spectral information */
                 p_jpeg->p_entropy_data = p_src;
                 p_end = p_src; /* exit while loop */
@@ -643,18 +695,27 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
                 ret |= DQT;
                 marker_size = *p_src++ << 8; /* Highbyte */
                 marker_size |= *p_src++; /* Lowbyte */
-                n = (marker_size-2)/(QUANT_TABLE_LENGTH+1); /* # of tables */
-                for (i=0; i<n; i++)
+                unsigned char *p_seg_end = p_src + marker_size - 2;
+                while (p_seg_end - p_src > QUANT_TABLE_LENGTH) /* a table */
                 {
-                    int id = *p_src++; /* ID */
-                    if (id >= 4)
+                    int id = *p_src++; /* Pq: precision, Tq: ID */
+                    int pq = id >> 4;
+                    id &= 0x0F;
+                    if (id >= 4 || pq > 1
+                     || p_seg_end - p_src < QUANT_TABLE_LENGTH * (pq + 1))
                     {
                         return (-8); /* Unsupported quantization table */
                     }
                     /* Read Quantisation table: */
                     for (j=0; j<QUANT_TABLE_LENGTH; j++)
-                        p_jpeg->quanttable[id][j] = *p_src++;
+                    {
+                        int q = *p_src++;
+                        if (pq) /* 16 bit entries (SOF1) */
+                            q = q << 8 | *p_src++;
+                        p_jpeg->quanttable[id][j] = q;
+                    }
                 }
+                p_src = p_seg_end;
             }
             break;
 
@@ -671,7 +732,6 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
         case 0xDC: /* Define Number of Lines */
         case 0xDE: /* Define Hierarchical progression */
         case 0xDF: /* Expand Reference Component(s) */
-        case 0xE0: /* Application Field 0*/
         case 0xE1: /* Application Field 1*/
         case 0xE2: /* Application Field 2*/
         case 0xE3: /* Application Field 3*/
@@ -685,12 +745,24 @@ int process_markers(unsigned char* p_src, long size, struct jpeg* p_jpeg)
         case 0xEB: /* Application Field 11*/
         case 0xEC: /* Application Field 12*/
         case 0xED: /* Application Field 13*/
-        case 0xEE: /* Application Field 14*/
         case 0xEF: /* Application Field 15*/
         case 0xFE: /* Comment */
             {
                 marker_size = *p_src++ << 8; /* Highbyte */
                 marker_size |= *p_src++; /* Lowbyte */
+                p_src += marker_size-2; /* skip segment */
+            }
+            break;
+
+        case 0xE0: /* Application Field 0 (JFIF) */
+        case 0xEE: /* Application Field 14 (Adobe) */
+            {
+                int marker = p_src[-1];
+                marker_size = *p_src++ << 8; /* Highbyte */
+                marker_size |= *p_src++; /* Lowbyte */
+                n = MIN(marker_size - 2, p_end - p_src);
+                jpeg_app_colorspace(marker, p_src, MIN(n, 12), &p_jpeg->jfif,
+                                    &p_jpeg->adobe);
                 p_src += marker_size-2; /* skip segment */
             }
             break;
@@ -878,7 +950,7 @@ static const int zag[] =
 
 void build_lut(struct jpeg* p_jpeg)
 {
-    int i;
+    int i, c;
     fix_huff_tbl(p_jpeg->hufftable[0].huffmancodes_dc,
         &p_jpeg->dc_derived_tbls[0]);
     fix_huff_tbl(p_jpeg->hufftable[0].huffmancodes_ac,
@@ -888,11 +960,14 @@ void build_lut(struct jpeg* p_jpeg)
     fix_huff_tbl(p_jpeg->hufftable[1].huffmancodes_ac,
         &p_jpeg->ac_derived_tbls[1]);
 
-    /* build the dequantization tables for the IDCT (De-ZiZagged) */
-    for (i=0; i<64; i++)
+    /* build each component's dequantization table for the IDCT
+       (De-ZiZagged); p_jpeg->blocks is still the component count here */
+    for (c=0; c<p_jpeg->blocks; c++)
     {
-        p_jpeg->qt_idct[0][zag[i]] = p_jpeg->quanttable[0][i];
-        p_jpeg->qt_idct[1][zag[i]] = p_jpeg->quanttable[1][i];
+        const int* qt = p_jpeg->quanttable[
+            p_jpeg->frameheader[c].quanttable_select];
+        for (i=0; i<64; i++)
+            p_jpeg->qt_idct[c][zag[i]] = qt[i];
     }
 
     for (i=0; i<4; i++)
@@ -911,10 +986,6 @@ void build_lut(struct jpeg* p_jpeg)
         p_jpeg->mcu_membership[1] = 0;
         p_jpeg->mcu_membership[2] = 1;
         p_jpeg->mcu_membership[3] = 2;
-        p_jpeg->tab_membership[0] = 0; /* DC, DC, AC, AC */
-        p_jpeg->tab_membership[1] = 0;
-        p_jpeg->tab_membership[2] = 1;
-        p_jpeg->tab_membership[3] = 1;
         p_jpeg->subsample_x[0] = 1;
         p_jpeg->subsample_x[1] = 2;
         p_jpeg->subsample_x[2] = 2;
@@ -922,7 +993,7 @@ void build_lut(struct jpeg* p_jpeg)
         p_jpeg->subsample_y[1] = 1;
         p_jpeg->subsample_y[2] = 1;
     }
-    if (p_jpeg->frameheader[0].horizontal_sampling == 1
+    else if (p_jpeg->frameheader[0].horizontal_sampling == 1
         && p_jpeg->frameheader[0].vertical_sampling == 2)
     {   /* 4:2:2 vertically subsampled */
         p_jpeg->store_pos[1] = 2; /* block positions are mirrored */
@@ -936,10 +1007,6 @@ void build_lut(struct jpeg* p_jpeg)
         p_jpeg->mcu_membership[1] = 0;
         p_jpeg->mcu_membership[2] = 1;
         p_jpeg->mcu_membership[3] = 2;
-        p_jpeg->tab_membership[0] = 0; /* DC, DC, AC, AC */
-        p_jpeg->tab_membership[1] = 0;
-        p_jpeg->tab_membership[2] = 1;
-        p_jpeg->tab_membership[3] = 1;
         p_jpeg->subsample_x[0] = 1;
         p_jpeg->subsample_x[1] = 1;
         p_jpeg->subsample_x[2] = 1;
@@ -961,12 +1028,6 @@ void build_lut(struct jpeg* p_jpeg)
         p_jpeg->mcu_membership[3] = 0;
         p_jpeg->mcu_membership[4] = 1;
         p_jpeg->mcu_membership[5] = 2;
-        p_jpeg->tab_membership[0] = 0;
-        p_jpeg->tab_membership[1] = 0;
-        p_jpeg->tab_membership[2] = 0;
-        p_jpeg->tab_membership[3] = 0;
-        p_jpeg->tab_membership[4] = 1;
-        p_jpeg->tab_membership[5] = 1;
         p_jpeg->subsample_x[0] = 1;
         p_jpeg->subsample_x[1] = 2;
         p_jpeg->subsample_x[2] = 2;
@@ -985,9 +1046,6 @@ void build_lut(struct jpeg* p_jpeg)
         p_jpeg->mcu_membership[0] = 0;
         p_jpeg->mcu_membership[1] = 1;
         p_jpeg->mcu_membership[2] = 2;
-        p_jpeg->tab_membership[0] = 0;
-        p_jpeg->tab_membership[1] = 1;
-        p_jpeg->tab_membership[2] = 1;
         p_jpeg->subsample_x[0] = 1;
         p_jpeg->subsample_x[1] = 1;
         p_jpeg->subsample_x[2] = 1;
@@ -1019,26 +1077,31 @@ void build_lut(struct jpeg* p_jpeg)
 * is evaluated multiple times.
 */
 
+/* Fetch the next entropy-coded byte. Past the end of the data this returns
+ * zero without reading, but still advances so the caller's end check stops
+ * the decode. */
+INLINE unsigned char fetch_byte(struct bitstream* pb)
+{
+    unsigned char byte = 0;
+
+    if (pb->next_input_byte < pb->input_end)
+    {
+        byte = *pb->next_input_byte;
+        if (byte == 0xFF) /* legal marker can be byte stuffing or RSTm */
+        {   /* simplification: just skip the (one-byte) marker code */
+            pb->next_input_byte++;
+        }
+    }
+    pb->next_input_byte++;
+    return byte;
+}
+
 INLINE void check_bit_buffer(struct bitstream* pb, int nbits)
 {
     if (pb->bits_left < nbits)
     {   /* nbits is <= 16, so I can always refill 2 bytes in this case */
-        unsigned char byte;
-
-        byte = *pb->next_input_byte++;
-        if (byte == 0xFF) /* legal marker can be byte stuffing or RSTm */
-        {   /* simplification: just skip the (one-byte) marker code */
-            pb->next_input_byte++;
-        }
-        pb->get_buffer = (pb->get_buffer << 8) | byte;
-
-        byte = *pb->next_input_byte++;
-        if (byte == 0xFF) /* legal marker can be byte stuffing or RSTm */
-        {   /* simplification: just skip the (one-byte) marker code */
-            pb->next_input_byte++;
-        }
-        pb->get_buffer = (pb->get_buffer << 8) | byte;
-
+        pb->get_buffer = (pb->get_buffer << 8) | fetch_byte(pb);
+        pb->get_buffer = (pb->get_buffer << 8) | fetch_byte(pb);
         pb->bits_left += 16;
     }
 }
@@ -1269,9 +1332,10 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[3],
                 int k = 1; /* coefficient index */
                 int s, r; /* huffman values */
                 int ci = p_jpeg->mcu_membership[blkn]; /* component index */
-                int ti = p_jpeg->tab_membership[blkn]; /* table index */
-                struct derived_tbl* dctbl = &p_jpeg->dc_derived_tbls[ti];
-                struct derived_tbl* actbl = &p_jpeg->ac_derived_tbls[ti];
+                struct derived_tbl* dctbl =
+                    &p_jpeg->dc_derived_tbls[p_jpeg->scanheader[ci].DC_select];
+                struct derived_tbl* actbl =
+                    &p_jpeg->ac_derived_tbls[p_jpeg->scanheader[ci].AC_select];
 
                 /* Section F.2.2.1: decode the DC coefficient difference */
                 s = huff_decode_dc(&bs, dctbl);
@@ -1330,11 +1394,11 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[3],
                 if (ci == 0)
                 {   /* Y component needs to bother about block store */
                     pf_idct(p_byte[0]+store_offs[blkn], block,
-                        p_jpeg->qt_idct[ti], skip_line[0]);
+                        p_jpeg->qt_idct[ci], skip_line[0]);
                 }
                 else
                 {   /* chroma */
-                    pf_idct(p_byte[ci], block, p_jpeg->qt_idct[ti],
+                    pf_idct(p_byte[ci], block, p_jpeg->qt_idct[ci],
                         skip_line[ci]);
                 }
             } /* for blkn */
@@ -1352,6 +1416,20 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[3],
         if (pf_progress != NULL)
             pf_progress(y, p_jpeg->y_mbl-1); /* notify about decoding progress */
     } /* for y */
+
+    if (p_jpeg->rgb)
+    {   /* the display expects YCbCr: convert the equal sized R, G and B
+           planes in place (JFIF equations) */
+        unsigned char *pr = p_pixel[0], *pg = p_pixel[1], *pb = p_pixel[2];
+        unsigned char *end = pr + width * height;
+        for (; pr < end; pr++, pg++, pb++)
+        {
+            int r = *pr, g = *pg, b = *pb;
+            *pr = (77 * r + 150 * g + 29 * b + 128) >> 8;
+            *pg = clamp_component((-43 * r - 85 * g + 128 * b + 32896) >> 8);
+            *pb = clamp_component((128 * r - 107 * g - 21 * b + 32896) >> 8);
+        }
+    }
 
     return 0; /* success */
 }
@@ -1377,7 +1455,8 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[1], int downscale,
     int k_need; /* AC coefficients needed up to here */
     int zero_need; /* init the block with this many zeros */
 
-    int last_dc_val = 0;
+    int last_dc_val[3] = {0, 0, 0};
+    unsigned char rgb_tmp[2][64]; /* R and G of an RGB MCU */
     int store_offs[4]; /* memory offsets: order of Y11 Y12 Y21 Y22 U V */
     int restart = p_jpeg->restart_interval; /* MCUs until restart marker */
 
@@ -1440,17 +1519,18 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[1], int downscale,
                 int k = 1; /* coefficient index */
                 int s, r; /* huffman values */
                 int ci = p_jpeg->mcu_membership[blkn]; /* component index */
-                int ti = p_jpeg->tab_membership[blkn]; /* table index */
-                struct derived_tbl* dctbl = &p_jpeg->dc_derived_tbls[ti];
-                struct derived_tbl* actbl = &p_jpeg->ac_derived_tbls[ti];
+                struct derived_tbl* dctbl =
+                    &p_jpeg->dc_derived_tbls[p_jpeg->scanheader[ci].DC_select];
+                struct derived_tbl* actbl =
+                    &p_jpeg->ac_derived_tbls[p_jpeg->scanheader[ci].AC_select];
 
                 /* Section F.2.2.1: decode the DC coefficient difference */
                 s = huff_decode_dc(&bs, dctbl);
 
-                if (ci == 0) /* only for Y component */
+                if (ci == 0 || p_jpeg->rgb) /* Y, or all of R, G, B */
                 {
-                    last_dc_val += s;
-                    block[0] = last_dc_val; /* output it (assumes zag[0] = 0) */
+                    last_dc_val[ci] += s;
+                    block[0] = last_dc_val[ci]; /* output it (zag[0] = 0) */
 
                     /* coefficient buffer must be cleared */
                     MEMSET(block+1, 0, zero_need*sizeof(block[0]));
@@ -1501,10 +1581,26 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[1], int downscale,
                     }
                 }  /* for k */
 
-                if (ci == 0)
+                if (ci == 0 && !p_jpeg->rgb)
                 {   /* only for Y component */
-                    pf_idct(p_byte+store_offs[blkn], block, p_jpeg->qt_idct[ti],
+                    pf_idct(p_byte+store_offs[blkn], block, p_jpeg->qt_idct[ci],
                         skip_line);
+                }
+                else if (p_jpeg->rgb && ci < 2)
+                {   /* keep R and G until B is decoded */
+                    pf_idct(rgb_tmp[ci], block, p_jpeg->qt_idct[ci], 8);
+                }
+                else if (p_jpeg->rgb)
+                {   /* luma from R, G and B (JFIF weights) */
+                    int n = 8 / downscale;
+                    int xi, yi;
+                    unsigned char *p = p_byte;
+                    pf_idct(p, block, p_jpeg->qt_idct[ci], skip_line);
+                    for (yi = 0; yi < n; yi++, p += skip_line)
+                        for (xi = 0; xi < n; xi++)
+                            p[xi] = (77 * rgb_tmp[0][yi * 8 + xi]
+                                + 150 * rgb_tmp[1][yi * 8 + xi]
+                                + 29 * p[xi] + 128) >> 8;
                 }
             } /* for blkn */
             p_byte += skip_mcu;
@@ -1512,7 +1608,8 @@ int jpeg_decode(struct jpeg* p_jpeg, unsigned char* p_pixel[1], int downscale,
             {   /* if a restart marker is due: */
                 restart = p_jpeg->restart_interval; /* count again */
                 search_restart(&bs); /* align the bitstream */
-                last_dc_val = 0; /* reset decoder */
+                last_dc_val[0] = last_dc_val[1] =
+                                 last_dc_val[2] = 0; /* reset decoder */
             }
         } /* for x */
         if (pf_progress != NULL)

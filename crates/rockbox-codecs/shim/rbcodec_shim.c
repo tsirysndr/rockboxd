@@ -724,7 +724,7 @@ int rbcodec_open(const char *path)
     }
 
     shim_api = shim_api_template;
-    shim_api.filesize = filesize(input_fd);
+    shim_api.filesize = ffilesize(input_fd);
     shim_api.curpos = 0;
     shim_api.id3 = &current_id3;
     shim_api.audio_hid = -1;

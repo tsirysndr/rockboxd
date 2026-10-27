@@ -1244,6 +1244,9 @@ extern "C" {
     fn readdir(dirp: *mut Dir) -> dirent;
     fn mkdir(path: *const c_char) -> c_int;
     fn rmdir(path: *const c_char) -> c_int;
+    /* Upstream routes this through FS_PREFIX, so the firmware exports it
+     * as app_dir_get_info on APPLICATION builds (every rockboxd target). */
+    #[link_name = "app_dir_get_info"]
     fn dir_get_info(dirp: *mut Dir, entry: *mut dirent) -> Dirent;
 
     // File
@@ -1302,7 +1305,6 @@ extern "C" {
     fn tagcache_get_numeric(tcs: *mut TagcacheSearch, tag: c_int) -> c_long;
     fn tagcache_get_stat() -> TagcacheStat;
     fn tagcache_commit_finalize();
-    fn tagtree_subentries_do_action(cb: ActionCb) -> c_uchar;
     fn search_albumart_files(
         id3: *mut Mp3Entry,
         size_string: *const c_char,

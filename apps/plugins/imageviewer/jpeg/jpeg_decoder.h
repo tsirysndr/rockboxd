@@ -37,22 +37,24 @@ struct jpeg
     int blocks; /* blocks per MB */
     int restart_interval; /* number of MCUs between RSTm markers */
     int store_pos[4]; /* for Y block ordering */
+    bool jfif; /* saw a JFIF APP0 marker */
+    unsigned char adobe; /* Adobe APP14 transform flag + 1, 0 if none */
+    bool rgb; /* the components are R, G, B rather than Y, Cb, Cr */
 
     unsigned char* p_entropy_data;
     unsigned char* p_entropy_end;
 
     int quanttable[4][QUANT_TABLE_LENGTH]; /* raw quantization tables 0-3 */
-    int qt_idct[2][QUANT_TABLE_LENGTH]; /* quantization tables for IDCT */
+    int qt_idct[3][QUANT_TABLE_LENGTH]; /* per component, for IDCT */
 
     struct huffman_table hufftable[2]; /* Huffman tables  */
     struct derived_tbl dc_derived_tbls[2]; /* Huffman-LUTs */
     struct derived_tbl ac_derived_tbls[2];
 
     struct frame_component frameheader[3]; /* Component descriptor */
-    struct scan_component scanheader[3]; /* currently not used */
+    struct scan_component scanheader[3]; /* Huffman tables per component */
 
     int mcu_membership[6]; /* info per block */
-    int tab_membership[6];
     int subsample_x[3]; /* info per component */
     int subsample_y[3];
 };

@@ -13,7 +13,7 @@ clock
 xworld
 
 /* for duke3d, wolf3d and quake */
-#if (PLUGIN_BUFFER_SIZE > 0x14000) && (CONFIG_PLATFORM & (PLATFORM_NATIVE|PLATFORM_HOSTED)) && (defined(CPU_ARM) || defined(CPU_MIPS)) && !defined(RG_NANO)
+#if (PLUGIN_BUFFER_SIZE > 0x14000) && (CONFIG_PLATFORM & (PLATFORM_NATIVE|PLATFORM_HOSTED)) && (defined(CPU_ARM) || defined(CPU_MIPS)) && !defined(RG_NANO) && !defined(SONY_PSP) && !defined(N3DS)
 sdl
 #endif
 
@@ -24,9 +24,10 @@ puzzles
     && (CONFIG_KEYPAD != HM60X_PAD) /* not enough buttons */ \
     && (LCD_PIXELFORMAT != HORIZONTAL_PACKING) /* TODO */ \
     && (LCD_PIXELFORMAT != VERTICAL_INTERLEAVED) /* TODO */ \
-    && (defined(HAVE_LCD_COLOR) || (LCD_HEIGHT == 64) && (LCD_DEPTH == 1) || \
-                                   (LCD_HEIGHT == 128) && (LCD_DEPTH == 2))
+    && (defined(HAVE_LCD_COLOR) || ((LCD_HEIGHT > 64) && (LCD_DEPTH >= 2)))
+#ifndef N3DS
 rockboy
+#endif
 #endif
 
 #if defined(HAVE_TAGCACHE)
@@ -44,7 +45,6 @@ imageviewer
 sudoku
 reversi
 goban
-frotz
 
 #ifndef OLYMPUS_MROBE_500
 #if PLUGIN_BUFFER_SIZE > 0x40000 || PLUGIN_BUFFER_SIZE <= 0x20000 /* overlay */
@@ -74,13 +74,18 @@ mikmod
     (CONFIG_KEYPAD == SANSA_FUZE_PAD) || (CONFIG_KEYPAD == SANSA_E200_PAD) || \
     (CONFIG_KEYPAD == IPOD_4G_PAD) || (CONFIG_KEYPAD == IPOD_3G_PAD) || \
     (CONFIG_KEYPAD == IPOD_1G2G_PAD || CONFIG_KEYPAD == SAMSUNG_YPR0_PAD) || \
-    (CONFIG_KEYPAD == SANSA_FUZEPLUS_PAD) || (CONFIG_KEYPAD == CTRU_PAD) || (CONFIG_KEYPAD == EROSQ_PAD)
+    (CONFIG_KEYPAD == SANSA_FUZEPLUS_PAD) || (CONFIG_KEYPAD == N3DS_PAD) || \
+    (CONFIG_KEYPAD == EROSQ_PAD) || (CONFIG_KEYPAD == PSP_PAD)
 /* PDBox is confirmed to run on these player models. */
 pdbox
 #endif
 
 #if !defined(RB_PROFILE) && MEMORYSIZE > 2  /* mpegplayer allocates at least 2MB of RAM */
 mpegplayer
+#endif
+
+#ifdef HAVE_HW_H264
+h264_player
 #endif
 
 /* Lua needs at least 160 KB to work in */

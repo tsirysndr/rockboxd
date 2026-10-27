@@ -52,23 +52,37 @@ struct apetag_item_header
 bool read_ape_tags(int fd, struct mp3entry* id3)
 {
     struct apetag_header header;
+    /* bytes after the tag: 0, or 128 for an ID3v1 tag after it */
+    int after = 0;
 
-    if (lseek(fd, -APETAG_HEADER_LENGTH, SEEK_END) < 0)
-        return false;
+    while (true)
+    {
+        if (lseek(fd, -APETAG_HEADER_LENGTH - after, SEEK_END) < 0)
+            return false;
 
-    if (read(fd, &header, sizeof(header)) != APETAG_HEADER_LENGTH)
-        return false;
+        if (read(fd, &header, sizeof(header)) != APETAG_HEADER_LENGTH)
+            return false;
 
-    if (memcmp(header.id, "APETAGEX", sizeof(header.id)))
-        return false;
+        if (!memcmp(header.id, "APETAGEX", sizeof(header.id)))
+            break;
+
+        /* if the file ends in an ID3v1 tag, look again before it */
+        if (after != 0)
+            return false;
+        after = 128;
+        if (lseek(fd, -after, SEEK_END) < 0
+            || read(fd, header.id, 3) != 3
+            || memcmp(header.id, "TAG", 3))
+            return false;
+    }
 
     /* APE tag is little endian - convert to native byte order if needed */
     if (IS_BIG_ENDIAN)
     {
         header.version = swap32(header.version);
-        header.length = swap32(header.version);
-        header.item_count = swap32(header.version);
-        header.flags = swap32(header.version);
+        header.length = swap32(header.length);
+        header.item_count = swap32(header.item_count);
+        header.flags = swap32(header.flags);
     }
 
     if ((header.version == 2000) && (header.item_count > 0)
@@ -80,7 +94,7 @@ bool read_ape_tags(int fd, struct mp3entry* id3)
         unsigned int tag_remaining = header.length - APETAG_HEADER_LENGTH;
         unsigned int i;
 
-        if (lseek(fd, -((int)header.length), SEEK_END) < 0)
+        if (lseek(fd, -((int)header.length) - after, SEEK_END) < 0)
         {
             return false;
         }
@@ -146,11 +160,18 @@ bool read_ape_tags(int fd, struct mp3entry* id3)
 #ifdef HAVE_ALBUMART
                 if (strcasecmp(name, "cover art (front)") == 0)
                 {
-                    /* Skip any file name. */
-                    r = read_string(fd, value, sizeof(value), 0, -1);
-                    r += read_string(fd, value, sizeof(value), -1, 4);
+                    /* where the item's value starts */
+                    off_t start = lseek(fd, 0, SEEK_CUR);
 
+                    /* Skip any file name, then read the magic number. */
+                    r = read_string(fd, value, sizeof(value), 0,
+                                    item.length);
                     if (r < 0)
+                    {
+                        return false;
+                    }
+                    value[0] = '\0';
+                    if (item.length - r >= 4 && read(fd, value, 4) != 4)
                     {
                         return false;
                     }
@@ -173,13 +194,13 @@ bool read_ape_tags(int fd, struct mp3entry* id3)
                     /* Set the album art size and position. */
                     if (id3->albumart.type != AA_TYPE_UNKNOWN)
                     {
-                        id3->albumart.pos  = lseek(fd, - 4, SEEK_CUR);
-                        id3->albumart.size = item.length - r - 4;
+                        id3->albumart.pos  = start + r;
+                        id3->albumart.size = item.length - r;
                         id3->has_embedded_albumart = true;
                     }
-                    
+
                     /* Seek back to this APE items begin. */
-                    if (lseek(fd, -r, SEEK_CUR) < 0)
+                    if (lseek(fd, start, SEEK_SET) < 0)
                     {
                         return false;
                     }

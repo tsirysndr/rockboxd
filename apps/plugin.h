@@ -83,6 +83,7 @@ int plugin_open(const char *plugin, const char *parameter);
 #include "metadata.h"
 #include "sound.h"
 #include "audio.h"
+#include "hw_h264.h"
 #include "voice_thread.h"
 #include "root_menu.h"
 #include "talk.h"
@@ -179,7 +180,7 @@ int plugin_open(const char *plugin, const char *parameter);
  * when this happens please take the opportunity to sort in
  * any new functions "waiting" at the end of the list.
  */
-#define PLUGIN_API_VERSION 284
+#define PLUGIN_API_VERSION 286
 
 /* 239 Marks the removal of ARCHOS HWCODEC and CHARCELL */
 
@@ -306,6 +307,8 @@ struct plugin_api {
     int (*font_load)(const char *path);
     void (*font_unload)(int font_id);
     struct font* (*font_get)(int font);
+    int (*font_measurestring)(const unsigned char *str, size_t maxbytes,
+                              size_t maxwidth, int *w, int *h, int fontnum);
     int  (*font_getstringsize)(const unsigned char *str, int *w, int *h,
                                int fontnumber);
     int (*font_get_width)(struct font* pf, ucschar_t char_code);
@@ -373,11 +376,11 @@ struct plugin_api {
     bool (*is_backlight_on)(bool ignore_always_off);
     void (*backlight_on)(void);
     void (*backlight_off)(void);
+    void (*backlight_set_on_button_hold)(int index);
     void (*backlight_set_timeout)(int index);
 #ifdef HAVE_BACKLIGHT_BRIGHTNESS
     void (*backlight_set_brightness)(int val);
 #endif /* HAVE_BACKLIGHT_BRIGHTNESS */
-
 #if CONFIG_CHARGING
     void (*backlight_set_timeout_plugged)(int index);
 #endif
@@ -388,6 +391,9 @@ struct plugin_api {
     void (*remote_backlight_set_timeout)(int index);
 #if CONFIG_CHARGING
     void (*remote_backlight_set_timeout_plugged)(int index);
+#endif
+#if defined(HAS_REMOTE_BUTTON_HOLD)
+    void (*remote_backlight_set_on_button_hold)(int index);
 #endif
 #endif /* HAVE_REMOTE_LCD */
 #endif /* HAVE_BACKLIGHT */
@@ -450,6 +456,9 @@ struct plugin_api {
     void (*gesture_vel_process)(struct gesture_vel *gv,
                                 const struct touchevent *ev);
     bool (*gesture_vel_get)(struct gesture_vel *gv, int *xvel, int *yvel);
+    int (*gesture_flick_get_in_vp)(const struct gesture_event *gevt,
+                                   const struct viewport *vp);
+    int (*gesture_flick_get)(const struct gesture_event *gevt);
 #endif
     bool (*action_userabort)(int timeout);
     int (*core_set_keyremap)(struct button_mapping* core_keymap, int count);
@@ -495,7 +504,7 @@ struct plugin_api {
     int (*remove)(const char *path);
     int (*rename)(const char *old, const char *new);
     int (*ftruncate)(int fildes, off_t length);
-    off_t (*filesize)(int fildes);
+    off_t (*ffilesize)(int fildes);
     int (*fdprintf)(int fildes, const char *fmt, ...) ATTRIBUTE_PRINTF(2, 3);
     int (*read_line)(int fd, char* buffer, int buffer_size);
     bool (*settings_parseline)(char* line, char** name, char** value);
@@ -601,8 +610,10 @@ struct plugin_api {
     void (*reset_poweroff_timer)(void);
     void (*set_sleeptimer_duration)(int minutes);
     int (*get_sleep_timer)(void);
-#if (CONFIG_PLATFORM & PLATFORM_NATIVE)
+#if (CONFIG_PLATFORM & PLATFORM_NATIVE) || defined(SONY_PSP)
+#if defined(CPU_COLDFIRE)
     int (*system_memory_guard)(int newmode);
+#endif
     long *cpu_frequency;
 #ifdef HAVE_ADJUSTABLE_CPU_FREQ
 #ifdef CPU_BOOST_LOGGING
@@ -1014,7 +1025,7 @@ struct plugin_api {
     void (*wheel_send_events)(bool send);
 #endif
 
-#if defined(IRIVER_H100_SERIES) || defined(IRIVER_H300_SERIES)
+#if !defined(SIMULATOR) && (defined(IRIVER_H100_SERIES) || defined(IRIVER_H300_SERIES))
     /* Routines for the iriver_flash -plugin. */
     bool (*detect_original_firmware)(void);
     bool (*detect_flashed_ramimage)(void);
@@ -1037,10 +1048,18 @@ struct plugin_api {
     int (*path_strip_volume)(const char *name, const char **nameptr, bool greedy);
 #endif
 
+#ifdef HAVE_HW_H264
+    const struct hw_h264_api *hw_h264;
+#endif
+#ifdef HAVE_JPEG
+    int (*clip_jpeg_fd)(int fd, int flags, unsigned long jpeg_size,
+                        struct bitmap *bm, int maxsize, int format,
+                        const struct custom_format *cformat);
+#endif
+
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
-    int (*font_measurestring)(const unsigned char *str, size_t maxbytes,
-                              size_t maxwidth, int *w, int *h, int fontnum);
+    void (*settings_apply)(bool read_disk);
 };
 
 /* plugin header */

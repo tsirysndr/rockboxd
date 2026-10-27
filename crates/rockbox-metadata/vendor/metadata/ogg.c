@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2005 Dave Chapman
  *
@@ -134,7 +133,7 @@ bool get_ogg_metadata(int fd, struct mp3entry* id3)
             return false;
     }
 
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     
     /* We need to ensure the serial number from this page is the same as the
      * one from the last page (since we only support a single bitstream).
@@ -148,7 +147,7 @@ bool get_ogg_metadata(int fd, struct mp3entry* id3)
      */
 
     /* A page is always < 64 kB */
-    if (lseek(fd, -(MIN(64 * 1024, id3->FS_PREFIX(filesize))), SEEK_END) < 0)
+    if (lseek(fd, -(MIN(64 * 1024, id3->filesize)), SEEK_END) < 0)
     {
         return false;
     }
@@ -232,7 +231,7 @@ bool get_ogg_metadata(int fd, struct mp3entry* id3)
         return false;
     }
     
-    id3->bitrate = (((int64_t) id3->FS_PREFIX(filesize) - comment_size) * 8) / id3->length;
+    id3->bitrate = (((int64_t) id3->filesize - comment_size) * 8) / id3->length;
     
     return true;
 }

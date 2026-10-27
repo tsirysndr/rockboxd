@@ -94,7 +94,13 @@ char buf[255];
 #define MY_BITMAP_PART   rb->lcd_mono_bitmap_part
 #endif
 
-#if LCD_WIDTH > LCD_HEIGHT
+#if (LCD_WIDTH == 400) && (LCD_HEIGHT == 240)
+/* boxes as wide as the screen allows make a board taller than it: take
+ * the 320x240 ones, which its board items are drawn for */
+#define BOX_WIDTH ((320-(MARGIN*2))/BOARD_SIZE)
+#define BOX_HEIGHT ((BOX_WIDTH*2)/3)
+
+#elif LCD_WIDTH > LCD_HEIGHT
 #define BOX_WIDTH ((LCD_WIDTH-(MARGIN*2))/BOARD_SIZE)
 #define BOX_HEIGHT ((BOX_WIDTH*2)/3)
 
@@ -203,7 +209,7 @@ static const struct button_mapping *plugin_contexts[] = { pla_main_ctx };
 static void init_board(void)
 {
     int i,j;
-    rb->srand(*rb->current_tick);
+
     for(i=0;i<12;i++)
     {  /* Hopefully about 50% each colour */
         for(j=0;j<BOARD_SIZE+2;j++)
@@ -2415,7 +2421,7 @@ static int average_strength(int colour)
 
 enum plugin_status plugin_start(const void* parameter)
 {
-    rb->srand(*rb->current_tick);
+
 #if LCD_DEPTH > 1
     rb->lcd_set_backdrop(NULL);
     rb->lcd_set_foreground(LCD_BLACK);

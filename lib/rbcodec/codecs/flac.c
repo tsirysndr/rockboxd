@@ -75,6 +75,22 @@ static struct FLACseekpoints seekpoints[MAX_SUPPORTED_SEEKTABLE_SIZE];
 static int nseekpoints;
 
 static int8_t *bit_buffer;
+/* Frame copy buffer for flac_request_frame(). Targets with 2MB of RAM or
+   less (e.g. the Clip v1) cannot spare it and rely on the overrun check in
+   codec_run() alone. */
+#if MEMORYSIZE > 2
+#define FLAC_FRAME_COPY
+#if MAX_BLOCKSIZE > 4608
+#define FRAME_COPY_SIZE MAX_FRAMESIZE
+#else
+/* Blocks are capped at 4608 samples here (see bitstream.h): size for the
+   largest stereo frame, 24 bit with verbatim subframes, plus headers. */
+#define FRAME_COPY_SIZE (MAX_BLOCKSIZE * 2 * 3 + 64)
+#endif
+/* Largest frame the current stream can contain */
+static size_t frame_bound;
+static uint8_t frame_copy[FRAME_COPY_SIZE];
+#endif
 static size_t buff_size;
 
 static bool flac_init(FLACContext* fc, int first_frame_offset)
@@ -138,7 +154,11 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
 
         if ((buf[0] & 0x7f) == 0)       /* 0 is the STREAMINFO block */
         {
-            if (ci->read_filebuf(buf, blocklength) < blocklength) return false;
+            /* only one, and it must fit in buf */
+            if (found_streaminfo || blocklength < 18 ||
+                blocklength > sizeof(buf) ||
+                ci->read_filebuf(buf, blocklength) < blocklength)
+                return false;
 
             fc->filesize = ci->filesize;
             fc->min_blocksize = (buf[0] << 8) | buf[1];
@@ -154,6 +174,8 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
             fc->max_framesize = (buf[7] << 16) | (buf[8] << 8) | buf[9];
             fc->samplerate = (buf[10] << 12) | (buf[11] << 4)
                              | ((buf[12] & 0xf0) >> 4);
+            if (fc->samplerate == 0)
+                return false;
             fc->channels = ((buf[12]&0x0e)>>1) + 1;
             fc->bps = (((buf[12]&0x01) << 4) | ((buf[13]&0xf0)>>4) ) + 1;
 
@@ -209,13 +231,48 @@ static bool flac_init(FLACContext* fc, int first_frame_offset)
     }
 
    if (found_streaminfo) {
-       fc->bitrate = ((int64_t) (fc->filesize-fc->metadatalength) * 8)
-                     / fc->length;
+#ifdef FLAC_FRAME_COPY
+       frame_bound = fc->max_framesize;
+       if (frame_bound == 0) {
+           /* stream did not encode max frame size, assume worst case of
+              verbatim subframes plus headers */
+           frame_bound = ((size_t)fc->max_blocksize * fc->channels * fc->bps
+                          + 7) / 8 + 64;
+       }
+       if (frame_bound > FRAME_COPY_SIZE)
+           frame_bound = FRAME_COPY_SIZE;
+#endif
+       /* length is 0 when STREAMINFO has no total sample count */
+       fc->bitrate = fc->length ? ((int64_t) (fc->filesize-fc->metadatalength) * 8)
+                     / fc->length : 0;
        return true;
    } else {
        return false;
    }
 }
+
+/* request_buffer() only guarantees 32KiB of contiguous data, but a FLAC frame
+   can be larger, and the frame decoder cannot refill its buffer mid-frame.
+   When a request returns less than frame_bound before the end of the file,
+   the frame is copied into frame_copy and decoded from there. Frames
+   normally fit, so the usual cost is one comparison per frame. */
+#ifdef FLAC_FRAME_COPY
+static void *flac_request_frame(size_t *len, size_t reqsize)
+{
+    void *buf = ci->request_buffer(len, reqsize);
+
+    if (*len >= frame_bound || *len >= (size_t)(ci->filesize - ci->curpos))
+        return buf;
+
+    off_t pos = ci->curpos;
+    size_t got = ci->read_filebuf(frame_copy, frame_bound);
+    ci->seek_buffer(pos);
+    *len = got;
+    return frame_copy;
+}
+#else
+#define flac_request_frame(len, reqsize) ci->request_buffer(len, reqsize)
+#endif
 
 /* Synchronize to next frame in stream - adapted from libFLAC 1.1.3b2 */
 static bool frame_sync(FLACContext* fc) {
@@ -255,7 +312,7 @@ static bool frame_sync(FLACContext* fc) {
 
     /* Advance and init bit buffer to the new frame. */
     ci->advance_buffer((get_bits_count(&fc->gb)-16)>>3); /* consumed bytes */
-    bit_buffer = ci->request_buffer(&buff_size, MAX_FRAMESIZE+16);
+    bit_buffer = flac_request_frame(&buff_size, MAX_FRAMESIZE+16);
     init_get_bits(&fc->gb, bit_buffer, buff_size*8);
 
     /* Decode the frame to verify the frame crc and
@@ -490,9 +547,7 @@ enum codec_status codec_run(void)
     ci->configure(DSP_SET_STEREO_MODE, fc.channels == 1 ?
                   STEREO_MONO : STEREO_NONINTERLEAVED);
     codec_set_replaygain(ci->id3);
-
-    if (samplesdone || !elapsedtime) {
-        flac_seek_offset(&fc, samplesdone);
+    if (samplesdone && flac_seek_offset(&fc, samplesdone)) {
         samplesdone=fc.samplenumber+fc.blocksize;
         elapsedtime=((uint64_t)samplesdone*1000)/(ci->id3->frequency);
     }
@@ -504,7 +559,7 @@ enum codec_status codec_run(void)
     ci->set_elapsed(elapsedtime);
 
     /* The main decoding loop */
-    buf = ci->request_buffer(&bytesleft, MAX_FRAMESIZE);
+    buf = flac_request_frame(&bytesleft, MAX_FRAMESIZE);
     while (bytesleft) {
         long action = ci->get_command(&param);
 
@@ -516,7 +571,7 @@ enum codec_status codec_run(void)
             if (flac_seek(&fc,(uint32_t)(((uint64_t)param
                 *ci->id3->frequency)/1000))) {
                 /* Refill the input buffer */
-                buf = ci->request_buffer(&bytesleft, MAX_FRAMESIZE);
+                buf = flac_request_frame(&bytesleft, MAX_FRAMESIZE);
             }
 
             ci->set_elapsed(param);
@@ -529,6 +584,10 @@ enum codec_status codec_run(void)
              return CODEC_ERROR;
         }
         consumed=fc.gb.index/8;
+        if (res == 0 && consumed > (int)bytesleft) {
+            LOGF("FLAC: Frame overran its %d bytes of data\n", (int)bytesleft);
+            return CODEC_ERROR;
+        }
 #if defined(LOGF_ENABLE)
         frame++;
 #endif
@@ -546,7 +605,7 @@ enum codec_status codec_run(void)
 
         ci->advance_buffer(consumed);
 
-        buf = ci->request_buffer(&bytesleft, MAX_FRAMESIZE);
+        buf = flac_request_frame(&bytesleft, MAX_FRAMESIZE);
     }
 
     LOGF("FLAC: Decoded %lu samples\n",(unsigned long)samplesdone);

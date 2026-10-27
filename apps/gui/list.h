@@ -25,7 +25,9 @@
 #include "action.h"
 #include "icon.h"
 #include "screen_access.h"
+#ifndef __PCTOOL__
 #include "skin_engine/skin_engine.h"
+#endif
 #include "line.h"
 
 #define SCROLLBAR_WIDTH global_settings.scrollbar_width
@@ -189,6 +191,41 @@ struct gui_synclist
 #endif
 };
 
+#ifdef HAVE_TOUCHSCREEN
+#define LIST_KINETIC_FRACBITS 8
+
+struct list_kinetic_scroll_settings
+{
+    /* Coefficients for a polynomial a1*x + a0, in fixed point.
+     * x is the kinetic scroll speed in pixels/sec (always positive) */
+    long a0;
+    long a1;
+
+    /* Delay (in ticks) during which the acceleration is not applied. */
+    long delay;
+};
+
+/*
+ * accel: Extra impulse applied when swiping in the direction of scrolling,
+ *        proportional to the current velocity. This is what allows for high
+ *        scroll speeds. Delay is ignored.
+ *
+ * brake: Braking impulse applied when swiping in the opposite direction of
+ *        scrolling, which helps to change direction quickly even at high
+ *        speed. Delay is ignored.
+ *
+ * decel: Deceleration applied during scrolling. The delay is measured from
+ *        the start of scrolling or last change of direction.
+ *
+ * press: Deceleration applied while the screen is pressed (motion is not
+ *        needed to trigger). Additive with "decel". The delay is measured
+ *        from the start of the press.
+ */
+extern const struct list_kinetic_scroll_settings list_kinetic_scroll_accel_default;
+extern const struct list_kinetic_scroll_settings list_kinetic_scroll_brake_default;
+extern const struct list_kinetic_scroll_settings list_kinetic_scroll_decel_default;
+extern const struct list_kinetic_scroll_settings list_kinetic_scroll_press_default;
+#endif
 
 extern void list_init(void);
 

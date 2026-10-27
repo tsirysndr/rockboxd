@@ -31,6 +31,7 @@
 #include "button.h"
 #include "audio.h"
 #include "dsp_proc_settings.h"
+#include "gui/list.h"
 
 struct opt_items {
     unsigned const char* string;
@@ -124,7 +125,8 @@ enum {
     SINGLE_MODE_ARTIST,
     SINGLE_MODE_COMPOSER,
     SINGLE_MODE_GROUPING,
-    SINGLE_MODE_GENRE
+    SINGLE_MODE_GENRE,
+    SINGLE_MODE_PLAYLIST,
 };
 
 enum
@@ -157,7 +159,7 @@ enum
 enum { SHOW_ALL, SHOW_SUPPORTED, SHOW_MUSIC, SHOW_PLAYLIST, SHOW_ID3DB,
        NUM_FILTER_MODES,
        SHOW_WPS, SHOW_RWPS, SHOW_FMS, SHOW_RFMS, SHOW_SBS, SHOW_RSBS, SHOW_FMR, SHOW_CFG,
-       SHOW_LNG, SHOW_MOD, SHOW_FONT, SHOW_PLUGINS, SHOW_M3U};
+       SHOW_LNG, SHOW_MOD, SHOW_FONT, SHOW_PLUGINS, SHOW_M3U, SHOW_WRS, SHOW_RWRS};
 
 /* file and dir sort options */
 enum { SORT_ALPHA, SORT_DATE, SORT_DATE_REVERSED, SORT_TYPE, /* available as settings */
@@ -289,6 +291,9 @@ void settings_apply_skins(void);
 
 void settings_apply(bool read_disk);
 void settings_apply_pm_range(void);
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+void settings_apply_videoout(int mode);
+#endif
 void settings_display(void);
 
 enum optiontype { RB_INT, RB_BOOL };
@@ -746,6 +751,9 @@ struct user_settings
 #ifdef HAVE_BACKLIGHT_BRIGHTNESS
     int brightness;
 #endif
+#ifdef HAVE_COMPOSITE_VIDEO_OUT
+    int composite_video_output;
+#endif
 
 #ifdef HAVE_REMOTE_LCD
     /* remote lcd */
@@ -797,7 +805,12 @@ struct user_settings
 
 #ifdef HAVE_TOUCHSCREEN
     int touch_mode;
+    bool touch_enable_flick_shortcuts;
     struct touchscreen_parameter ts_calibration_data;
+    struct list_kinetic_scroll_settings kinetic_scroll_accel;
+    struct list_kinetic_scroll_settings kinetic_scroll_brake;
+    struct list_kinetic_scroll_settings kinetic_scroll_decel;
+    struct list_kinetic_scroll_settings kinetic_scroll_press;
 #endif
 
 #ifdef HAVE_PITCHCONTROL
@@ -814,7 +827,7 @@ struct user_settings
     int usb_keypad_mode;
 #endif
 
-#ifdef USB_ENABLE_AUDIO
+#if defined(USB_ENABLE_AUDIO) || defined(HAVE_HOST_USB_AUDIO)
     int usb_audio;
 #endif
 
@@ -930,6 +943,15 @@ struct user_settings
     bool playback_log; /* ROCKBOX_DIR/playback.log for tracks played */
 #if defined(HAVE_GENERAL_PURPOSE_LED)
     bool use_led_indicators;
+#endif
+#ifdef HAVE_RECORDING
+    /* last wrs, "-" for none: without one, or without the file for this
+     * screen size, the recording screen draws itself. At the end, not with
+     * the other skins, to keep the layout plugins see. */
+    unsigned char wrs_file[MAX_FILENAME+1];
+#ifdef HAVE_REMOTE_LCD
+    unsigned char rwrs_file[MAX_FILENAME+1];  /* last remote-wrs */
+#endif
 #endif
 };
 

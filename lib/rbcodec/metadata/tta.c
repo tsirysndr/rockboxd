@@ -53,7 +53,7 @@
 static void read_id3_tags(int fd, struct mp3entry* id3)
 {
     id3->title    = NULL;
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     id3->id3v2len = getid3v2len(fd);
     id3->vbr      = false;   /* All TTA files are CBR */
 
@@ -95,7 +95,7 @@ bool get_tta_metadata(int fd, struct mp3entry* id3)
     id3->length    = ((GET_HEADER(ttahdr, DATA_LENGTH)) / id3->frequency) * 1000LL;
     bps            = (GET_HEADER(ttahdr, BITS_PER_SAMPLE));
 
-    datasize = id3->FS_PREFIX(filesize) - id3->first_frame_offset;
+    datasize = id3->filesize - id3->first_frame_offset;
     origsize = (GET_HEADER(ttahdr, DATA_LENGTH)) * ((bps + 7) / 8) * channels;
 
     id3->bitrate = (int) ((uint64_t) datasize * id3->frequency * channels * bps

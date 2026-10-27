@@ -1,6 +1,6 @@
 use std::ffi::{c_char, c_long, c_void};
 
-use crate::{ActionCb, Mp3Entry, TagcacheSearch, TagcacheStat};
+use crate::{Mp3Entry, TagcacheSearch, TagcacheStat};
 
 pub fn search(tcs: *mut TagcacheSearch, tag: i32) -> bool {
     let ret = unsafe { crate::tagcache_search(tcs, tag) };
@@ -33,11 +33,6 @@ pub fn commit_finalize() {
     unsafe {
         crate::tagcache_commit_finalize();
     }
-}
-
-pub fn tagtree_subentries_do_action(cb: ActionCb) -> bool {
-    let ret = unsafe { crate::tagtree_subentries_do_action(cb) };
-    ret != 0
 }
 
 pub fn search_albumart_files(

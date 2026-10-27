@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2008 Dave Chapman
  * Copyright (C) 2009 Mohamed Tarek
@@ -33,7 +32,7 @@
 #include "inttypes.h"
 #include <sys/stat.h>
 
-int filesize(int fd)
+int ffilesize(int fd)
 {
   struct stat buf;
 

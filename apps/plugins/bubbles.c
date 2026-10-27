@@ -138,6 +138,34 @@ enum {
 #define XOFS          128
 #define MAX_FPS       40
 
+/* 22x22 bubbles (Sony PSP) */
+#elif (LCD_WIDTH == 480) && (LCD_HEIGHT == 272)
+#define XOFS          152
+#define YOFS          29
+#define MAX_FPS       60
+
+/* custom text positioning */
+#define LEVEL_TXT_X     38
+#define LEVEL_TXT_WIDTH 55
+#define LEVEL_TXT_Y     34
+#define SCORE_TXT_X     38
+#define SCORE_TXT_WIDTH 55
+#define SCORE_TXT_Y     104
+#define NEXT_BB_X       390
+#define NEXT_BB_WIDTH   35
+#define NEXT_BB_Y       116
+
+#elif (LCD_WIDTH == 360) && (LCD_HEIGHT == 640)
+#define XOFS            86
+#define YOFS            220
+#define SCORE_TXT_X     28
+#define SCORE_TXT_WIDTH 32
+#define SCORE_TXT_Y     48
+#define LEVEL_TXT_X     27
+#define LEVEL_TXT_WIDTH 32
+#define LEVEL_TXT_Y     5
+#define MAX_FPS         40
+
 #elif (LCD_WIDTH == 360) && (LCD_HEIGHT == 400)
 #define XOFS            86
 #define YOFS            100
@@ -156,6 +184,23 @@ enum {
 
 /* custom text positioning */
 #define NEXT_BB_X       20
+#define NEXT_BB_WIDTH   32
+#define NEXT_BB_Y       200
+
+/* 22x22 bubbles: the 320x240 layout, centred (Samsung YP-CP3) */
+#elif (LCD_HEIGHT == 240) && (LCD_WIDTH == 400)
+#define LAYOUT_X        ((LCD_WIDTH - 320) / 2)
+#define XOFS            (LAYOUT_X + 72)
+#define MAX_FPS         40
+
+/* the 320x240 text positions, which centre on its left panel */
+#define LEVEL_TXT_X     LAYOUT_X
+#define LEVEL_TXT_WIDTH 72
+#define LEVEL_TXT_Y     2
+#define SCORE_TXT_X     LAYOUT_X
+#define SCORE_TXT_WIDTH 72
+#define SCORE_TXT_Y     29
+#define NEXT_BB_X       (LAYOUT_X + 20)
 #define NEXT_BB_WIDTH   32
 #define NEXT_BB_Y       200
 
@@ -1399,7 +1444,7 @@ static int  bubbles(struct game_context* bb);
 static void bubbles_init(struct game_context* bb) {
     bubbles_setcolors();
     /* seed the rand generator */
-    rb->srand(*rb->current_tick);
+
 
     /* check for resumed game */
     if (resume)
@@ -1513,7 +1558,9 @@ static void bubbles_drawboard(struct game_context* bb) {
 
     /* clear screen */
     rb->lcd_clear_display();
-#if ((LCD_HEIGHT >= 128) && (LCD_WIDTH <= 320)) || ((LCD_WIDTH == 132) && (LCD_HEIGHT == 80))
+#if ((LCD_HEIGHT >= 128) && (LCD_WIDTH <= 320)) || \
+    ((LCD_WIDTH == 132) && (LCD_HEIGHT == 80)) || \
+    ((LCD_WIDTH == 400) && (LCD_HEIGHT == 240))
     h = rb->font_get(FONT_SYSFIXED)->height + 1;
 #elif (LCD_WIDTH == 640) && (LCD_HEIGHT == 480)
     h = rb->font_get(FONT_SYSFIXED)->height + 6;
@@ -1523,7 +1570,13 @@ static void bubbles_drawboard(struct game_context* bb) {
 #endif
     /* draw background */
 #ifdef HAVE_LCD_COLOR
+#ifdef LAYOUT_X
+    /* the layout's background, centred */
+    rb->lcd_bitmap(bubbles_background, LAYOUT_X, 0,
+                   LCD_WIDTH - 2 * LAYOUT_X, LCD_HEIGHT);
+#else
     rb->lcd_bitmap(bubbles_background, 0, 0, LCD_WIDTH, LCD_HEIGHT);
+#endif
 #endif
 
     /* display play board */

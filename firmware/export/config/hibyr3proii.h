@@ -37,6 +37,8 @@
 #ifndef BOOTLOADER
 #define HAVE_BUTTON_DATA
 #define HAVE_TOUCHSCREEN
+/* Finger-sized keys, tapped directly, instead of a navigated cursor */
+#define HAVE_KBD_POINT_MODE
 #endif
 
 #ifndef CONFIG_BACKLIGHT_FADING
@@ -87,6 +89,7 @@
 
 /* USB */
 #define HAVE_USB_ADB
+#define HAVE_HOST_USB_AUDIO
 #define HAVE_USB_POWER
 #define USB_VID_STR "32BB"
 #define USB_PID_STR "0101"

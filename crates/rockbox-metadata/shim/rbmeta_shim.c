@@ -22,7 +22,7 @@
 
 /* ---- firmware/common/filefuncs ------------------------------------- */
 
-off_t filesize(int fd)
+off_t ffilesize(int fd)
 {
     struct stat st;
     if (fstat(fd, &st) < 0)

@@ -170,6 +170,34 @@ void ab_draw_markers(struct screen * screen, int capacity,
 
 #endif
 
+/* A peak meter bar with the hold option: the level falls back by the peak
+ * release rate - pixels per tick, here of a bar of the given size - and
+ * the highest recent level is held for the peak hold time. */
+static unsigned long peak_bar_hold(struct progressbar *pb, unsigned long end,
+                                   int size)
+{
+    int release, hold_ticks;
+    long delta = current_tick - pb->last_tick;
+    int level = end;
+
+    peak_meter_get_times(&release, &hold_ticks);
+    pb->last_tick = current_tick;
+    if (size <= 0)
+        size = 1;
+    if (delta >= 0 && delta < HZ)
+        level = MAX(level, pb->level - delta * release * MAX_PEAK / size);
+    pb->level = level;
+
+    if (TIME_AFTER(current_tick, pb->hold_tick))
+        pb->hold_pos = 0;
+    if (level > pb->hold_pos)
+    {
+        pb->hold_pos = level;
+        pb->hold_tick = current_tick + hold_ticks;
+    }
+    return level;
+}
+
 void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
                       int line, struct progressbar *pb)
 {
@@ -178,7 +206,7 @@ void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
     struct wps_state *state = get_wps_state();
     struct mp3entry *id3 = state->id3;
     int x = pb->x, y = pb->y, width = pb->width, height = pb->height;
-    unsigned long length, end;
+    unsigned long length = 1, end = 0;
     int flags = HORIZONTAL;
 
     if (height < 0)
@@ -221,11 +249,6 @@ void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
             length = pl_total;
             end = pl_elapsed;
         }
-        else
-        {
-            length = 1;
-            end = 0;
-        }
     }
     else if (pb->type == SKIN_TOKEN_PEAKMETER_LEFTBAR ||
              pb->type == SKIN_TOKEN_PEAKMETER_RIGHTBAR)
@@ -235,6 +258,8 @@ void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
         val = pb->type == SKIN_TOKEN_PEAKMETER_LEFTBAR ? left : right;
         length = MAX_PEAK;
         end = peak_meter_scale_value(val, length);
+        if (pb->hold)
+            end = peak_bar_hold(pb, end, pb->horizontal ? width : height);
     }
     else if (pb->type == SKIN_TOKEN_PLAYLIST_PERCENTBAR)
     {
@@ -281,7 +306,8 @@ void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
         length = id3->length;
         end = id3->elapsed + state->ff_rewind_count;
     }
-    else
+
+    if (length <= 0)
     {
         length = 1;
         end = 0;
@@ -347,6 +373,59 @@ void draw_progressbar(struct gui_wps *gwps, struct skin_viewport* skin_viewport,
         else
             gui_scrollbar_draw(display, x, y, width, height,
                                length, 0, end, flags);
+    }
+
+    /* the held peak of a peak meter bar: a block hold_size pixels thick
+     * ending at the held level, cut from the fill image if the bar has one,
+     * so that a bar drawn as LED segments holds a segment */
+    if (pb->hold && pb->hold_pos > 0 &&
+        (pb->type == SKIN_TOKEN_PEAKMETER_LEFTBAR ||
+         pb->type == SKIN_TOKEN_PEAKMETER_RIGHTBAR))
+    {
+        struct gui_img *img = pb->nobar ? NULL :
+                        SKINOFFSETTOPTR(get_skin_buffer(gwps->data), pb->image);
+        int hx = x, hy = y, hw = width, hh = height;
+        int len, pos, off, size = pb->hold_size;
+
+        if (!img && !(flags&BORDER_NOFILL))
+        {
+            /* inside the frame, like the bar */
+            hx++; hy++; hw -= 2; hh -= 2;
+        }
+        len = (flags&HORIZONTAL) ? hw : hh;
+        pos = len * pb->hold_pos / MAX_PEAK;
+        off = pos - size;
+        if (off < 0)
+        {
+            size += off;
+            off = 0;
+        }
+        if (flags&INVERTFILL)
+            off = len - pos;
+
+        if (flags&HORIZONTAL)
+        {
+            hx += off;
+            hw = size;
+        }
+        else
+        {
+            hy += off;
+            hh = size;
+        }
+
+        if (img)
+        {
+            /* the image maps onto the bar 1:1, as in the bar itself */
+            int bx = hx - x, by = hy - y;
+            img->bm.data = core_get_data(img->buflib_handle);
+            hw = MIN(hw, img->bm.width - bx);
+            hh = MIN(hh, img->bm.height - by);
+            if (hw > 0 && hh > 0)
+                display->bmp_part(&img->bm, bx, by, hx, hy, hw, hh);
+        }
+        else if (hw > 0 && hh > 0)
+            display->fillrect(hx, hy, hw, hh);
     }
 
     if (SKINOFFSETTOPTR(get_skin_buffer(gwps->data), pb->slider))
@@ -760,52 +839,35 @@ bool skin_has_sbs(struct gui_wps *gwps)
     return draw;
 }
 
-/* do the button loop as often as required for the peak meters to update
- * with a good refresh rate.
- */
+/* Enter button loop updating peak meter at a high refresh rate */
 int skin_wait_for_action(enum skinnable_screens skin, int context, int timeout)
 {
-    int button = ACTION_NONE;
-    /* when the peak meter is enabled we want to have a
-        few extra updates to make it look smooth. On the
-        other hand we don't want to waste energy if it
-        isn't displayed */
-    bool pm=false;
+    /* Skip updates if peak meter disabled. */
+    bool peak_meter_enabled = false;
     FOR_NB_SCREENS(i)
+        peak_meter_enabled |= skin_get_gwps(skin, i)->data->peak_meter_enabled;
+    if (!peak_meter_enabled)
+        return get_action(context, timeout);
+
+    long next_refresh = current_tick;
+    long timeout_tick = current_tick + timeout;
+
+    while (true)
     {
-       if(skin_get_gwps(skin, i)->data->peak_meter_enabled)
-           pm = true;
+        int action = get_action(context, TIMEOUT_NOBLOCK);
+        if (action != ACTION_NONE || !(TIME_BEFORE(current_tick, timeout_tick)))
+            return action;
+
+        peak_meter_peek(); /* Read peak values */
+        sleep(0); /* Sleep until end of current tick. */
+
+        if (TIME_BEFORE(current_tick, next_refresh))
+            continue;
+
+        FOR_NB_SCREENS(i)
+            if (skin_get_gwps(skin, i)->data->peak_meter_enabled)
+                skin_update(skin, i, SKIN_REFRESH_PEAK_METER);
+
+        next_refresh += HZ/PEAK_METER_FPS;
     }
-
-    if (pm) {
-        long next_refresh = current_tick;
-        long next_big_refresh = current_tick + timeout;
-        button = BUTTON_NONE;
-        while (TIME_BEFORE(current_tick, next_big_refresh)) {
-            button = get_action(context,TIMEOUT_NOBLOCK);
-            if (button != ACTION_NONE) {
-                break;
-            }
-            peak_meter_peek();
-            sleep(0);   /* Sleep until end of current tick. */
-
-            if (TIME_AFTER(current_tick, next_refresh)) {
-                FOR_NB_SCREENS(i)
-                {
-                    if(skin_get_gwps(skin, i)->data->peak_meter_enabled)
-                        skin_update(skin, i, SKIN_REFRESH_PEAK_METER);
-                    next_refresh += HZ / PEAK_METER_FPS;
-                }
-            }
-        }
-
-    }
-
-    /* The peak meter is disabled
-       -> no additional screen updates needed */
-    else
-    {
-        button = get_action(context, timeout);
-    }
-    return button;
 }

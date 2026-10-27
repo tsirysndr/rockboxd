@@ -27,6 +27,7 @@
 #include "core_alloc.h"
 #include "sound.h"
 #include "pcm_sink.h"
+#include "pcm-internal.h"
 #include "codecs.h"
 #include "codec_thread.h"
 #include "voice_thread.h"
@@ -67,8 +68,11 @@
 #include <strings.h>  /* For strncasecmp() */
 #endif
 
+#if defined(USB_ENABLE_AUDIO) || defined(HAVE_HOST_USB_AUDIO)
 #ifdef USB_ENABLE_AUDIO
 #include "usbstack/usb_audio.h"
+#endif
+#include "usb.h"
 #include "splash.h"
 #include "lang.h"
 #endif
@@ -1262,7 +1266,7 @@ void allocate_playback_log(void)
         playback_log_handle = core_alloc(PLAYBACK_LOG_BUFSZ);
         if (playback_log_handle > 0)
         {
-            DEBUGF("%s Allocated %d bytes\n", __func__, PLAYBACK_LOG_BUFSZ); 
+            DEBUGF("%s Allocated %d bytes\n", __func__, PLAYBACK_LOG_BUFSZ);
             char *buf = core_get_data(playback_log_handle);
             buf[0] = '\0';
         }
@@ -2381,7 +2385,7 @@ static int audio_finish_load_track(struct track_info *infop)
 
     fprintf(stderr, "[playback] audio_finish_load_track: path=%s codectype=%u length=%lu elapsed=%lu filesize=%lu first_frame_off=%lu\n",
             track_id3->path, track_id3->codectype, track_id3->length,
-            track_id3->elapsed, track_id3->FS_PREFIX(filesize),
+            track_id3->elapsed, track_id3->filesize,
             track_id3->first_frame_offset);
 
     struct track_info user_cur;
@@ -2819,6 +2823,9 @@ static bool single_mode_do_pause(int id3_hid)
         if (global_settings.single_mode == SINGLE_MODE_TRACK)
             return true;
 
+        if (global_settings.single_mode == SINGLE_MODE_PLAYLIST)
+            return (skip_pending == TRACK_SKIP_AUTO_NEW_PLAYLIST);
+
         char *previous_tag = single_mode_get_id3_tag(id3_get(PLAYING_ID3));
         char *new_tag = single_mode_get_id3_tag(bufgetid3(id3_hid));
         return previous_tag == NULL ||
@@ -3125,12 +3132,12 @@ static void audio_on_track_changed(void)
 static void audio_start_playback(const struct audio_resume_info *resume_info,
                                  unsigned int flags)
 {
-/* 
+/*
  * Refuse to start playback if usb audio is active. See gui_wps_show() for
  * a splash message to the user.
  * NOTE: if USBAudio ever gets its own DSP channel, this block can go away!
  */
-#ifdef USB_ENABLE_AUDIO
+#if defined(USB_ENABLE_AUDIO) || defined(HAVE_HOST_USB_AUDIO)
     if (usb_audio_get_active())
     {
         queue_reply(&audio_queue, 0);
@@ -3170,12 +3177,18 @@ static void audio_start_playback(const struct audio_resume_info *resume_info,
         track_event_flags = TEF_NONE;
         ff_rw_mode = false;
 
+        /*
+         * When restarting playback or resuming from a paused state,
+         * the PCM buffer should be cleared to ensure crossfade will
+         * not be performed.
+         */
+        if ((flags & AUDIO_START_RESTART) || old_status == PLAY_PAUSED)
+            pcmbuf_play_stop();
+
         if (flags & AUDIO_START_RESTART)
         {
             /* Clear out some stuff to resume the current track where it
                left off */
-            pcmbuf_play_stop();
-
             resume.elapsed = id3_get(PLAYING_ID3)->elapsed;
             resume.offset = id3_get(PLAYING_ID3)->offset;
             skip_resume_adjustments = id3_get(PLAYING_ID3)->skip_resume_adjustments;
@@ -3734,10 +3747,15 @@ void audio_playback_handler(struct queue_event *ev)
             audio_stop_playback();
             if (ev->data != 0)
                 queue_clear(&audio_queue);
-            /* data=2: audio_hard_stop() posted asynchronously; free the
-             * audio buffer here instead of in the (non-Rockbox) caller. */
-            if (ev->data >= 2 && audiobuf_handle > 0)
-                audiobuf_handle = core_free(audiobuf_handle);
+            /* data=2: audio_hard_stop() posted asynchronously; stop PCM and
+             * free the audio buffer here instead of in the (non-Rockbox)
+             * caller. */
+            if (ev->data >= 2)
+            {
+                pcm_play_stop();
+                if (audiobuf_handle > 0)
+                    audiobuf_handle = core_free(audiobuf_handle);
+            }
             return; /* no more playback */
 
         case Q_AUDIO_PAUSE:
@@ -4150,9 +4168,10 @@ void audio_hard_stop(void)
      * free the buffer, so we use a distinct value here. */
     audio_queue_post(Q_AUDIO_STOP, 2);
 #ifdef PLAYBACK_VOICE
+    /* Stop voice */
     voice_stop();
 #endif
-    /* audiobuf_handle freed by the audio thread (data=2 path). */
+    /* PCM stop and audiobuf_handle free happen on the audio thread (data=2). */
 }
 
 /* Resume playback if paused */
@@ -4421,7 +4440,8 @@ static unsigned long audio_guess_frequency(struct mp3entry *id3)
             have_44 = true;
         if (caps->samprs[i] == SAMPR_48)
             have_48 = true;
-        if (id3->frequency == caps->samprs[i])
+        /* Always upscale to 44.1 or better */
+        if (id3->frequency >= SAMPR_44 && id3->frequency == caps->samprs[i])
             return id3->frequency;
     }
     unsigned long fallback = (id3->frequency % 4000) ? SAMPR_44 : SAMPR_48;

@@ -79,7 +79,7 @@ int stream_close(int fd);
  *
  * For HTTP streams: the Content-Length if known, or a large sentinel
  * value (~2 GiB) if unknown (buffering will truncate on EOF).
- * For regular fds: delegates to filesize().
+ * For regular fds: delegates to ffilesize().
  *
  * @return  Size in bytes, or -1 on error.
  */
@@ -109,7 +109,7 @@ ssize_t stream_content_type(int fd, char *buf, size_t n);
 #define stream_read(fd, buf, n)       read((fd), (buf), (n))
 #define stream_lseek(fd, off, whence) lseek((fd), (off), (whence))
 #define stream_close(fd)              close(fd)
-#define stream_filesize_fd(fd)        filesize(fd)
+#define stream_filesize_fd(fd)        ffilesize(fd)
 #define stream_content_type(fd, buf, n) ((ssize_t)-1)
 
 #endif /* STREAM_HTTP_ENABLED */

@@ -1101,7 +1101,7 @@ enum playlist_viewer_result playlist_viewer_ex(const char* filename,
                     if (!ret_val)
                     {
                         if (global_settings.playlist_shuffle)
-                            start_index = playlist_shuffle(current_tick, start_index);
+                            start_index = playlist_shuffle(0, start_index);
                         playlist_start(start_index, 0, 0);
 
                         if (viewer.initial_selection)
@@ -1151,16 +1151,12 @@ enum playlist_viewer_result playlist_viewer_ex(const char* filename,
                 goto exit;
 #ifdef HAVE_QUICKSCREEN
             case ACTION_STD_QUICKSCREEN:
+                    /* Shortcuts menu currently disabled in Playlist Viewer */
                     if (!global_settings.shortcuts_replaces_qs)
                     {
-                        if (quick_screen_quick(button) ==
-                            QUICKSCREEN_GOTO_SHORTCUTS_MENU) /* currently disabled */
-                        {
-                            /* QuickScreen defers skin updates when popping its activity
-                               to switch to Shortcuts Menu, so make up for that here: */
-                            FOR_NB_SCREENS(i)
-                                skin_update(CUSTOM_STATUSBAR, i, SKIN_REFRESH_ALL);
-                        }
+                        /* QUICKSCREEN_GOTO_SHORTCUTS_MENU
+                           return value ignored for now */
+                        quickscreen_show(button);
                         update_playlist(true);
                         update_gui(&playlist_lists, true);
                     }

@@ -21,13 +21,15 @@ target/hosted/cpuinfo-linux.c
 target/hosted/cpufreq-linux.c
 #endif
 
-#if (!defined(SAMSUNG_YPR0) || defined(SIMULATOR)) && !(CONFIG_PLATFORM & PLATFORM_WASM) /* uses as3514 rtc; rtc.c uses linux/rtc.h unavailable in Emscripten */
+/* uses as3514 rtc; rtc.c uses linux/rtc.h, unavailable in Emscripten */
+#if (!defined(SAMSUNG_YPR0) && !defined(SONY_PSP) || defined(SIMULATOR)) && \
+    !(CONFIG_PLATFORM & PLATFORM_WASM)
 target/hosted/rtc.c
 #endif
 
 #if (CONFIG_PLATFORM & PLATFORM_ANDROID) == 0 && \
     !defined(DX50) && !defined(DX90) && \
-    (defined(DEBUG) || defined(SIMULATOR) || defined(CTRU)) /* sim should define DEBUG instead */
+    (defined(DEBUG) || defined(SIMULATOR) || defined(N3DS) || defined(SONY_PSP)) /* sim should define DEBUG instead */
 target/hosted/debug-hosted.c
 #endif
 
@@ -103,14 +105,14 @@ target/hosted/sdl/app/button-application.c
 #ifdef WIN32
 target/hosted/filesystem-win32.c
 #else /* !WIN32 */
-#ifndef CTRU
+#if !(CONFIG_PLATFORM & PLATFORM_GAME_CONSOLE)
 target/hosted/filesystem-unix.c
-#endif /* CTRU */
+#endif /* PLATFORM_GAME_CONSOLE */
 #endif /* WIN32 */
 #endif /* APPLICATION */
 #endif /* HAVE_SDL */
 
-#if defined(APPLICATION) && !defined(CTRU)
+#if defined(APPLICATION) && !(CONFIG_PLATFORM & PLATFORM_GAME_CONSOLE)
 target/hosted/filesystem-app.c
 #endif /* APPLICATION */
 
@@ -148,13 +150,13 @@ target/hosted/sonynwz/nwzlinux-codec.c
 #endif
 
 #if !defined(BOOTLOADER)
-#if ((defined(HIBY_LINUX) || defined(FIIO_M3K_LINUX) || defined(SAMSUNG_YPR0) || defined(SAMSUNG_YPR1) || defined(SONY_NWZ_LINUX)) && !defined(SIMULATOR))
+#if ((defined(HIBY_LINUX) || defined(SAMSUNG_YPR0) || defined(SAMSUNG_YPR1) || defined(SONY_NWZ_LINUX)) && !defined(SIMULATOR))
 target/hosted/pcm-alsa.c
 target/hosted/alsa-controls.c
 #endif
 #endif
 
-#if ((defined(HIBY_LINUX) || defined(FIIO_M3K_LINUX)) && !defined(SIMULATOR))
+#if defined(HIBY_LINUX) && !defined(SIMULATOR)
 drivers/lcd-memframe.c
 target/hosted/backtrace-glibc.c
 target/hosted/filesystem-unix.c
@@ -189,6 +191,21 @@ target/hosted/hiby/hibylinux_codec.c
 #endif
 #endif
 
+#if defined(HIDIZS_AP80MAX) && !defined(SIMULATOR)
+target/hosted/hiby/usb-hiby-gadget.c
+target/hosted/hiby/ap80max/button-ap80max.c
+target/hosted/hiby/ap80max/powermgmt-ap80max.c
+target/hosted/hiby/debug-hiby.c
+#ifndef BOOTLOADER
+target/hosted/hiby/ap80max/led-ap80max.c
+target/hosted/hiby/hibylinux_codec.c
+#endif
+#endif
+
+#if (defined(HIBY_R1) || defined(HIBY_R3PROII) || defined(HIDIZS_AP80MAX)) && !defined(SIMULATOR)
+target/hosted/hiby/usb-dac-hiby.c
+#endif
+
 #if defined(AGPTEK_ROCKER) && !defined(SIMULATOR)
 target/hosted/agptek/button-agptek.c
 target/hosted/agptek/debug-agptek.c
@@ -220,20 +237,8 @@ target/hosted/xduoo/xduoolinux_codec.c
 target/hosted/button-devinput.c
 #endif
 
-#if defined(HIBY_LINUX) && !defined(HIBY_R3PROII) && !defined(HIBY_R1) && !defined(SIMULATOR)
+#if defined(HIBY_LINUX) && !defined(HIBY_R3PROII) && !defined(HIBY_R1) && !defined(HIDIZS_AP80MAX) && !defined(SIMULATOR)
 target/hosted/usb-hiby.c
-#endif
-
-#if defined(FIIO_M3K_LINUX) && !defined(SIMULATOR)
-target/hosted/fiio/buttonlight-fiio.c
-target/hosted/fiio/button-fiio.c
-target/hosted/fiio/debug-fiio.c
-target/hosted/fiio/powermgmt-fiio.c
-target/hosted/fiio/system-fiio.c
-target/hosted/fiio/usb-fiio.c
-#if !defined(BOOTLOADER)
-target/hosted/fiio/fiiolinux_codec.c
-#endif
 #endif
 
 #if defined(EROS_Q) && !defined(SIMULATOR)
@@ -491,8 +496,10 @@ drivers/rtc/rtc_mc13783.c
 drivers/rtc/rtc_jz4740.c
 #elif (CONFIG_RTC == RTC_JZ4760)
 drivers/rtc/rtc_jz4760.c
-#elif (CONFIG_RTC == RTC_X1000)
-drivers/rtc/rtc_x1000.c
+#elif (CONFIG_RTC == RTC_X1000) || (CONFIG_RTC == RTC_X1600)
+drivers/rtc/rtc_ingenic.c
+#elif (CONFIG_RTC == RTC_S35390A)
+drivers/rtc/rtc_s35390a.c
 #elif (CONFIG_RTC == RTC_S35380A)
 drivers/rtc/rtc_s35380a.c
 #elif (CONFIG_RTC == RTC_D2)
@@ -563,9 +570,9 @@ target/hosted/pcm-cmaf.c
 #endif
 #endif /* !(CONFIG_PLATFORM & PLATFORM_WASM) */
 #endif
-#ifdef HAVE_SW_VOLUME_CONTROL
+#ifdef WANT_SWVOL
 pcm_sw_volume.c
-#endif /* HAVE_SW_VOLUME_CONTROL */
+#endif /* WANT_SWVOL */
 #ifdef HAVE_RECORDING
 enc_base.c
 #endif /* HAVE_RECORDING */
@@ -586,7 +593,7 @@ drivers/audio/wm8740.c
 drivers/audio/wm8751.c
 #elif defined(HAVE_WM8978)
 drivers/audio/wm8978.c
-#elif defined(HAVE_WM8975)
+#elif defined(HAVE_WM8975) || defined(HAVE_WM1870)
 drivers/audio/wm8975.c
 #elif defined(HAVE_WM8985)
 drivers/audio/wm8985.c
@@ -622,10 +629,14 @@ drivers/audio/df1704.c
 drivers/audio/pcm1792.c
 #elif defined (HAVE_CS4398)
 drivers/audio/cs4398.c
+#elif defined (HAVE_CS42L51)
+drivers/audio/cs42l51.c
 #elif defined (HAVE_ES9018)
 drivers/audio/es9018.c
 #elif defined (HAVE_ES9218)
 drivers/audio/es9218.c
+#elif defined (HAVE_CS43131)
+drivers/audio/cs43131.c
 #endif /* defined(HAVE_*) */
 #else /* PLATFORM_HOSTED */
 #if defined(HAVE_SDL_AUDIO) || defined(SIMULATOR)
@@ -635,8 +646,10 @@ target/hosted/sdl/pcm-sdl.c
 drivers/audio/as3514.c
 #elif defined(SAMSUNG_YPR1) && defined(HAVE_WM8978)
 drivers/audio/wm8978.c
-#elif defined(CTRU)
-drivers/audio/ctru.c
+#elif defined(N3DS)
+drivers/audio/3ds.c
+#elif defined(SONY_PSP)
+drivers/audio/psp.c
 #endif
 #endif /* (CONFIG_PLATFORM & PLATFORM_NATIVE) */
 #endif /* !defined(BOOTLOADER) */
@@ -918,6 +931,8 @@ target/mips/system-mips.c
 target/mips/ingenic_jz47xx/crt0.S
 #elif CONFIG_CPU==X1000
 target/mips/ingenic_x1000/crt0.S
+#elif CONFIG_CPU==X1600
+target/mips/ingenic_x1600/crt0.S
 #endif
 
 #else
@@ -1559,6 +1574,7 @@ target/arm/as3525/sansa-fuzev2/button-fuzev2.c
 target/arm/as3525/dbop-as3525.c
 #ifndef BOOTLOADER
 target/arm/as3525/sansa-fuzev2/powermgmt-fuzev2.c
+target/arm/as3525/sansa-fuzev2/dock-fuzev2.c
 target/arm/as3525/lcd-as-e200v2-fuze-fuzev2.S
 #endif /* !BOOTLOADER */
 #endif /* SANSA_FUZEV2 */
@@ -1646,6 +1662,10 @@ target/arm/s5l8702/ipodnano3g/adc-nano3g.c
 target/arm/s5l8702/ipodnano3g/powermgmt-nano3g.c
 target/arm/s5l8702/ipodnano3g/power-nano3g.c
 target/arm/s5l8702/ipodnano3g/nand-nano3g.c
+target/arm/s5l8702/ipodnano3g/ftl-nano3g.c
+#ifdef NAND_CHECK
+target/arm/s5l8702/ipodnano3g/nand-check-nano3g.c
+#endif
 #if (CONFIG_RTC == RTC_NANO3G)
 target/arm/s5l8702/ipodnano3g/rtc-nano3g.c              // TODO: -> drivers/rtc/rtc_xxx.c ???
 #endif
@@ -1654,7 +1674,7 @@ target/arm/s5l8702/ipodnano3g/serial-nano3g.c
 #endif
 #ifndef BOOTLOADER
 target/arm/s5l8702/ipodnano3g/audio-nano3g.c
-target/arm/s5l8702/ipodnano3g/cscodec-nano3g.c          // TODO: -> wmcodec-nano3g.c
+target/arm/s5l8702/ipodnano3g/wmcodec-nano3g.c
 #endif
 #endif /* IPOD_NANO3G */
 
@@ -1681,6 +1701,9 @@ target/arm/s5l8702/ipodnano4g/cscodec-nano4g.c
 
 #ifdef IPOD_6G
 target/arm/s5l8702/ipod6g/lcd-6g.c
+#if defined(HAVE_COMPOSITE_VIDEO_OUT) && !defined(BOOTLOADER)
+target/arm/s5l8702/ipod6g/videoout-6g.c
+#endif
 target/arm/s5l8702/ipod6g/backlight-6g.c
 target/arm/s5l8702/ipod6g/piezo-6g.c
 target/arm/s5l8702/ipod6g/pmu-6g.c
@@ -1688,6 +1711,10 @@ target/arm/s5l8702/ipod6g/adc-6g.c
 target/arm/s5l8702/ipod6g/powermgmt-6g.c
 target/arm/s5l8702/ipod6g/power-6g.c
 target/arm/s5l8702/ipod6g/storage_ata-6g.c
+#if defined(HAVE_HW_H264) && !defined(BOOTLOADER)
+target/arm/s5l8702/ipod6g/vpu-6g.c
+target/arm/s5l8702/ipod6g/vpu-h264-6g.c
+#endif
 #if (CONFIG_RTC == RTC_NANO2G)
 target/arm/s5l8702/ipod6g/rtc-6g.c
 #endif
@@ -1697,6 +1724,7 @@ target/arm/s5l8702/ipod6g/serial-6g.c
 #ifndef BOOTLOADER
 target/arm/s5l8702/ipod6g/audio-6g.c
 target/arm/s5l8702/ipod6g/cscodec-6g.c
+target/arm/s5l8702/ipod6g/mikey-6g.c
 #endif /* BOOTLOADER */
 #endif /* IPOD_6G */
 
@@ -1707,8 +1735,23 @@ target/arm/rk27xx/system-rk27xx.c
 target/arm/rk27xx/backlight-rk27xx.c
 target/arm/rk27xx/adc-rk27xx.c
 target/arm/rk27xx/sd-rk27xx.c
-target/arm/rk27xx/ftl-rk27xx.c
+#if CONFIG_NAND == NAND_RK27XX
+#if (CONFIG_STORAGE & STORAGE_NAND)
+target/arm/rk27xx/flash-rk27xx.c
 target/arm/rk27xx/nand-rk27xx.c
+target/arm/rk27xx/ftl-rk27xx.c
+#if CONFIG_RK27XX_FTL == RK27XX_FTL_SCHEME_A
+target/arm/rk27xx/ftl-scheme-a.c
+#elif CONFIG_RK27XX_FTL == RK27XX_FTL_SCHEME_B
+target/arm/rk27xx/ftl-scheme-b.c
+#endif
+#elif !defined(BOOTLOADER)
+/* no FTL scheme configured: only the finder (debug menu) */
+target/arm/rk27xx/flash-rk27xx.c
+target/arm/rk27xx/nand-rk27xx.c
+target/arm/rk27xx/ftl-probe-rk27xx.c
+#endif
+#endif
 target/arm/rk27xx/usb-rk27xx.c
 target/arm/rk27xx/lcdif-rk27xx.c
 target/arm/rk27xx/rkw-loader.c
@@ -1726,6 +1769,19 @@ target/arm/rk27xx/rk27generic/powermgmt-rk27generic.c
 target/arm/rk27xx/rk27generic/power-rk27generic.c
 target/arm/rk27xx/rk27generic/lcd-rk27generic.c
 target/arm/rk27xx/rk27generic/fmradio-i2c-rk27generic.c
+#endif
+
+#if defined(SAMSUNG_YPCP3)
+target/arm/rk27xx/ypcp3/button-ypcp3.c
+target/arm/rk27xx/ypcp3/powermgmt-ypcp3.c
+target/arm/rk27xx/ypcp3/power-ypcp3.c
+target/arm/rk27xx/ypcp3/lcd-ypcp3.c
+#ifndef BOOTLOADER
+target/arm/rk27xx/ypcp3/wmcodec-ypcp3.c
+#endif
+#if CONFIG_TUNER
+target/arm/rk27xx/rk27generic/fmradio-i2c-rk27generic.c
+#endif
 #endif
 
 #if CONFIG_CPU == JZ4732
@@ -1769,12 +1825,12 @@ target/mips/ingenic_x1000/aic-x1000.c
 target/mips/ingenic_x1000/boot-x1000.c
 target/mips/ingenic_x1000/clk-x1000.c
 target/mips/ingenic_x1000/debug-x1000.c
-target/mips/ingenic_x1000/dma-x1000.c
-target/mips/ingenic_x1000/gpio-x1000.c
-target/mips/ingenic_x1000/i2c-x1000.c
-target/mips/ingenic_x1000/kernel-x1000.c
+target/mips/ingenic/dma-ingenic.c
+target/mips/ingenic/gpio-ingenic.c
+target/mips/ingenic/i2c-ingenic.c
+target/mips/ingenic/kernel-ingenic.c
 target/mips/ingenic_x1000/lcd-x1000.c
-target/mips/ingenic_x1000/nand-x1000.c
+target/mips/ingenic/nand-ingenic.c
 target/mips/ingenic_x1000/pcm-x1000.c
 target/mips/ingenic_x1000/pwm-x1000.c
 target/mips/ingenic_x1000/sfc-x1000.c
@@ -1785,13 +1841,10 @@ target/mips/ingenic_x1000/uart-x1000.c
 target/mips/ingenic_x1000/usb-x1000.c
 #endif
 #if (CONFIG_STORAGE & (STORAGE_SD|STORAGE_MMC|STORAGE_ATA))
-target/mips/ingenic_x1000/msc-x1000.c
-#endif
-#if (CONFIG_STORAGE & STORAGE_SD)
-target/mips/ingenic_x1000/sd-x1000.c
+target/mips/ingenic/msc-ingenic.c
 #endif
 #ifdef BOOTLOADER
-target/mips/ingenic_x1000/installer-x1000.c
+target/mips/ingenic/installer-ingenic.c
 target/mips/ingenic_x1000/spl-start.S
 target/mips/ingenic_x1000/spl-x1000.c
 common/ucl_decompress.c
@@ -1801,6 +1854,40 @@ common/ucl_decompress.c
 drivers/audio/x1000-codec.c
 #endif
 #endif /* CONFIG_CPU == X1000 */
+
+#if CONFIG_CPU == X1600
+target/mips/ingenic_x1600/aic-x1600.c
+target/mips/ingenic_x1600/boot-x1600.c
+target/mips/ingenic_x1600/clk-x1600.c
+target/mips/ingenic_x1600/debug-x1600.c
+target/mips/ingenic/dma-ingenic.c
+target/mips/ingenic/gpio-ingenic.c
+target/mips/ingenic/i2c-ingenic.c
+target/mips/ingenic/kernel-ingenic.c
+target/mips/ingenic/nand-ingenic.c
+target/mips/ingenic_x1600/dpu-x1600.c
+target/mips/ingenic_x1600/pcm-x1600.c
+target/mips/ingenic_x1600/sadc-x1600.c
+target/mips/ingenic_x1600/sfc-x1600.c
+target/mips/ingenic_x1600/system-x1600.c
+target/mips/ingenic_x1600/timer-x1600.c
+target/mips/ingenic_x1600/uart-x1600.c
+#ifndef USB_NONE
+target/mips/ingenic_x1600/usb-x1600.c
+#endif
+#if (CONFIG_STORAGE & (STORAGE_SD|STORAGE_MMC|STORAGE_ATA))
+target/mips/ingenic/msc-ingenic.c
+target/mips/ingenic_x1600/hibyr1/sdmmc-hibyr1.c
+#endif
+#ifdef BOOTLOADER
+target/mips/ingenic/installer-ingenic.c
+target/mips/ingenic_x1600/spl-start.S
+target/mips/ingenic_x1600/spl-x1600.c
+target/mips/ingenic_x1600/usbstage1-x1600.c
+target/mips/ingenic_x1600/ddr-x1600.c
+common/ucl_decompress.c
+#endif
+#endif /* CONFIG_CPU == X1600 */
 
 #if defined(ONDA_VX747) || defined(ONDA_VX747P) || defined(ONDA_VX777)
 target/mips/ingenic_jz47xx/onda_vx747/backlight-onda_vx7X7.c
@@ -1831,7 +1918,8 @@ target/mips/ingenic_x1000/fiiom3k/backlight-fiiom3k.c
 target/mips/ingenic_x1000/fiiom3k/button-fiiom3k.c
 target/mips/ingenic_x1000/fiiom3k/lcd-fiiom3k.c
 target/mips/ingenic_x1000/fiiom3k/power-fiiom3k.c
-target/mips/ingenic_x1000/spl-nand-x1000.c
+target/mips/ingenic_x1000/sdmmc-x1000-common.c
+target/mips/ingenic/spl-nand-ingenic.c
 #endif /* FIIO_M3K */
 
 #if defined(SHANLING_Q1)
@@ -1840,7 +1928,8 @@ target/mips/ingenic_x1000/shanlingq1/backlight-shanlingq1.c
 target/mips/ingenic_x1000/shanlingq1/button-shanlingq1.c
 target/mips/ingenic_x1000/shanlingq1/lcd-shanlingq1.c
 target/mips/ingenic_x1000/shanlingq1/power-shanlingq1.c
-target/mips/ingenic_x1000/spl-nand-x1000.c
+target/mips/ingenic_x1000/sdmmc-x1000-common.c
+target/mips/ingenic/spl-nand-ingenic.c
 #endif /* SHANLING_Q1 */
 
 #if defined(EROS_QN)
@@ -1849,8 +1938,30 @@ target/mips/ingenic_x1000/erosqnative/backlight-erosqnative.c
 target/mips/ingenic_x1000/erosqnative/button-erosqnative.c
 target/mips/ingenic_x1000/erosqnative/lcd-erosqnative.c
 target/mips/ingenic_x1000/erosqnative/power-erosqnative.c
-target/mips/ingenic_x1000/spl-nand-x1000.c
+target/mips/ingenic_x1000/sdmmc-x1000-common.c
+target/mips/ingenic/spl-nand-ingenic.c
 #endif /* EROS_QN */
+
+#if defined(AGPTEK_ROCKER_NATIVE)
+target/mips/ingenic_x1000/agptekrocker/audiohw-agptekrocker.c
+target/mips/ingenic_x1000/agptekrocker/backlight-agptekrocker.c
+target/mips/ingenic_x1000/agptekrocker/button-agptekrocker.c
+target/mips/ingenic_x1000/agptekrocker/lcd-agptekrocker.c
+target/mips/ingenic_x1000/agptekrocker/power-agptekrocker.c
+target/mips/ingenic_x1000/sdmmc-x1000-common.c
+target/mips/ingenic/spl-nand-ingenic.c
+#endif /* AGPTEK_ROCKER_NATIVE */
+
+#if defined(HIBY_R1_NATIVE)
+/* The codec uses software I2C. */
+drivers/generic_i2c.c
+target/mips/ingenic_x1600/hibyr1/audiohw-hibyr1.c
+target/mips/ingenic_x1600/hibyr1/backlight-hibyr1.c
+target/mips/ingenic_x1600/hibyr1/button-hibyr1.c
+target/mips/ingenic_x1600/hibyr1/lcd-hibyr1.c
+target/mips/ingenic_x1600/hibyr1/power-hibyr1.c
+target/mips/ingenic/spl-nand-ingenic.c
+#endif /* HIBY_R1_NATIVE */
 
 #if defined(SAMSUNG_YH820) || defined(SAMSUNG_YH920) || defined(SAMSUNG_YH925)
 target/arm/samsung/akcodec-yh82x_yh92x.c
@@ -2127,27 +2238,58 @@ target/hosted/tinyalsa/mixer.c
 target/hosted/tinyalsa/pcm.c
 #endif
 
-#if (CONFIG_PLATFORM & PLATFORM_CTRU)
+#if (CONFIG_PLATFORM & PLATFORM_GAME_CONSOLE)
+#ifdef CPU_ARM
 asm/arm/lcd-as-memframe.S
-target/hosted/ctru/backlight-ctru.c
-target/hosted/ctru/button-ctru.c
-target/hosted/ctru/kernel-ctru.c
-target/hosted/ctru/thread-ctru.c
-target/hosted/ctru/lcd-bitmap.c
-target/hosted/ctru/luminance-ctru.c
-target/hosted/ctru/system-ctru.c
-target/hosted/ctru/filesystem-ctru.c
-target/hosted/ctru/lc-ctru.c
-target/hosted/ctru/lc-program-resolver.c
-target/hosted/ctru/powermgmt-ctru.c
-target/hosted/ctru/timer-ctru.c
-target/hosted/ctru/pcm-ctru.c
-target/hosted/ctru/lib/sys_file.c
-target/hosted/ctru/lib/sys_dir.c
-target/hosted/ctru/lib/sys_thread.c
-target/hosted/ctru/lib/sys_timer.c
-target/hosted/ctru/lib/bfile/bfile.c
 #endif
+target/hosted/game_console/kernel-console.c
+target/hosted/game_console/thread-console.c
+target/hosted/game_console/timer-console.c
+target/hosted/game_console/lib/sys_atomic.c
+target/hosted/game_console/lib/sys_file_common.c
+target/hosted/game_console/lib/sys_timer_common.c
+target/hosted/game_console/lib/bfile/bfile-rwmutex.c
+target/hosted/game_console/lib/sys_cond_generic.c
+
+#ifdef N3DS
+target/hosted/game_console/lib/sys_file_3ds.c
+target/hosted/game_console/lib/sys_dir_3ds.c
+target/hosted/game_console/lib/sys_thread_3ds.c
+target/hosted/game_console/lib/sys_timer_3ds.c
+target/hosted/game_console/lib/bfile/bfile-3ds.c
+target/hosted/game_console/3ds/backlight-3ds.c
+target/hosted/game_console/3ds/button-3ds.c
+target/hosted/game_console/3ds/filesystem-3ds.c
+target/hosted/game_console/3ds/lc-3ds.c
+target/hosted/game_console/3ds/lcd-bitmap-3ds.c
+target/hosted/game_console/3ds/lc-program-resolver.c
+target/hosted/game_console/3ds/luminance-3ds.c
+target/hosted/game_console/3ds/pcm-3ds.c
+target/hosted/game_console/3ds/pcm-recording-3ds.c
+target/hosted/game_console/3ds/powermgmt-3ds.c
+target/hosted/game_console/3ds/system-3ds.c
+#endif /* N3DS */
+
+#ifdef SONY_PSP
+target/hosted/game_console/lib/sys_file_psp.c
+target/hosted/game_console/lib/sys_dir_psp.c
+target/hosted/game_console/lib/sys_display_psp.c
+target/hosted/game_console/lib/sys_kernel_hook.c
+target/hosted/game_console/lib/sys_thread_psp.c
+target/hosted/game_console/lib/sys_timer_psp.c
+target/hosted/game_console/lib/bfile/bfile-psp.c
+target/hosted/game_console/psp/backlight-psp.c
+target/hosted/game_console/psp/button-psp.c
+target/hosted/game_console/psp/filesystem-psp.c
+target/hosted/game_console/psp/lc-psp.c
+target/hosted/game_console/psp/lcd-bitmap-psp.c
+target/hosted/game_console/psp/pcm-psp.c
+target/hosted/game_console/psp/powermgmt-psp.c
+target/hosted/game_console/psp/rtc-psp.c
+target/hosted/game_console/psp/system-psp.c
+target/hosted/game_console/psp/module/pluginlib.S
+#endif /* SONY_PSP */
+#endif /* PLATFORM_GAME_CONSOLE */
 
 #else /* defined(SIMULATOR) */
 
@@ -2176,17 +2318,21 @@ drivers/i2c-async.c
 #ifdef HAVE_AXP_PMU
 drivers/axp-pmu.c
 #endif
-#ifdef HAVE_AXP2101_ADDON
+#ifdef HAVE_AXP2101
 drivers/axp-2101.c
 #endif
 #ifdef HAVE_FT6x06
 drivers/ft6x06.c
+#endif
+#ifdef HAVE_CST8XX
+drivers/cst8xx.c
 #endif
 #ifdef HAVE_CW2015
 drivers/cw2015.c
 #endif
 #ifdef HAVE_SDMMC_HOST
 drivers/sdmmc_host.c
+drivers/sdmmc_poll.c
 #endif
 #endif
 
@@ -2204,7 +2350,7 @@ kernel/semaphore.c
 target/hosted/sdl/thread-sdl.c
 #elif defined(HAVE_POSIX_THREADS)
 target/hosted/headless/thread-posix.c
-#elif !defined(CTRU)
+#elif !(CONFIG_PLATFORM & PLATFORM_GAME_CONSOLE)
 kernel/thread.c
 #endif
 kernel/thread-common.c

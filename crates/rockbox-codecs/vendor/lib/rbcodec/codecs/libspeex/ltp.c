@@ -146,6 +146,7 @@ void pitch_xcorr(const spx_word16_t *_x, const spx_word16_t *_y, spx_word32_t *c
 #else
 void pitch_xcorr(const spx_word16_t *_x, const spx_word16_t *_y, spx_word32_t *corr, int len, int nb_pitch, char *stack)
 {
+   (void)stack;
    int i;
    for (i=0;i<nb_pitch;i++)
    {
@@ -372,6 +373,10 @@ spx_word32_t cumul_gain,
 int scaledown
 )
 {
+   (void)bits;
+#ifndef FIXED_POINT
+   (void)scaledown;
+#endif
    int i,j;
    VARDECL(spx_word16_t *tmp1);
    VARDECL(spx_word16_t *e);
@@ -553,6 +558,7 @@ int plc_tuning,
 spx_word32_t *cumul_gain
 )
 {
+   (void)pitch_coef;
    int i;
    int cdbk_index, pitch=0, best_gain_index=0;
    VARDECL(spx_sig_t *best_exc);
@@ -785,6 +791,8 @@ int plc_tuning,
 spx_word32_t *cumul_gain
 )
 {
+   (void)sw; (void)par; (void)end; (void)bits; (void)r; (void)complexity;
+   (void)cdbk_offset; (void)plc_tuning; (void)cumul_gain;
    int i;
    VARDECL(spx_word16_t *res);
    ALLOC(res, nsf, spx_word16_t);
@@ -805,7 +813,12 @@ spx_word32_t *cumul_gain
    }
    for (i=0;i<nsf;i++)
       res[i] = EXTRACT16(PSHR32(exc[i], SIG_SHIFT-1));
+#pragma GCC diagnostic push
+#ifndef __clang__
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
    syn_percep_zero16(res, ak, awk1, awk2, res, nsf, p, stack);
+#pragma GCC diagnostic pop
    for (i=0;i<nsf;i++)
       target[i]=EXTRACT16(SATURATE(SUB32(EXTEND32(target[i]),EXTEND32(res[i])),32700));
    return start;

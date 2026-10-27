@@ -81,19 +81,21 @@
 #define IMX233        233
 #define RK27XX       2700
 #define X1000        1000
+#define X1600        1600
 #define STM32H743   32743
 #define N10480H     10480
+#define TACHYON     4000
 
 /* platforms
  * bit fields to allow PLATFORM_HOSTED to be OR'ed e.g. with a
  * possible future PLATFORM_ANDROID (some OSes might need totally different
  * handling to run on them than a stand-alone application) */
-#define PLATFORM_NATIVE  (1<<0)
-#define PLATFORM_HOSTED  (1<<1)
-#define PLATFORM_ANDROID (1<<2)
-#define PLATFORM_SDL     (1<<3)
-#define PLATFORM_WASM    (1<<5)
-#define PLATFORM_CTRU    (1<<4)
+#define PLATFORM_NATIVE       (1<<0)
+#define PLATFORM_HOSTED       (1<<1)
+#define PLATFORM_ANDROID      (1<<2)
+#define PLATFORM_SDL          (1<<3)
+#define PLATFORM_GAME_CONSOLE (1<<4)
+#define PLATFORM_WASM         (1<<5)
 
 /* CONFIG_KEYPAD */
 #define IRIVER_H100_PAD     4
@@ -149,15 +151,17 @@
 #define IHIFI_800_PAD      68
 #define XDUOO_X3II_PAD     69
 #define XDUOO_X20_PAD      70
-#define FIIO_M3K_LINUX_PAD 71
 #define EROSQ_PAD          72
+// 71 can be reused
 #define FIIO_M3K_PAD       73
 #define SHANLING_Q1_PAD    74
 #define ECHO_R1_PAD        75
 #define SURFANS_F28_PAD    76
 #define RG_NANO_PAD        77
-#define CTRU_PAD           78
+#define N3DS_PAD           78
 #define HIBY_R3PROII_PAD   79
+#define HIDIZS_AP80MAX_PAD 80
+#define PSP_PAD            81
 
 /* CONFIG_REMOTE_KEYPAD */
 #define H100_REMOTE   1
@@ -274,6 +278,8 @@
 #define LCD_SHANLING_Q1   70 /* as used by the Shanling Q1 */
 #define LCD_EROSQ         71 /* as used by the ErosQ (native) */
 #define LCD_ECHO_R1       72 /* ILI9342, as used by the Echo R1 */
+#define LCD_AGPTEK_ROCKER 73 /* ST7735S, as used by the Agptek Rocker (native) */
+#define LCD_HIBY_R1       74 /* as used by the HiBy R1 (native) */
 
 /* LCD_PIXELFORMAT */
 #define HORIZONTAL_PACKING 1
@@ -325,6 +331,11 @@ Lyre prototype 1 */
 #define NAND_RK27XX  5
 #define NAND_IMX233  6
 
+/* CONFIG_RK27XX_FTL: the on-flash format of an rk27xx target's NAND. A
+ * target that does not define it builds only the FTL scheme finder. */
+#define RK27XX_FTL_SCHEME_A 1 /* ftl-scheme-a.c: zone tables, remap logs */
+#define RK27XX_FTL_SCHEME_B 2 /* ftl-scheme-b.c: self-describing blocks */
+
 /* CONFIG_RTC */
 #define RTC_HOSTED   1 /* Generic hosted */
 #define RTC_PCF50605 2 /* iPod 3G, 4G & Mini */
@@ -339,6 +350,7 @@ Lyre prototype 1 */
 #define RTC_MR100  12
 #define RTC_MC13783  13 /* Freescale MC13783 PMIC */
 #define RTC_S5L8700  14
+#define RTC_S35390A  15
 #define RTC_JZ4740   16 /* Ingenic Jz4740 */
 #define RTC_NANO2G   17 /* This seems to be a PCF5063x */
 #define RTC_D2       18 /* Either PCF50606 or PCF50635 */
@@ -351,6 +363,7 @@ Lyre prototype 1 */
 #define RTC_NANO3G   25 /* Dialog Semiconductor D1671 ??? */
 #define RTC_NANO4G   26 /* Dialog Semiconductor D1759 ??? */
 #define RTC_STM32H743 27
+#define RTC_X1600    28 /* Ingenic X1600 */
 
 /* USB On-the-go */
 #define USBOTG_M66591   6591 /* M:Robe 500 */
@@ -484,6 +497,8 @@ Lyre prototype 1 */
 #include "config/mpiohd300.h"
 #elif defined(RK27_GENERIC)
 #include "config/rk27generic.h"
+#elif defined(SAMSUNG_YPCP3)
+#include "config/samsungypcp3.h"
 #elif defined(HM60X)
 #include "config/hifimanhm60x.h"
 #elif defined(HM801)
@@ -560,14 +575,14 @@ Lyre prototype 1 */
 #include "config/xduoox3ii.h"
 #elif defined(XDUOO_X20)
 #include "config/xduoox20.h"
-#elif defined(FIIO_M3K_LINUX)
-#include "config/fiiom3klinux.h"
 #elif defined(FIIO_M3K)
 #include "config/fiiom3k.h"
 #elif defined(EROS_Q)
 #include "config/aigoerosq.h"
 #elif defined(SHANLING_Q1)
 #include "config/shanlingq1.h"
+#elif defined(AGPTEK_ROCKER_NATIVE)
+#include "config/agptekrockernative.h"
 #elif defined(EROS_QN)
 #include "config/erosqnative.h"
 #elif defined(ECHO_R1)
@@ -576,8 +591,8 @@ Lyre prototype 1 */
 #include "config/surfansf28.h"
 #elif defined(RG_NANO)
 #include "config/rgnano.h"
-#elif defined(CTRU)
-#include "config/ctru.h"
+#elif defined(N3DS)
+#include "config/3ds.h"
 #elif defined(HIBY_R3PROII)
 #include "config/hibyr3proii.h"
 #elif defined(HIBY_R1)
@@ -590,6 +605,12 @@ Lyre prototype 1 */
 #include "config/wasmapp.h"
 #elif defined(ARMHFHOST)
 #include "config/armhfhost.h"
+#elif defined(HIDIZS_AP80MAX)
+#include "config/hidizsap80max.h"
+#elif defined(SONY_PSP)
+#include "config/sonypsp.h"
+#elif defined(HIBY_R1_NATIVE)
+#include "config/hibyr1native.h"
 #else
 #error "unknown hardware platform!"
 #endif
@@ -897,6 +918,17 @@ Lyre prototype 1 */
 
 /* Storage related config handling */
 
+/* The rk27xx NAND's Scheme A flash translation layer holds part-written
+ * pages in RAM (ftl-scheme-a.c) until a later write completes them;
+ * storage_flush() commits them at shutdown, ROLO and wherever else it is
+ * called. */
+#if (CONFIG_STORAGE & STORAGE_NAND) && defined(CONFIG_NAND) \
+    && (CONFIG_NAND == NAND_RK27XX) \
+    && (CONFIG_RK27XX_FTL == RK27XX_FTL_SCHEME_A) \
+    && !defined(HAVE_STORAGE_FLUSH)
+#define HAVE_STORAGE_FLUSH
+#endif
+
 #if (CONFIG_STORAGE & (CONFIG_STORAGE - 1)) != 0
 /* Multiple storage drivers */
 #define CONFIG_STORAGE_MULTI
@@ -1022,11 +1054,12 @@ Lyre prototype 1 */
 #if defined(ASSEMBLER_THREADS) \
     || defined(HAVE_WIN32_FIBER_THREADS) \
     || defined(HAVE_SIGALTSTACK_THREADS) \
-    || defined(CTRU)
+    || defined(N3DS) \
+    || defined(SONY_PSP)
 #define HAVE_PRIORITY_SCHEDULING
 #endif
 
-#if (CONFIG_PLATFORM & PLATFORM_NATIVE)
+#if (CONFIG_PLATFORM & PLATFORM_NATIVE) || defined(SONY_PSP)
 #define HAVE_PRIORITY_SCHEDULING
 #define HAVE_SCHEDULER_BOOSTCTRL
 #endif /* PLATFORM_NATIVE */
@@ -1304,10 +1337,10 @@ Lyre prototype 1 */
 
 #endif /* NUM_CORES */
 
-#ifdef HAVE_HEADPHONE_DETECTION
-/* Timeout objects required if headphone detection is enabled */
+#if defined(HAVE_HEADPHONE_DETECTION) || defined(HAVE_LINEOUT_DETECTION)
+/* Timeout objects required if headphone or line out detection is enabled */
 #define INCLUDE_TIMEOUT_API
-#endif /* HAVE_HEADPHONE_DETECTION */
+#endif /* HAVE_HEADPHONE_DETECTION || HAVE_LINEOUT_DETECTION */
 
 #ifdef HAVE_TOUCHSCREEN
 /* Timeout objects required for kinetic list scrolling */
@@ -1499,6 +1532,14 @@ Lyre prototype 1 */
 #define ucschar_t unsigned int
 #else
 #define ucschar_t unsigned short
+#endif
+
+#ifdef HAVE_SW_VOLUME_CONTROL
+#define WANT_SWVOL
+#endif
+
+#if defined(PCM_NATIVE_BITDEPTH) && (PCM_NATIVE_BITDEPTH > 16)
+#define WANT_SWVOL_32
 #endif
 
 #endif /* __CONFIG_H__ */

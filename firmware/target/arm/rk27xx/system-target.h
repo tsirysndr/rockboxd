@@ -30,14 +30,17 @@ static inline void mdelay(unsigned msecs)
     udelay(1000 * msecs);
 }
 
-/* Datasheet is very cryptic how to use this.
- * With cache enabled it simpy hangs here
- */
+/* Called with IRQs disabled; returns with them enabled. Stops the core
+ * clock until an interrupt (see system-rk27xx.c). */
+void rk27xx_core_sleep(void);
+
 static inline void core_sleep(void)
 {
-    enable_irq();
-    /* SCU_CPUPD = 0xdeedbabe; */
+    rk27xx_core_sleep();
 }
+
+/* The DWDMA's clock, on while any of its users holds it */
+void rk27xx_dwdma_clock(bool on);
 
 /* Write DCache back to RAM for the given range and remove cache lines
  * from DCache afterwards */

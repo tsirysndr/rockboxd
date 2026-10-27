@@ -38,9 +38,12 @@
 #include "bands.h"
 #include "rate.h"
 #include "pitch.h"
+#if defined(OPUS_ARM_ASM)
+#include "arm/vq_arm.h"
+#endif
 
 #ifndef OVERRIDE_vq_exp_rotation1
-static void exp_rotation1(celt_norm *X, int len, int stride, opus_val16 c, opus_val16 s)
+ICODE_ATTR_OPUS static void exp_rotation1(celt_norm *X, int len, int stride, opus_val16 c, opus_val16 s)
 {
    int i;
    opus_val16 ms;
@@ -67,7 +70,7 @@ static void exp_rotation1(celt_norm *X, int len, int stride, opus_val16 c, opus_
 }
 #endif /* OVERRIDE_vq_exp_rotation1 */
 
-void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread)
+ICODE_ATTR_OPUS void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread)
 {
    static const int SPREAD_FACTOR[3]={15,10,5};
    int i;
@@ -114,7 +117,7 @@ void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread)
 
 /** Takes the pitch vector and the decoded residual vector, computes the gain
     that will give ||p+g*y||=1 and mixes the residual with the pitch. */
-static void normalise_residual(int * OPUS_RESTRICT iy, celt_norm * OPUS_RESTRICT X,
+ICODE_ATTR_OPUS static void normalise_residual(int * OPUS_RESTRICT iy, celt_norm * OPUS_RESTRICT X,
       int N, opus_val32 Ryy, opus_val16 gain)
 {
    int i;
@@ -130,10 +133,15 @@ static void normalise_residual(int * OPUS_RESTRICT iy, celt_norm * OPUS_RESTRICT
    t = VSHR32(Ryy, 2*(k-7));
    g = MULT16_16_P15(celt_rsqrt_norm(t),gain);
 
+#if defined(FIXED_POINT) && defined(OVERRIDE_NORMRES_SCALE)
+   (void)i;
+   NORMRES_SCALE(X, iy, N, g, k+1);
+#else
    i=0;
    do
       X[i] = EXTRACT16(PSHR32(MULT16_16(g, iy[i]), k+1));
    while (++i < N);
+#endif
 }
 
 static unsigned extract_collapse_mask(int *iy, int N, int B)
@@ -356,7 +364,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
 
 /** Decode pulse vector and combine the result with the pitch vector to produce
     the final normalised signal in the current band. */
-unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
+ICODE_ATTR_OPUS unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
       ec_dec *dec, opus_val16 gain)
 {
    opus_val32 Ryy;
@@ -376,7 +384,7 @@ unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
 }
 
 #ifndef OVERRIDE_renormalise_vector
-void renormalise_vector(celt_norm *X, int N, opus_val16 gain, int arch)
+ICODE_ATTR_OPUS void renormalise_vector(celt_norm *X, int N, opus_val16 gain, int arch)
 {
    int i;
 #ifdef FIXED_POINT

@@ -5,7 +5,6 @@
  *   Jukebox    |    |   (  <_> )  \___|    < | \_\ (  <_> > <  <
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
- * $Id$
  *
  * Copyright (C) 2005 Dave Chapman
  *
@@ -125,7 +124,7 @@ bool get_spc_metadata(int fd, struct mp3entry* id3)
     id3->frequency = 32000;
     id3->length = length+fade;
 
-    id3->FS_PREFIX(filesize) = filesize(fd);
+    id3->filesize = ffilesize(fd);
     id3->genre_string = id3_get_num_genre(36);
 
     return true;

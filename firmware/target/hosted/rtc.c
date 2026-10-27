@@ -50,7 +50,7 @@ int rtc_read_datetime(struct tm *tm)
 
 int rtc_write_datetime(const struct tm *tm)
 {
-#if !defined(WIN32) && !defined(__APPLE__) && !defined(CTRU)
+#if !defined(WIN32) && !defined(__APPLE__) && !defined(N3DS)
     struct timeval tv;
     struct tm *tm_time;
 

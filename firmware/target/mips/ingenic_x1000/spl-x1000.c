@@ -21,8 +21,8 @@
 #include "system.h"
 #include "spl-x1000.h"
 #include "clk-x1000.h"
-#include "nand-x1000.h"
-#include "gpio-x1000.h"
+#include "nand-ingenic.h"
+#include "gpio-ingenic.h"
 #include "boot-x1000.h"
 #include "x1000/cpm.h"
 #include "x1000/ost.h"
@@ -49,6 +49,12 @@
 #elif defined(EROS_QN)
 # define SPL_DDR_MEMORYSIZE     32
 # define SPL_ERROR_PIN          GPIO_PC(25)
+# define BOOT_STORAGE_ADDR      0x6800
+# define BOOT_STORAGE_SIZE      (102 * 1024)
+#elif defined(AGPTEK_ROCKER_NATIVE)
+/* TODO: verify DDR parameters against the OF SPL (UBOOT.BIN offset 0) */
+# define SPL_DDR_MEMORYSIZE     32
+# define SPL_ERROR_PIN          GPIO_PC(25) /* backlight PWM */
 # define BOOT_STORAGE_ADDR      0x6800
 # define BOOT_STORAGE_SIZE      (102 * 1024)
 #else

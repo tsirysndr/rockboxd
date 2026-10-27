@@ -67,6 +67,7 @@ $releasenotes="/wiki/ReleaseNotes400";
     },
     'gigabeats' => {
         name => 'Toshiba Gigabeat S',
+        manualok => 1, # Remove when promoted to stable
         status => 2,
     },
     'gogearhdd1630' => {
@@ -233,6 +234,10 @@ $releasenotes="/wiki/ReleaseNotes400";
     },
     'rk27generic' => {
         name => 'Rockchip rk27xx',
+        status => 1,
+    },
+    'samsungypcp3' => {
+        name => 'Samsung YP-CP3',
         status => 1,
     },
     'samsungyh820' => {
@@ -416,6 +421,11 @@ $releasenotes="/wiki/ReleaseNotes400";
         name => 'Agptek Rocker',
         status => 3,
     },
+    'agptekrockernative' => {
+        name => 'Agptek Rocker (native)',
+        status => 1,
+        manualok => 0,
+    },
     'xduoox3' => {
         name => 'xDuoo X3',
         status => 3,
@@ -429,10 +439,6 @@ $releasenotes="/wiki/ReleaseNotes400";
         name => 'xDuoo X20',
         manualok => 0,     # Remove when manual is written
         status => 3,
-    },
-    'fiiom3klinux' => {
-        name => 'FiiO M3K (Linux)',
-        status => 1,
     },
     'fiiom3k' => {
         name => 'FiiO M3K',
@@ -469,6 +475,10 @@ $releasenotes="/wiki/ReleaseNotes400";
     },
     'hibyr3proii' => {
         name => 'Hiby R3Pro II',
+        status => 2,
+    },
+    'hidizsap80max' => {
+        name => 'Hidizs AP80 Pro Max',
         status => 2,
     },
 );
@@ -570,7 +580,7 @@ sub simbuilds {
 	    'festival' => '--language english',
 	    'espeak' => '-ven-gb -k 5',
 	    'gtts' => '-l en -t co.uk',
-	    'piper' => 'en_GB-alba-medium.onnx',
+	    'piper' => 'en_GB-alba-medium',
 	},
         'enabled' => 1,
     },
@@ -583,7 +593,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vbg',
 	    'gtts' => '-l bg',
-	    'piper' => 'bg_BG-dimitar-medium.onnx',
+	    'piper' => 'bg_BG-dimitar-medium',
 	},
         'enabled' => 1,
     },
@@ -595,7 +605,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vzh',
 	    'gtts' => '-l zh',
-	    'piper' => 'zh_CN-huayan-medium.onnx',
+	    'piper' => 'zh_CN-huayan-medium',
 	},
         'enabled' => 1,
     },
@@ -607,7 +617,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vcs',
 	    'gtts' => '-l cs',
-	    'piper' => 'cs_CZ-jirka-medium.onnx',
+	    'piper' => 'cs_CZ-kasandra-medium',
 	},
         'enabled' => 0,
     },
@@ -619,7 +629,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vda',
 	    'gtts' => '-l da',
-            'piper' => 'da_DK-talesyntese-medium.onnx',
+            'piper' => 'da_DK-talesyntese-medium',
 	},
         'enabled' => 0,
     },
@@ -631,7 +641,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vde',
 	    'gtts' => '-l de',
-            'piper' => 'de_DE-thorsten-high.onnx',
+            'piper' => 'de_DE-thorsten-high',
 	},
         'enabled' => 1,
     },
@@ -639,11 +649,11 @@ sub simbuilds {
 	'lang' => 'eesti',
 	'name' => 'Eesti (Estonian)',
         'short' => 'et',
-        'defengine' => 'espeak',
+        'defengine' => 'piper',
 	'engines' => {
 	    'espeak' => '-vet',
 	    'gtts' => '-l et',
-            # No piper voice yet.
+            'piper' => 'et_EE-news-medium',
 	},
         'enabled' => 0,
     },
@@ -656,7 +666,7 @@ sub simbuilds {
 	    'festival' => '--language english',
 	    'espeak' => '-ven-us -k 5',
 	    'gtts' => '-l en -t us',
-            'piper' => 'en_US-lessac-high.onnx',
+            'piper' => 'en_US-lessac-high',
 	},
         'enabled' => 1,
     },
@@ -669,7 +679,7 @@ sub simbuilds {
 	    'festival' => '--language spanish',
 	    'espeak' => '-ves -k 5',
 	    'gtts' => '-l es',
-            'piper' => 'es_ES-sharvard-medium.onnx',
+            'piper' => 'es_ES-sharvard-medium',
 	},
         'enabled' => 1,
     },
@@ -681,7 +691,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-ves -k 6',
             'gtts' => '-l es -t mx',
-            'piper' => 'es_MX-claude-high.onnx',
+            'piper' => 'es_MX-claude-high',
 	},
         'enabled' => 1,
     },
@@ -693,7 +703,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vfr-fr',
 	    'gtts' => '-l fr',
-            'piper' => 'fr_FR-siwis-medium.onnx',
+            'piper' => 'fr_FR-siwis-medium',
 	},
         'enabled' => 1,
     },
@@ -705,7 +715,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vel',
 	    'gtts' => '-l el',
-            'piper' => 'el_GR-rapunzelina-medium.onnx',
+            'piper' => 'el_GR-joy-medium',
 	},
         'enabled' => 0,
     },
@@ -717,7 +727,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vit',
 	    'gtts' => '-l it',
-            'piper' => 'it_IT-paola-medium.onnx',
+            'piper' => 'it_IT-paola-medium',
 	},
         'enabled' => 1,
     },
@@ -729,6 +739,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vja',
 	    'gtts' => '-l ja',
+	    'piper' => 'ja_JP-hi_fi_captain-medium'
 	},
         'enabled' => 1,
     },
@@ -736,10 +747,11 @@ sub simbuilds {
 	'lang' => 'korean',
 	'name' => '한국어 (Korean)',
         'short' => 'ko',
-        'defengine' => 'espeak',
+        'defengine' => 'piper',
 	'engines' => {
 	    'espeak' => '-vko',
 	    'gtts' => '-l ko',
+            'piper' => 'ko_KR-kss-medium',
 	},
         'enabled' => 1,
     },
@@ -751,7 +763,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vlv',
 	    'gtts' => '-l lv',
-            'piper' => 'lv_LV-aivars-medium.onnx',
+            'piper' => 'lv_LV-aivars-medium',
 	},
 	'enabled' => 1,
     },
@@ -763,7 +775,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vhu',
 	    'gtts' => '-l hu',
-            'piper' => 'hu_HU-berta-medium.onnx',
+            'piper' => 'hu_HU-berta-medium',
 	},
 	'enabled' => 1,
     },
@@ -775,7 +787,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vnl',
 	    'gtts' => '-l nl',
-            'piper' => 'nl_NL-mls-medium.onnx',
+            'piper' => 'nl_NL-mls-medium',
 	},
 	'enabled' => 1,
     },
@@ -787,7 +799,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vno',
 	    'gtts' => '-l no',
-            'piper' => 'no_NO-talesyntese-medium.onnx',
+            'piper' => 'no_NO-talesyntese-medium',
 	},
         'enabled' => 0,
     },
@@ -799,7 +811,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vno',
 	    'gtts' => '-l no',
-            'piper' => 'no_NO-talesyntese-medium.onnx',
+            'piper' => 'no_NO-talesyntese-medium',
 	},
         'enabled' => 1,
     },
@@ -811,7 +823,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vro',
 	    'gtts' => '-t md -l ro',
-            'piper' => 'ro_RO-mihai-medium.onnx',
+            'piper' => 'ro_RO-mihai-medium',
 	},
         'enabled' => 1,
     },
@@ -823,7 +835,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vpl',
 	    'gtts' => '-l pl',
-            'piper' => 'pl_PL-gosia-medium.onnx',
+            'piper' => 'pl_PL-gosia-medium',
 	},
         'enabled' => 1,
     },
@@ -835,7 +847,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vpt-br',
 	    'gtts' => '-l pt -t br',
-            'piper' => 'pt_BR-faber-medium.onnx',
+            'piper' => 'pt_BR-faber-medium',
 	},
         'enabled' => 1,
     },
@@ -847,7 +859,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vro',
 	    'gtts' => '-l ro',
-            'piper' => 'ro_RO-mihai-medium.onnx',
+            'piper' => 'ro_RO-mihai-medium',
 	},
         'enabled' => 1,
     },
@@ -859,7 +871,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vru',
 	    'gtts' => '-l ru',
-            'piper' => 'ru_RU-irina-medium.onnx',
+            'piper' => 'ru_RU-irina-medium',
 	},
         'enabled' => 1,
     },
@@ -871,7 +883,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vsk',
 	    'gtts' => '-l sk',
-            'piper' => 'sk_SK-lili-medium.onnx',
+            'piper' => 'sk_SK-lili-medium',
 	},
         'enabled' => 1,
     },
@@ -883,7 +895,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vsr',
 	    'gtts' => '-l sr',
-            'piper' => 'sr_RS-serbski_institut-medium.onnx',
+            'piper' => 'sr_RS-serbski_institut-medium',
 	},
         'enabled' => 1,
     },
@@ -895,7 +907,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vsv',
 	    'gtts' => '-l sv',
-            'piper' => 'sv_SE-nst-medium.onnx',
+            'piper' => 'sv_SE-nst-medium',
 	},
         'enabled' => 1,
     },
@@ -907,7 +919,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vtr',
 	    'gtts' => '-l tr',
-            'piper' => 'tr_TR-dfki-medium.onnx',
+            'piper' => 'tr_TR-dfki-medium',
 	},
         'enabled' => 1,
     },
@@ -919,7 +931,7 @@ sub simbuilds {
 	'engines' => {
 	    'espeak' => '-vuk',
 	    'gtts' => '-l uk',
-            'piper' => 'uk_UA-ukrainian_tts-medium.onnx',
+            'piper' => 'uk_UA-ukrainian_tts-medium',
 	},
         'enabled' => 1,
     },
@@ -931,7 +943,7 @@ sub simbuilds {
         'engines' => {
             'espeak' => '-vvi',
 	    'gtts' => '-l vi',
-            'piper' => 'vi_VN-vais1000-medium.onnx',
+            'piper' => 'vi_VN-vais1000-medium',
         },
         'enabled' => 1,
     },

@@ -252,13 +252,6 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define RIGHT BUTTON_VOL_DOWN
 #define FIRE  BUTTON_VOL_UP
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-
-#define QUIT  BUTTON_POWER
-#define LEFT  BUTTON_HOME
-#define RIGHT BUTTON_VOL_DOWN
-#define FIRE  BUTTON_VOL_UP
-
 #elif CONFIG_KEYPAD == IHIFI_770_PAD || CONFIG_KEYPAD == IHIFI_800_PAD
 
 #define QUIT  BUTTON_POWER
@@ -280,7 +273,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define RIGHT BUTTON_RIGHT
 #define FIRE  BUTTON_SELECT
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == MA_PAD
@@ -297,7 +290,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define RIGHT BUTTON_RIGHT
 #define FIRE  BUTTON_A
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 
 #define QUIT  BUTTON_POWER
 #define LEFT  BUTTON_LEFT
@@ -310,6 +303,13 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define LEFT  BUTTON_LEFT
 #define RIGHT BUTTON_RIGHT
 #define FIRE  BUTTON_A
+
+#elif CONFIG_KEYPAD == PSP_PAD
+
+#define QUIT  BUTTON_POWER
+#define LEFT  BUTTON_LEFT
+#define RIGHT BUTTON_RIGHT
+#define FIRE  BUTTON_SELECT
 
 #else
     #error INVADROX: Unsupported keypad
@@ -395,8 +395,52 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define LIVES_X 10
 #define MAX_Y 18
 
-/* iPod Video defines */
-#elif (LCD_WIDTH == 320) && (LCD_HEIGHT == 240)
+/* Sony PSP defines */
+#elif (LCD_WIDTH == 480) && (LCD_HEIGHT == 272)
+
+/* Original arcade game size 224x240, 1bpp with
+ * red overlay at top and green overlay at bottom.
+ *
+ * Sony PSP: 480x272x16
+ * ======================
+ * X: 48p padding at left/right gives 224p playfield in middle.
+ *    10p "border" gives 204p actual playfield. UFO use full 224p.
+ * Y: Use full 240p.
+ *
+ * MAX_X = (204 - 12) / 2 - 1 = 95
+ *
+ * Y: Score text 7       0
+ *    Space      10      7
+ *    Score      7       17
+ *    Space      8       24
+ * 3  Ufo        7       32
+ * 2  Space      Aliens start at 32 + 3 * 8 = 56
+ * 0  aliens     9*8     56  -
+ *    space     ~7*8     128  | 18.75 aliens space between
+ *    shield     2*8     182  | first alien and ship.
+ *    space      8       198  | MAX_Y = 18
+ *    ship       8       206 -
+ *    space      2*8     214
+ *    hline      1       230 - PLAYFIELD_Y
+ *    bottom border 10   240
+ *    Lives and Level goes inside bottom border
+ */
+
+#define ARCADISH_GRAPHICS
+#define PLAYFIELD_X 96
+#define SHIP_Y (PLAYFIELD_Y - 3 * SHIP_HEIGHT)
+#undef SCORE_Y
+#define SCORE_Y 48
+#define ALIEN_START_Y (UFO_Y + (ALIEN_HEIGHT + 8))
+#define SCORENUM_X (PLAYFIELD_X + NUMBERS_WIDTH) + 10
+#define SCORENUM_Y SCORE_Y + (2 * (FONT_HEIGHT + 1) + 1)
+#define HISCORENUM_X (LCD_WIDTH - PLAYFIELD_X - 1 - 6 * NUMBERS_WIDTH - 8 * NUM_SPACING)
+#define SHIELD_Y (PLAYFIELD_Y - 6 * SHIP_HEIGHT)
+#define LIVES_X 10
+#define MAX_Y 18
+
+/* iPod Video defines - and Samsung YP-CP3, 400x240: the same, centred */
+#elif ((LCD_WIDTH == 320) || (LCD_WIDTH == 400)) && (LCD_HEIGHT == 240)
 
 /* Original arcade game size 224x240, 1bpp with
  * red overlay at top and green overlay at bottom.
@@ -427,11 +471,11 @@ CONFIG_KEYPAD == MROBE500_PAD
  */
 
 #define ARCADISH_GRAPHICS
-#define PLAYFIELD_X 48
+#define PLAYFIELD_X (48 + (LCD_WIDTH - 320) / 2)
 #define SHIP_Y (PLAYFIELD_Y - 3 * SHIP_HEIGHT)
 #define ALIEN_START_Y (UFO_Y + 3 * ALIEN_HEIGHT)
 #define SCORENUM_X (PLAYFIELD_X + NUMBERS_WIDTH)
-#define SCORENUM_Y SCORE_Y + (2 * (FONT_HEIGHT + 1) + 1)
+#define SCORENUM_Y (SCORE_Y + 2 * (FONT_HEIGHT + 1) + 1)
 #define HISCORENUM_X (LCD_WIDTH - PLAYFIELD_X - 1 - 6 * NUMBERS_WIDTH - 5 * NUM_SPACING)
 #define SHIELD_Y (PLAYFIELD_Y - 6 * SHIP_HEIGHT)
 #define LIVES_X 10
@@ -455,7 +499,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define SHIP_Y (PLAYFIELD_Y - 3 * SHIP_HEIGHT)
 #define ALIEN_START_Y (UFO_Y + 3 * ALIEN_HEIGHT)
 #define SCORENUM_X (PLAYFIELD_X + NUMBERS_WIDTH) + 10
-#define SCORENUM_Y SCORE_Y + (2 * (FONT_HEIGHT + 1) + 1)
+#define SCORENUM_Y (SCORE_Y + 2 * (FONT_HEIGHT + 1) + 1)
 #define HISCORENUM_X (LCD_WIDTH - PLAYFIELD_X - 1 - 6 * NUMBERS_WIDTH - 8 * NUM_SPACING)
 #define SHIELD_Y (PLAYFIELD_Y - 6 * SHIP_HEIGHT)
 #define LIVES_X 10
@@ -645,7 +689,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #undef SCORE_Y
 #define SCORE_Y 80
 #define SCORENUM_X (PLAYFIELD_X + NUMBERS_WIDTH)
-#define SCORENUM_Y SCORE_Y + (2 * (FONT_HEIGHT + 1) + 1)
+#define SCORENUM_Y (SCORE_Y + 2 * (FONT_HEIGHT + 1) + 1)
 #define HISCORENUM_X (LCD_WIDTH - PLAYFIELD_X - 1 - 6 * NUMBERS_WIDTH - 5 * NUM_SPACING)
 #define SHIELD_Y (PLAYFIELD_Y - 6 * SHIP_HEIGHT)
 #define LIVES_X 10
@@ -687,6 +731,24 @@ CONFIG_KEYPAD == MROBE500_PAD
 #define LIVES_X 8
 #define MAX_Y 15
 
+#elif (LCD_WIDTH == 360) && (LCD_HEIGHT == 640)
+
+/* Hidizs AP80 Pro Max
+ */
+#define ARCADISH_GRAPHICS
+#define PLAYFIELD_X 32
+#define SHIP_Y (PLAYFIELD_Y - 3 * SHIP_HEIGHT)
+#define ALIEN_START_Y (UFO_Y + 3 * ALIEN_HEIGHT)
+/* Redefine SCORE_Y */
+#undef SCORE_Y
+#define SCORE_Y 80
+#define SCORENUM_X (PLAYFIELD_X + NUMBERS_WIDTH)
+#define SCORENUM_Y (SCORE_Y + 2 * (FONT_HEIGHT + 1) + 1)
+#define HISCORENUM_X (LCD_WIDTH - PLAYFIELD_X - 1 - 6 * NUMBERS_WIDTH - 5 * NUM_SPACING)
+#define SHIELD_Y (PLAYFIELD_Y - 6 * SHIP_HEIGHT)
+#define LIVES_X 10
+#define MAX_Y 30
+
 #elif (LCD_WIDTH == 360) && (LCD_HEIGHT == 400)
 
 /* Shanling Q1
@@ -699,7 +761,7 @@ CONFIG_KEYPAD == MROBE500_PAD
 #undef SCORE_Y
 #define SCORE_Y 80
 #define SCORENUM_X (PLAYFIELD_X + NUMBERS_WIDTH)
-#define SCORENUM_Y SCORE_Y + (2 * (FONT_HEIGHT + 1) + 1)
+#define SCORENUM_Y (SCORE_Y + 2 * (FONT_HEIGHT + 1) + 1)
 #define HISCORENUM_X (LCD_WIDTH - PLAYFIELD_X - 1 - 6 * NUMBERS_WIDTH - 5 * NUM_SPACING)
 #define SHIELD_Y (PLAYFIELD_Y - 6 * SHIP_HEIGHT)
 #define LIVES_X 10
@@ -1615,8 +1677,15 @@ static void move_ufo(void)
 
 static void draw_background(void)
 {
-
+#if BMPWIDTH_invadrox_background < LCD_WIDTH
+    /* a narrower background, centred like the playfield */
+    rb->lcd_clear_display();
+    rb->lcd_bitmap(invadrox_background,
+                   (LCD_WIDTH - BMPWIDTH_invadrox_background) / 2, 0,
+                   BMPWIDTH_invadrox_background, LCD_HEIGHT);
+#else
     rb->lcd_bitmap(invadrox_background, 0, 0, LCD_WIDTH, LCD_HEIGHT);
+#endif
     rb->lcd_update();
 }
 
@@ -1737,9 +1806,6 @@ static void new_level(void)
 static void init_invadrox(void)
 {
     int i;
-
-    /* Seed random number generator with a "random" number */
-    rb->srand(rb->get_time()->tm_sec + rb->get_time()->tm_min * 60);
 
     /* Precalculate start of each scanline */
     for (i = 0; i < LCD_HEIGHT; i++) {

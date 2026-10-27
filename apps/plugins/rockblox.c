@@ -411,19 +411,6 @@
 #define ROCKBLOX_DROP          (BUTTON_PLAY|BUTTON_REL)
 #define ROCKBLOX_RESTART       (BUTTON_PLAY|BUTTON_REPEAT)
 
-#elif CONFIG_KEYPAD == FIIO_M3K_LINUX_PAD
-
-#define ROCKBLOX_OFF            BUTTON_POWER
-#define ROCKBLOX_ROTATE_CCW     BUTTON_HOME
-#define ROCKBLOX_ROTATE_CCW2    BUTTON_VOL_DOWN
-#define ROCKBLOX_ROTATE_CW      BUTTON_VOL_UP
-#define ROCKBLOX_DOWN           BUTTON_OPTION
-#define ROCKBLOX_LEFT           BUTTON_PREV
-#define ROCKBLOX_RIGHT          BUTTON_NEXT
-#define ROCKBLOX_DROP           (BUTTON_PLAY|BUTTON_REL)
-#define ROCKBLOX_RESTART        (BUTTON_PLAY|BUTTON_REPEAT)
-#define ROCKBLOX_SCROLL_ENABLED 1 //Untested Probably needed
-
 #elif (CONFIG_KEYPAD == IHIFI_770_PAD) || (CONFIG_KEYPAD == IHIFI_800_PAD)
 
 #define ROCKBLOX_OFF           BUTTON_POWER
@@ -457,7 +444,7 @@
 #define ROCKBLOX_RESTART        BUTTON_BACK
 #define ROCKBLOX_SCROLL_ENABLED 1
 
-#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD
+#elif CONFIG_KEYPAD == SHANLING_Q1_PAD || CONFIG_KEYPAD == HIBY_R3PROII_PAD || CONFIG_KEYPAD == HIDIZS_AP80MAX_PAD
 /* use touchscreen */
 
 #elif CONFIG_KEYPAD == SDL_PAD
@@ -484,7 +471,7 @@
 #define ROCKBLOX_DROP          BUTTON_A
 #define ROCKBLOX_RESTART       BUTTON_B
 
-#elif CONFIG_KEYPAD == CTRU_PAD
+#elif CONFIG_KEYPAD == N3DS_PAD
 
 #define ROCKBLOX_OFF           BUTTON_BACK
 #define ROCKBLOX_ROTATE_CCW    BUTTON_POWER
@@ -508,6 +495,18 @@
 #define ROCKBLOX_DOWN          BUTTON_X
 #define ROCKBLOX_DROP          BUTTON_A
 #define ROCKBLOX_RESTART       BUTTON_START
+
+#elif CONFIG_KEYPAD == PSP_PAD
+
+#define ROCKBLOX_OFF           BUTTON_BACK
+#define ROCKBLOX_ROTATE_CCW    BUTTON_POWER
+#define ROCKBLOX_ROTATE_CW     BUTTON_MENU
+#define ROCKBLOX_ROTATE        BUTTON_UP
+#define ROCKBLOX_DOWN          BUTTON_DOWN
+#define ROCKBLOX_LEFT          BUTTON_LEFT
+#define ROCKBLOX_RIGHT         BUTTON_RIGHT
+#define ROCKBLOX_DROP          BUTTON_SELECT
+#define ROCKBLOX_RESTART       BUTTON_USER
 
 #else
 #error No keymap defined!
@@ -578,6 +577,36 @@
 #define LEVEL_Y 142
 #define LINES_Y 218
 
+#elif (LCD_WIDTH == 480) && (LCD_HEIGHT == 272)
+
+#define BLOCK_WIDTH 10
+#define BLOCK_HEIGHT 10
+#define BOARD_X 219
+#define BOARD_Y 13
+#define PREVIEW_X 154
+#define PREVIEW_Y 151
+#define LABEL_X 148
+#define SCORE_Y 43
+#define LEVEL_Y 78
+#define LINES_Y 106
+
+#elif (LCD_WIDTH == 360) && (LCD_HEIGHT == 640)
+
+/* 10x20 board of 24px blocks = 240x480, leaving a 100px label column */
+#define BLOCK_WIDTH 24
+#define BLOCK_HEIGHT 24
+#define BOARD_X 8
+#define BOARD_Y 40
+#define LABEL_X 258
+#define SCORE_Y 60
+#define LEVEL_Y 140
+#define LINES_Y 220
+#define HIGH_LABEL_X   258
+#define HIGH_SCORE_Y   320
+#define HIGH_LEVEL_Y   400
+#define PREVIEW_X 258
+#define PREVIEW_Y 480
+
 #elif (LCD_WIDTH == 360) && (LCD_HEIGHT == 400)
 
 #define BLOCK_WIDTH 19
@@ -594,15 +623,17 @@
 #define PREVIEW_X 258
 #define PREVIEW_Y 300
 
-#elif (LCD_WIDTH == 320) && (LCD_HEIGHT == 240)
+#elif ((LCD_WIDTH == 320) || (LCD_WIDTH == 400)) && (LCD_HEIGHT == 240)
 
+/* 400x240: the 320x240 layout, centred */
+#define LAYOUT_X ((LCD_WIDTH - 320) / 2)
 #define BLOCK_WIDTH 12
 #define BLOCK_HEIGHT 12
-#define BOARD_X 86
+#define BOARD_X (LAYOUT_X + 86)
 #define BOARD_Y 0
-#define PREVIEW_X 12
+#define PREVIEW_X (LAYOUT_X + 12)
 #define PREVIEW_Y 11
-#define LABEL_X 242
+#define LABEL_X (LAYOUT_X + 242)
 #define SCORE_Y 25
 #define LEVEL_Y 70
 #define LINES_Y 105
@@ -819,6 +850,20 @@
 #endif
 
 extern const fb_data rockblox_background[];
+
+#ifndef LAYOUT_X
+#define LAYOUT_X 0
+#endif
+
+/* the background, which spans the layout - not the screen, when the
+ * layout is a smaller one centred */
+static void draw_background(void)
+{
+    if (LAYOUT_X > 0)
+        rb->lcd_clear_display();
+    rb->lcd_bitmap(rockblox_background, LAYOUT_X, 0,
+                   LCD_WIDTH - 2 * LAYOUT_X, LCD_HEIGHT);
+}
 
 #ifndef HIGHSCORE_SPACE
 #define HIGHSCORE_SPACE " "
@@ -1100,7 +1145,7 @@ static void init_rockblox (bool resume)
                  tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
                  tm->tm_hour, tm->tm_min, tm->tm_sec);
 
-    rb->lcd_bitmap (rockblox_background, 0, 0, LCD_WIDTH, LCD_HEIGHT);
+    draw_background();
     if (!resume)
     {
         rockblox_status.level = 1;
@@ -1568,7 +1613,7 @@ static int rockblox_loop (void)
             backlight_ignore_timeout();
 
             /* get rid of the splash text */
-            rb->lcd_bitmap (rockblox_background, 0, 0, LCD_WIDTH, LCD_HEIGHT);
+            draw_background();
             show_details ();
 #ifdef HIGH_SCORE_Y
             show_highscores ();
@@ -1725,7 +1770,7 @@ enum plugin_status plugin_start (const void *parameter)
 
     (void) parameter;
 
-    rb->srand (*rb->current_tick);
+
 
     /* Load HighScore if any */
     highscore_load(SCORE_FILE, highscores, NUM_SCORES);

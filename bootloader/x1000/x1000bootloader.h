@@ -111,45 +111,35 @@ sn_no=00000000000000000000000000000000 bt_mac=xxxxxxxxxxxx wifi_mac=xxxxxxxxxxxx
 # define OF_RECOVERY_LENGTH (7 * 1024 * 1024)
 # define OF_RECOVERY_ARGS \
     "console=ttyS2,115200n8 mem=32M@0x0 no_console_suspend lpj=5009408 ip=off"
+#elif defined(AGPTEK_ROCKER_NATIVE)
+/* VOL- is the recovery key of the OF U-Boot as well */
+# define BL_RECOVERY        BUTTON_VOLDOWN
+# define BL_UP              BUTTON_UP
+# define BL_DOWN            BUTTON_DOWN
+# define BL_SELECT          BUTTON_SELECT
+# define BL_QUIT            BUTTON_POWER
+# define BL_SCREENSHOT      BUTTON_VOLUP
+# define BL_UP_NAME         "UP"
+# define BL_DOWN_NAME       "DOWN"
+# define BL_SELECT_NAME     "SELECT"
+# define BL_QUIT_NAME       "POWER"
+# define BL_SCREENSHOT_NAME "VOL+"
+# define BOOTBACKUP_FILE    "/agptekrocker-boot.bin"
+# define OF_PLAYER_NAME     "Hiby Player"
+# define OF_PLAYER_ADDR     0x300000
+# define OF_PLAYER_LENGTH   (4 * 1024 * 1024)
+# define OF_PLAYER_ARGS     OF_RECOVERY_ARGS \
+    " init=/linuxrc ubi.mtd=4 root=ubi0:rootfs ubi.mtd=5 rootfstype=ubifs \
+sn_no=00000000000000000000000000000000 bt_mac=xxxxxxxxxxxx wifi_mac=xxxxxxxxxxxx rw"
+# define OF_PLAYER_BTN      BUTTON_SELECT
+# define OF_RECOVERY_NAME   "HibyOS Recovery"
+# define OF_RECOVERY_ADDR   0x900000
+# define OF_RECOVERY_LENGTH (5 * 1024 * 1024)
+# define OF_RECOVERY_ARGS \
+    "console=ttyS2,115200n8 mem=32M@0x0 no_console_suspend lpj=5009408 ip=off"
 #else
 # error "Missing keymap!"
 #endif
-
-/*
- * GUI stuff
- */
-
-struct bl_listitem {
-    struct bl_list* list;
-
-    int index;
-    int x, y, width, height;
-};
-
-struct bl_list {
-    struct viewport* vp;
-
-    int num_items;
-    int selected_item;
-    int top_item;
-    int item_height;
-
-    void(*draw_item)(const struct bl_listitem* item);
-};
-
-void clearscreen(void);
-void putversion(void);
-void putcenter_y(int y, const char* msg);
-void splashf(long delay, const char* msg, ...);
-int get_button(int timeout);
-void init_lcd(void);
-
-void gui_shutdown(void);
-
-void gui_list_init(struct bl_list* list, struct viewport* vp);
-void gui_list_draw(struct bl_list* list);
-void gui_list_select(struct bl_list* list, int item_index);
-void gui_list_scroll(struct bl_list* list, int delta);
 
 /*
  * Installer
