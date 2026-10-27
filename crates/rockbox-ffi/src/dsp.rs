@@ -58,6 +58,15 @@ pub extern "C" fn rb_dsp_set_tone(p: *mut Dsp, bass_db: i32, treble_db: i32) {
     dsp!(p).set_tone(bass_db, treble_db);
 }
 
+/// Attenuate the signal by `db` ahead of the tone shelves, as headroom
+/// against clipping when boosting hot material (0 = none, the default, which
+/// leaves tone boosts at full strength). Takes effect on the next
+/// [`rb_dsp_set_tone`].
+#[no_mangle]
+pub extern "C" fn rb_dsp_set_tone_prescale(p: *mut Dsp, db: i32) {
+    dsp!(p).set_tone_prescale(db);
+}
+
 /// Override tone-control shelf cutoffs in Hz (0 = defaults). Call before
 /// [`rb_dsp_set_tone`].
 #[no_mangle]

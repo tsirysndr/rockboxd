@@ -225,6 +225,8 @@ static DSP_INIT: Once = Once::new();
 /// only one `Dsp` may exist at a time and it is not `Send`/`Sync`.
 pub struct Dsp {
     cfg: *mut dsp_config,
+    /// Tone-control headroom in dB, see [`Dsp::set_tone_prescale`].
+    tone_prescale_db: i32,
 }
 
 impl Dsp {
@@ -241,7 +243,10 @@ impl Dsp {
             dsp_configure(cfg, DSP_SET_SAMPLE_DEPTH, 16);
             dsp_configure(cfg, DSP_SET_STEREO_MODE, STEREO_INTERLEAVED);
         }
-        Dsp { cfg }
+        Dsp {
+            cfg,
+            tone_prescale_db: 0,
+        }
     }
 
     pub fn raw(&mut self) -> *mut dsp_config {
@@ -266,16 +271,34 @@ impl Dsp {
     /// Bass/treble tone controls — shelving filters at fixed cutoffs
     /// (200 Hz bass, 3.5 kHz treble). Gains in plain dB, matching
     /// rockboxd's `bass` / `treble` settings.toml keys. 0/0 disables
-    /// the stage. Mirrors firmware sound.c: values ×10, prescale by
-    /// the larger boost to avoid clipping.
+    /// the stage.
+    ///
+    /// A boost here is a real boost: no headroom is taken out of the rest
+    /// of the spectrum unless [`Dsp::set_tone_prescale`] asks for it.
+    /// `firmware/sound.c` prescales by the larger of the two boosts, but it
+    /// then hands that gain straight back on the analog volume
+    /// (`volume += prescale`) — a hosted player has no analog stage to do
+    /// that with, so prescaling alone turned `bass = +6` into "everything
+    /// above 200 Hz 6 dB quieter" and the knob could only ever cut.
     pub fn set_tone(&mut self, bass_db: i32, treble_db: i32) {
         let bass = bass_db * 10;
         let treble = treble_db * 10;
         unsafe {
             tone_set_bass(bass);
             tone_set_treble(treble);
-            tone_set_prescale(bass.max(treble).max(0));
+            // Always last: this is what recomputes the coefficients and
+            // enables/disables the stage.
+            tone_set_prescale(self.tone_prescale_db * 10);
         }
+    }
+
+    /// Attenuate the whole signal by `db` ahead of the tone shelves, as
+    /// headroom against clipping when boosting hot material — the
+    /// equivalent of the EQ's precut, and 0 (the default) by definition
+    /// leaves tone boosts at full strength. Takes effect on the next
+    /// [`Dsp::set_tone`] call.
+    pub fn set_tone_prescale(&mut self, db: i32) {
+        self.tone_prescale_db = db.max(0);
     }
 
     /// Override the tone-control shelf cutoffs in Hz (0 = defaults:
@@ -515,11 +538,77 @@ impl Dsp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
-    /* The underlying dsp_config is a static singleton, so all assertions
-     * against it live in one test. */
+    /* The underlying dsp_config is a static singleton, so tests that drive
+     * it take this lock and leave every stage they touched neutral. */
+    static DSP_LOCK: Mutex<()> = Mutex::new(());
+
+    /// A two-second stereo sine, as interleaved S16LE.
+    fn sine(freq: f64, amp: f64) -> Vec<i16> {
+        (0..88200)
+            .flat_map(|i| {
+                let t = i as f64 / 44100.0;
+                let s = (amp * (2.0 * std::f64::consts::PI * freq * t).sin() * 32767.0) as i16;
+                [s, s]
+            })
+            .collect()
+    }
+
+    /// RMS of the second half, by when the filter history has settled.
+    fn rms(pcm: &[i16]) -> f64 {
+        let tail = &pcm[pcm.len() / 2..];
+        let sum: f64 = tail.iter().map(|&s| (s as f64) * (s as f64)).sum();
+        (sum / tail.len() as f64).sqrt()
+    }
+
+    fn run(dsp: &mut Dsp, input: &[i16]) -> Vec<i16> {
+        dsp.flush();
+        let mut out = Vec::new();
+        dsp.process(input, &mut out);
+        out
+    }
+
+    /// The bass knob has to *boost*, not just scoop out the midrange: the
+    /// prescale that `firmware/sound.c` applies is only half of what it
+    /// does, the other half being the analog make-up gain a hosted player
+    /// has no way to apply.
+    #[test]
+    fn tone_bass_boosts_the_low_end() {
+        let _guard = DSP_LOCK.lock().unwrap();
+        let mut dsp = Dsp::new(44100);
+        let input = sine(40.0, 0.1);
+
+        dsp.set_tone_prescale(0);
+        dsp.set_tone(0, 0);
+        let flat = rms(&run(&mut dsp, &input));
+
+        dsp.set_tone(6, 0);
+        let boosted = rms(&run(&mut dsp, &input));
+        let db = 20.0 * (boosted / flat).log10();
+        assert!(
+            (5.0..7.0).contains(&db),
+            "bass +6 dB should lift 40 Hz by about 6 dB, measured {db:+.2} dB"
+        );
+
+        /* A matching prescale is the old, cut-only behaviour: the 40 Hz
+         * boost is cancelled and the rest of the spectrum drops instead. */
+        dsp.set_tone_prescale(6);
+        dsp.set_tone(6, 0);
+        let with_headroom = rms(&run(&mut dsp, &input));
+        let db = 20.0 * (with_headroom / flat).log10();
+        assert!(
+            db.abs() < 1.0,
+            "6 dB of headroom should cancel a +6 dB bass boost, measured {db:+.2} dB"
+        );
+
+        dsp.set_tone_prescale(0);
+        dsp.set_tone(0, 0);
+    }
+
     #[test]
     fn replaygain_track_gain_scales_amplitude() {
+        let _guard = DSP_LOCK.lock().unwrap();
         let mut dsp = Dsp::new(44100);
         dsp.set_replaygain(REPLAYGAIN_TRACK, false, 0.0);
         dsp.set_replaygain_gains(Some(-6.0206), None, None, None); /* ×0.5 */
