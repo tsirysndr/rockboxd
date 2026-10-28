@@ -1,5 +1,7 @@
 module CI.Build where
 
+import Release.Deb as Deb
+import Release.Rpm as Rpm
 import Prelude
 import CI.Graph as G
 import CI.Firmware as Firmware
@@ -64,16 +66,15 @@ packageDebNamed metadataVersion version arch ctr = do
   let root = "/pkg/deb"
   stamped <- G.replaceFile (root <> "/DEBIAN/control") (G.replaceLine "Version:" (" " <> metadataVersion)) ctr
   pure $ stamped
-    # G.exec [ "dpkg-deb", "--build", "--root-owner-group", root, "/out/rockbox_" <> version <> "_" <> arch <> ".deb" ]
+    # Deb.buildIn root ("/out/rockbox_" <> version <> "_" <> arch <> ".deb")
     # C.withWorkdir "/out" # G.checksum ("rockbox_" <> version <> "_" <> arch <> ".deb") # C.withWorkdir "/src"
 
 packageRpm :: String -> Container -> Aff Container
 packageRpm version ctr = do
   stamped <- G.replaceFile "/pkg/rpm/rockbox.spec" (G.replaceLine "Version:" (" " <> version)) ctr
   let built = stamped
-        # G.exec [ "mkdir", "-p", "/tmp/rpmbuild/BUILD", "/tmp/rpmbuild/BUILDROOT", "/tmp/rpmbuild/RPMS", "/tmp/rpmbuild/SOURCES", "/tmp/rpmbuild/SPECS", "/tmp/rpmbuild/SRPMS" ]
         # C.withDirectory "/tmp/rpmbuild/SOURCES/amd64" (C.directory "/pkg/rpm" stamped)
-        # G.exec [ "rpmbuild", "--define", "_topdir /tmp/rpmbuild", "--target", "x86_64", "-bb", "/pkg/rpm/rockbox.spec" ]
+        # Rpm.buildIn "/pkg/rpm/rockbox.spec" "x86_64"
   paths <- D.glob "**/*.rpm" (C.directory "/tmp/rpmbuild/RPMS" built)
   G.ensure (paths /= []) "rpmbuild produced no packages"
   pure (foldl (\out path ->

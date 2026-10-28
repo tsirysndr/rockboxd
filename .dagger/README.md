@@ -11,6 +11,14 @@ SDK**, not an official Dagger SDK. The [vendored SDK](sdk/purescript/UPSTREAM.md
 and generated beta.21 bindings are checked in, so a fresh checkout does not
 need the sibling SDK repository or a code-generation step.
 
+## Reusable release modules
+
+Release primitives are now shared with four independently callable modules:
+`linux-packaging` (deb/rpm), `archive` (tar.gz/SHA-256), `gemfury`, and
+`github-assets`. See [module interfaces and examples](modules/README.md).
+Rockbox CI keeps its existing entrypoints and project-specific staging; the
+packaging and archive implementations live in `lib/src/Release`.
+
 ## Run a job
 
 Clone with recursive submodules, install [mise](https://mise.jdx.dev/), then:
@@ -120,8 +128,10 @@ are imported/published before the final target, retaining that cache on failure.
 A missing platform-specific Nix attribute is skipped; other failures propagate.
 
 GitHub workflows call the module functions directly. Native macOS/iOS/BSD
-builds, GPUI/DMGs, release creation and uploads, Gemfury, registry publication
-and Cachix publication retain their host jobs and credentials. The disabled
+builds, GPUI/DMGs, release creation, native-platform uploads, registry publication
+and Cachix publication retain their host jobs and credentials. Linux release
+asset uploads and Gemfury publishing call the reusable upload modules with
+Dagger Secrets. The disabled
 Electron, Chromatic and SDL release workflows remain disabled. Application
 build tools (Make, Gradle, package-manager tasks, the existing binary archive
 parser) remain part of the project; CI no longer delegates to its shell build
@@ -138,6 +148,8 @@ node --test checks/*.test.mjs
 cd ../..
 python3 -m pip install PyYAML==6.0.3
 python3 .dagger/check.py
+python3 .dagger/check-modules.py
+python3 .dagger/check-uploads.py
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/*.yml
 ```
 
@@ -159,7 +171,8 @@ and actionlint. These checks do not replace end-to-end container builds.
 | `CI.Runner` / `CI.Job` | Typed pipeline dispatch and options |
 | `CI.Toolchain` | Toolchain images, packages and binary composition |
 | `CI.Base` / `CI.Graph` | Source filtering, argv execution, file operations and artifacts |
-| `CI.Build` / `CI.Firmware` | Linux builds, codec handling, embedded archives and packages |
+| `CI.Build` / `CI.Firmware` | Linux builds, codec handling and Rockbox package staging |
+| `Release.*` (`lib/src`) | Shared deb/rpm, tar.gz, SHA-256 and upload operations |
 | `CI.Android` / `CI.Bindings` | Android builds and binding packages |
 | `CI.Format` | Cargo metadata selection and formatting checks |
 | `CI.Legacy` | SDL releases and their package formats |

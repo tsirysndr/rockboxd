@@ -33,6 +33,8 @@ jobs:
         run: |
           spago build -p rockbox-ci --pedantic-packages
           node --test checks/*.test.mjs
+      - name: Compile standalone release modules without an engine
+        run: python3 .dagger/check-modules.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -40,6 +42,7 @@ jobs:
       - name: Check module and workflow contracts
         run: |
           python .dagger/check.py
+          python .dagger/check-uploads.py
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.2'

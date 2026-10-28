@@ -9,6 +9,7 @@ package:
     - foreign-object
     - either
     - aff
+    - release-lib
     - dagger-sdk
     - effect
     - exceptions
@@ -16,5 +17,8 @@ package:
     - maybe
     - prelude
 workspace:
+  extraPackages:
+    release-lib:
+      path: ../lib
   packageSet:
     registry: 77.8.0

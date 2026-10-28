@@ -25,19 +25,32 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: dagger api call -m .dagger/ci linux-armhf-release --source . --platform "$PLATFORM" --tag "$TAG" export --path
-          .
-      - name: Upload to GitHub Release
+        run: dagger api call -m .dagger/ci linux-armhf-release --source . --platform "$PLATFORM" --tag "$TAG" export --path artifacts/release
+      - name: Ensure GitHub release exists
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            rockbox_${{ steps.vars.outputs.version }}_armhf-linux.tar.gz
-            rockbox_${{ steps.vars.outputs.version }}_armhf-linux.tar.gz.sha256
-            rockbox_${{ steps.vars.outputs.version }}_armhf.deb
-            rockbox_${{ steps.vars.outputs.version }}_armhf.deb.sha256
           tag_name: ${{ steps.vars.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload release assets with Dagger
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.vars.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(artifacts/release/*)
+          args=()
+          for file in "${files[@]}"; do
+            [[ -f "$file" ]] || continue
+            args+=(--files "${file#artifacts/release/}")
+          done
+          ((${#args[@]} > 0)) || { echo "No release assets found" >&2; exit 1; }
+          dagger api call -m .dagger/modules/github-assets upload \
+            --assets artifacts/release "${args[@]}" --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" --token env:GH_TOKEN --clobber \
+            --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
       - name: Check Gemfury secrets
         id: gemfury
         env:
@@ -59,9 +72,12 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          for pkg in rockbox_*_armhf.deb; do
-            echo "Pushing $pkg to Gemfury (${FURY_ACCOUNT})"
-            curl -fsS -F package=@"${pkg}" \
-              "https://${FURY_TOKEN}@push.fury.io/${FURY_ACCOUNT}/"
-            echo
+          files=(artifacts/release/*.deb artifacts/release/*.rpm)
+          args=()
+          for file in "${files[@]}"; do
+            args+=(--files "${file#artifacts/release/}")
           done
+          ((${#args[@]} > 0)) || { echo "No packages found" >&2; exit 1; }
+          dagger api call -m .dagger/modules/gemfury upload \
+            --packages artifacts/release "${args[@]}" --account "$FURY_ACCOUNT" \
+            --token env:FURY_TOKEN --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"

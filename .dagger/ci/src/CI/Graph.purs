@@ -1,5 +1,7 @@
 module CI.Graph where
 
+import Release.Sha256 as Sha256
+import Release.TarGz as TarGz
 import Prelude
 import Data.Array as Array
 import Data.Foldable (foldl, foldM)
@@ -55,13 +57,10 @@ globFiles client container root patterns = do
   pure (foldl (\out path -> D.withFile path (C.file (root <> "/" <> path) container) out) (Q.directory client) paths)
 
 checksum :: String -> Container -> Container
-checksum path = capture (path <> ".sha256") [ "sha256sum", path ]
+checksum = Sha256.checksum
 
 archive :: String -> String -> Array String -> Container -> Container
-archive name root members = exec ([ "tar", "-czf", "/out/" <> name, "-C", root ] <> members)
-  >>> C.withWorkdir "/out"
-  >>> checksum name
-  >>> C.withWorkdir "/src"
+archive = TarGz.archive
 
 report :: Client -> String -> Container -> Aff Directory
 report client label container = do

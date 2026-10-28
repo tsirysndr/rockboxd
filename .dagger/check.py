@@ -39,3 +39,33 @@ for path in ['LICENSE', 'schema/LICENSE']:
 assert (ci / 'dagger-sdk/src/Dagger/Container.purs').is_file()
 assert json.loads((ci / 'package.json').read_text())['type'] == 'module'
 print(f'Checked {len(functions)} typed functions and {count} direct workflow calls; no engine started.')
+
+# Standalone modules must retain their shared inputs and workspace scopes.
+workspace = tomllib.loads((root / 'dagger.toml').read_text())
+expected = {
+    'linux-packaging': {'deb', 'rpm'},
+    'archive': {'tarGz', 'sha256'},
+    'gemfury': {'upload'},
+    'github-assets': {'upload'},
+}
+for name, exports in expected.items():
+    module = root / '.dagger/modules' / name
+    config = tomllib.loads((module / 'dagger-module.toml').read_text())
+    assert config['name'] == name, module
+    assert config['runtime']['source'] == '../../sdk/purescript', module
+    assert {'../../lib/**', '../../ci/dagger-sdk/**'} <= set(config['include']), module
+    assert workspace['sdks']['purescript']['scopes'][f'.dagger/modules/{name}']['name'] == name
+    actual = set(re.findall(r'Module.function "([^"]+)"', (module / 'src/Main.purs').read_text()))
+    assert actual == exports, (module, actual)
+    lock = json.loads((module / 'spago.lock').read_text())
+    assert 'release-' + name in lock['workspace']['packages'], module
+print(f'Checked {len(expected)} standalone release modules and their shared source wiring.')
+
+for path in (root / '.github/workflows').glob('*.yml'):
+    for job in yaml.safe_load(path.read_text())['jobs'].values():
+        steps = job.get('steps', [])
+        for index, step in enumerate(steps):
+            for module, function in re.findall(r'dagger api call -m \.dagger/modules/([a-z-]+) ([a-z][a-z0-9-]*)', step.get('run', '')):
+                exports = {re.sub(r'[A-Z]', lambda m: '-' + m[0].lower(), name) for name in expected[module]}
+                assert function in exports, (path, module, function)
+                assert any(s.get('uses') == './.github/actions/setup-dagger' for s in steps[:index]), path
