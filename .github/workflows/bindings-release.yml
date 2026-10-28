@@ -61,7 +61,7 @@ jobs:
       - name: Run ffi with Dagger
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: dagger api call -m .dagger/ci ffi --source . --platform "$PLATFORM" export --path .
+        run: dagger --progress logs -v api call -m .dagger/ci ffi --source . --platform "$PLATFORM" export --path .
         if: runner.os == 'Linux'
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         if: runner.os != 'Linux'
@@ -184,7 +184,7 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           ABI: ${{ matrix.abi }}
-        run: dagger api call -m .dagger/ci android-ffi --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
+        run: dagger --progress logs -v api call -m .dagger/ci android-ffi --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
           --abi "$ABI" export --path .
       - uses: actions/upload-artifact@v4
         with:
@@ -212,7 +212,7 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: dagger api call -m .dagger/ci ruby --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
+        run: dagger --progress logs -v api call -m .dagger/ci ruby --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
           export --path .
       - uses: actions/upload-artifact@v4
         with:
@@ -239,7 +239,7 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: dagger api call -m .dagger/ci python --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
+        run: dagger --progress logs -v api call -m .dagger/ci python --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
           export --path .
       - uses: actions/upload-artifact@v4
         with:
@@ -266,7 +266,7 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: dagger api call -m .dagger/ci npm --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
+        run: dagger --progress logs -v api call -m .dagger/ci npm --source . --platform "$PLATFORM" --artifacts artifacts --version "$BINDING_VERSION"
           export --path .
       - uses: actions/upload-artifact@v4
         with:

@@ -15,7 +15,7 @@ jobs:
       - name: Run linux-x86_64-check with Dagger
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: dagger api call -m .dagger/ci linux-check --source . --platform "$PLATFORM" export --path .
+        run: dagger --progress logs -v api call -m .dagger/ci linux-check --source . --platform "$PLATFORM" export --path .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

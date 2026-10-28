@@ -40,7 +40,7 @@ jobs:
       - name: Run go-test with Dagger
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: dagger api call -m .dagger/ci go-test --source . --platform "$PLATFORM" export --path .
+        run: dagger --progress logs -v api call -m .dagger/ci go-test --source . --platform "$PLATFORM" export --path .
         if: runner.os == 'Linux'
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         if: runner.os != 'Linux'

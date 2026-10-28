@@ -25,7 +25,7 @@ jobs:
       - name: Run android-release with Dagger
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: dagger api call -m .dagger/ci android-release --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
+        run: dagger --progress logs -v api call -m .dagger/ci android-release --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
           export --path .
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2

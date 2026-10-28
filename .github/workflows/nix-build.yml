@@ -50,7 +50,7 @@ jobs:
           FLAKE_TARGET: .#rockbox-rustlibs
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
-          dagger api call -m .dagger/ci nix-build --source . --target "$FLAKE_TARGET" export --path artifacts/nix-rustlibs
+          dagger --progress logs -v api call -m .dagger/ci nix-build --source . --target "$FLAKE_TARGET" export --path artifacts/nix-rustlibs
           if [ -s artifacts/nix-rustlibs/store-paths ]; then
             mapfile -t paths < artifacts/nix-rustlibs/store-paths
             nix copy --from "file://$PWD/artifacts/nix-rustlibs/store" "${paths[@]}"
@@ -64,7 +64,7 @@ jobs:
           FLAKE_TARGET: ${{ inputs.target }}
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
-          dagger api call -m .dagger/ci nix-build --source . --target "$FLAKE_TARGET" export --path artifacts/nix-target
+          dagger --progress logs -v api call -m .dagger/ci nix-build --source . --target "$FLAKE_TARGET" export --path artifacts/nix-target
           if [ -s artifacts/nix-target/store-paths ]; then
             mapfile -t paths < artifacts/nix-target/store-paths
             nix copy --from "file://$PWD/artifacts/nix-target/store" "${paths[@]}"

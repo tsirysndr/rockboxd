@@ -34,7 +34,7 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: dagger api call -m .dagger/ci linux-release --source . --platform "$PLATFORM" --tag "$TAG" export --path artifacts/release
+        run: dagger --progress logs -v api call -m .dagger/ci linux-release --source . --platform "$PLATFORM" --tag "$TAG" export --path artifacts/release
       - name: Ensure GitHub release exists
         uses: softprops/action-gh-release@v2
         with:
@@ -56,7 +56,7 @@ jobs:
             args+=(--files "${file#artifacts/release/}")
           done
           ((${#args[@]} > 0)) || { echo "No release assets found" >&2; exit 1; }
-          dagger api call -m .dagger/modules/github-assets upload \
+          dagger --progress logs -v api call -m .dagger/modules/github-assets upload \
             --assets artifacts/release "${args[@]}" --repository "$GITHUB_REPOSITORY" \
             --tag "$RELEASE_TAG" --token env:GH_TOKEN --clobber \
             --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
@@ -87,6 +87,6 @@ jobs:
             args+=(--files "${file#artifacts/release/}")
           done
           ((${#args[@]} > 0)) || { echo "No packages found" >&2; exit 1; }
-          dagger api call -m .dagger/modules/gemfury upload \
+          dagger --progress logs -v api call -m .dagger/modules/gemfury upload \
             --packages artifacts/release "${args[@]}" --account "$FURY_ACCOUNT" \
             --token env:FURY_TOKEN --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"

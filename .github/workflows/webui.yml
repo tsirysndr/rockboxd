@@ -13,4 +13,4 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/setup-dagger
       - name: Run web-test with Dagger
-        run: dagger api call -m .dagger/ci web-test --source . export --path .
+        run: dagger --progress logs -v api call -m .dagger/ci web-test --source . export --path .

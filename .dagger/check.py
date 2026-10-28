@@ -28,7 +28,7 @@ for path in (root / '.github/workflows').glob('*.yml*'):
     for job in doc['jobs'].values():
         steps = job.get('steps', [])
         for index, step in enumerate(steps):
-            for function in re.findall(r'dagger api call -m \.dagger/ci ([a-z-]+)', step.get('run', '')):
+            for function in re.findall(r'dagger(?: --progress (?:plain|logs))?(?: -v)? api call -m \.dagger/ci ([a-z-]+)', step.get('run', '')):
                 assert function in cli_functions, (path, function)
                 assert any(s.get('uses') == './.github/actions/setup-dagger' for s in steps[:index]), path
                 assert any(s.get('uses', '').startswith('actions/checkout@') for s in steps[:index]), path
@@ -65,7 +65,7 @@ for path in (root / '.github/workflows').glob('*.yml'):
     for job in yaml.safe_load(path.read_text())['jobs'].values():
         steps = job.get('steps', [])
         for index, step in enumerate(steps):
-            for module, function in re.findall(r'dagger api call -m \.dagger/modules/([a-z-]+) ([a-z][a-z0-9-]*)', step.get('run', '')):
+            for module, function in re.findall(r'dagger(?: --progress (?:plain|logs))?(?: -v)? api call -m \.dagger/modules/([a-z-]+) ([a-z][a-z0-9-]*)', step.get('run', '')):
                 exports = {re.sub(r'[A-Z]', lambda m: '-' + m[0].lower(), name) for name in expected[module]}
                 assert function in exports, (path, module, function)
                 assert any(s.get('uses') == './.github/actions/setup-dagger' for s in steps[:index]), path

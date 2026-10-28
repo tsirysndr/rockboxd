@@ -30,7 +30,7 @@ jobs:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           FEATURES: ${{ inputs.features }}
           ARCHITECTURES: ${{ inputs.architectures }}
-        run: dagger api call -m .dagger/ci android-apk --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
+        run: dagger --progress logs -v api call -m .dagger/ci android-apk --source . --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT"
           --features "$FEATURES" --architectures "$ARCHITECTURES" export --path .
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

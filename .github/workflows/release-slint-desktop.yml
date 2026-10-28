@@ -53,7 +53,7 @@ jobs:
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: dagger api call -m .dagger/ci desktop --source . --platform "$PLATFORM" --tag "$TAG" export --path .
+        run: dagger --progress logs -v api call -m .dagger/ci desktop --source . --platform "$PLATFORM" --tag "$TAG" export --path .
         if: runner.os == 'Linux'
       - uses: mlugg/setup-zig@v2
         with:

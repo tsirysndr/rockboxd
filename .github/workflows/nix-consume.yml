@@ -26,7 +26,7 @@ jobs:
         if: runner.os == 'Linux'
         env:
           FLAKE_REF: ${{ inputs.ref }}
-        run: dagger api call -m .dagger/ci nix-consume --ref "$FLAKE_REF"
+        run: dagger --progress logs -v api call -m .dagger/ci nix-consume --ref "$FLAKE_REF"
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
         with:

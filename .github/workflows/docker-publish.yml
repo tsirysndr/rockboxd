@@ -34,7 +34,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/setup-dagger
       - name: Build multi-platform image with Dagger
-        run: dagger api call -m .dagger/ci image --source . --tag "$TAG" export --path rockbox-image.tar
+        run: dagger --progress logs -v api call -m .dagger/ci image --source . --tag "$TAG" export --path rockbox-image.tar
       - name: Publish OCI image to both registries
         run: |
           sudo apt-get update
