@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.10.29]
+
+### Added
+- `desktop`: **immersive album Cover Flow** — press `c` to hide the rest of the interface and browse covers with smooth motion and aligned reflections. Arrow keys, scrolling, and Home/End navigate; Enter or a cover click opens album details; Escape exits.
+- `desktop`: **live Cover Flow search** — press `/` to filter album titles and artists as you type, ignoring case. Up/Down selects a match, Enter opens it, and Escape clears search before exiting.
+- `fingerprint`: **Chromaprint fingerprints and AcoustID tag completion** — background fingerprinting of local tracks, with optional AcoustID/MusicBrainz identification to fill missing metadata without overwriting existing tags; writing completed tags back to music files is opt-in.
+- `nix`: package the Slint desktop client on Linux and expand the development shell with cross-compilation targets, language servers, GUI dependencies, Node.js, and mise.
+
+### Changed
+- `ci`: replace FluentCI with typed PureScript Dagger pipelines, extract reusable release modules, upgrade Node.js to 24, and enable verbose Dagger logs.
+- `nix`: build Rust derivations with crane for dependency caching.
+
+### Fixed
+- `desktop`: **Play Next inserts immediately after the current track** instead of after the last insertion, which could put songs at the end of the queue. Applies to track and album menus, album details, and search results; album track order is preserved.
+- `dsp`: bass and treble controls now boost as well as cut.
+- `metadata`: compile the upstream DSD parser into `rockbox-metadata`.
+- `sys`: correct runtime file function signatures.
+- `embed` / `nix`: build the Zig unit in `librockboxd.a` as position-independent code and fix archive injection permissions and dependency vendor hashes.
+- `ci`: filter artifact uploads, allow long-running Dagger requests, install the libffi development dependency, use a pinned Deno image from GHCR, and exclude submodules from Rust formatting checks.
+
 ## [2026.09.13]
 
 ### Added
