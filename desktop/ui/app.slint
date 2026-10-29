@@ -198,7 +198,7 @@ export component AppWindow inherits Window {
     callback play-liked-at(int);
     callback play-liked-shuffled();
     callback track-like(string);
-    callback track-insert(string, int); // id, rockbox position (-2 next, -3 last)
+    callback track-insert(string, int); // id, rockbox position (-4 next, -3 last)
     callback album-insert(string, int);
     callback album-like(string);
     callback track-add-to-playlist(string, string); // playlist id, track id
@@ -640,7 +640,7 @@ export component AppWindow inherits Window {
                         play => { root.play-album(a.id); }
                         open => { root.open-album(a.id); }
                         shuffle-play => { root.play-album-shuffled(a.id); }
-                        play-next => { root.album-insert(a.id, -2); }
+                        play-next => { root.album-insert(a.id, -4); }
                         add-queue => { root.album-insert(a.id, -3); }
                         like => { root.album-like(a.id); }
                     }
@@ -669,7 +669,7 @@ export component AppWindow inherits Window {
                             play => { root.play-track-at(t.index); }
                             playlists: root.playlists;
                             like-toggled => { root.track-like(t.id); }
-                            play-next => { root.track-insert(t.id, -2); }
+                            play-next => { root.track-insert(t.id, -4); }
                             add-queue => { root.track-insert(t.id, -3); }
                             go-album => { root.open-album(t.album-id); }
                             add-to-playlist(plid) => { root.track-add-to-playlist(plid, t.id); }
@@ -716,7 +716,7 @@ export component AppWindow inherits Window {
                             play => { root.play-liked-at(t.index); }
                             playlists: root.playlists;
                             like-toggled => { root.track-like(t.id); }
-                            play-next => { root.track-insert(t.id, -2); }
+                            play-next => { root.track-insert(t.id, -4); }
                             add-queue => { root.track-insert(t.id, -3); }
                             go-album => { root.open-album(t.album-id); }
                             add-to-playlist(plid) => { root.track-add-to-playlist(plid, t.id); }
@@ -937,7 +937,7 @@ export component AppWindow inherits Window {
                                 play => { root.playlist-play(root.pl-detail.id); }
                             playlists: root.playlists;
                             like-toggled => { root.track-like(t.id); }
-                            play-next => { root.track-insert(t.id, -2); }
+                            play-next => { root.track-insert(t.id, -4); }
                             add-queue => { root.track-insert(t.id, -3); }
                             go-album => { root.open-album(t.album-id); }
                             add-to-playlist(plid) => { root.track-add-to-playlist(plid, t.id); }
@@ -1209,7 +1209,7 @@ export component AppWindow inherits Window {
                                         play => { root.play-album(a.id); }
                                         open => { root.open-album(a.id); }
                                         shuffle-play => { root.play-album-shuffled(a.id); }
-                                        play-next => { root.album-insert(a.id, -2); }
+                                        play-next => { root.album-insert(a.id, -4); }
                                         add-queue => { root.album-insert(a.id, -3); }
                                         like => { root.album-like(a.id); }
                                     }
@@ -1226,7 +1226,7 @@ export component AppWindow inherits Window {
                                     playlists: root.playlists;
                                     play => { root.play-artist-at(root.artist-detail.id, i); }
                                     like-toggled => { root.track-like(t.id); }
-                                    play-next => { root.track-insert(t.id, -2); }
+                                    play-next => { root.track-insert(t.id, -4); }
                                     add-queue => { root.track-insert(t.id, -3); }
                                     go-album => { root.open-album(t.album-id); }
                                     add-to-playlist(plid) => { root.track-add-to-playlist(plid, t.id); }
@@ -1364,7 +1364,7 @@ export component AppWindow inherits Window {
                                                     CtxMenuItem {
                                                         icon: Icons.next;
                                                         label: "Play next";
-                                                        clicked => { root.album-insert(root.detail-album.id, -2); }
+                                                        clicked => { root.album-insert(root.detail-album.id, -4); }
                                                     }
                                                     CtxMenuItem {
                                                         icon: Icons.list-music;
@@ -1429,7 +1429,7 @@ export component AppWindow inherits Window {
                                     play => { root.play-album-track(root.detail-album.id, r.track.index); }
                             playlists: root.playlists;
                             like-toggled => { root.track-like(r.track.id); }
-                            play-next => { root.track-insert(r.track.id, -2); }
+                            play-next => { root.track-insert(r.track.id, -4); }
                             add-queue => { root.track-insert(r.track.id, -3); }
                             go-album => { root.open-album(r.track.album-id); }
                             add-to-playlist(plid) => { root.track-add-to-playlist(plid, r.track.id); }

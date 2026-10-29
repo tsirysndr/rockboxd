@@ -1295,12 +1295,12 @@ fn main() -> Result<(), slint::PlatformError> {
         app.on_palette_menu_play_next(move |item| {
             let cmd = match item.kind.as_str() {
                 "track" => track_path(item.id.as_str()).map(|path| rpc::Cmd::InsertTracks {
-                    position: -2,
+                    position: -4, // PLAYLIST_INSERT_FIRST: immediately after the current track.
                     tracks: vec![path],
                 }),
                 "album" => Some(rpc::Cmd::InsertAlbum {
                     album_id: item.id.into(),
-                    position: -2,
+                    position: -4, // PLAYLIST_INSERT_FIRST: immediately after the current track.
                 }),
                 _ => None,
             };
