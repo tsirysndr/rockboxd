@@ -15,6 +15,12 @@ FL Studio / VST synth UIs (neon accents).
 - **Library browser** — Albums grid (with cover art), Artists, Tracks, Liked;
   album detail page (art, year, label, track count, total duration, per-track
   play, shuffle).
+- **Cover Flow** — press `c` for an immersive album browser with smooth motion
+  and aligned reflections. The view hides the rest of the app. Use `←` / `→`,
+  scroll, or `Home` / `End` to browse; Enter or a cover click opens album details.
+  `/` searches album titles and artists as you type, ignoring case. In search,
+  `↑` / `↓` selects a match and Enter opens it. Escape clears search first,
+  then exits Cover Flow and restores the previous view.
 - **Transport** — play/pause, prev/next, seek, shuffle toggle, repeat cycle
   (off → all → one), and a rotary volume knob with percent readout, all
   synced with the daemon over gRPC streams.
