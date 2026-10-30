@@ -1000,9 +1000,63 @@ pub struct ReplaygainSettings {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct EqBandSetting {
+    // lib/rbcodec/dsp/eq.h: enum eq_filter_type precedes the three values.
+    // Omitting it also shifts every UserSettings field after the EQ array.
+    pub filter_type: c_int,
     pub cutoff: c_int,
     pub q: c_int,
     pub gain: c_int,
+}
+
+impl EqBandSetting {
+    /// Match Rockbox's traditional low-shelf / peak / high-shelf bands.
+    pub fn new(band: usize, cutoff: c_int, q: c_int, gain: c_int) -> Self {
+        Self {
+            filter_type: if band == 0 {
+                0
+            } else if band == EQ_NUM_BANDS - 1 {
+                2
+            } else {
+                1
+            },
+            cutoff,
+            q,
+            gain,
+        }
+    }
+}
+
+#[cfg(test)]
+mod eq_binding_tests {
+    use super::*;
+
+    #[test]
+    fn eq_band_matches_c_layout() {
+        assert_eq!(std::mem::size_of::<EqBandSetting>(), 16);
+        assert_eq!(std::mem::offset_of!(EqBandSetting, filter_type), 0);
+        assert_eq!(std::mem::offset_of!(EqBandSetting, cutoff), 4);
+        assert_eq!(std::mem::offset_of!(EqBandSetting, q), 8);
+        assert_eq!(std::mem::offset_of!(EqBandSetting, gain), 12);
+    }
+
+    #[test]
+    fn legacy_eq_settings_keep_the_original_filter_shapes() {
+        for band in 0..EQ_NUM_BANDS {
+            let setting = types::user_settings::EqBandSetting {
+                cutoff: 60,
+                q: 70,
+                gain: 19,
+            }
+            .into_raw(band);
+            let expected = match band {
+                0 => 0,
+                9 => 2,
+                _ => 1,
+            };
+            assert_eq!(setting.filter_type, expected);
+            assert_eq!((setting.cutoff, setting.q, setting.gain), (60, 70, 19));
+        }
+    }
 }
 
 #[repr(C)]

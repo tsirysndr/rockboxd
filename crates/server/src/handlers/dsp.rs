@@ -35,11 +35,7 @@ pub async fn set_eq(body: web::Json<SetEqBody>) -> HandlerResult {
                     if i >= rb::EQ_NUM_BANDS {
                         break;
                     }
-                    let setting = rb::EqBandSetting {
-                        cutoff: band.cutoff,
-                        q: band.q,
-                        gain: band.gain,
-                    };
+                    let setting = rb::EqBandSetting::new(i, band.cutoff, band.q, band.gain);
                     unsafe { rb::global_settings.eq_band_settings[i] = setting };
                     rb::sound::dsp::set_eq_coefs(i as i32, &setting);
                 }

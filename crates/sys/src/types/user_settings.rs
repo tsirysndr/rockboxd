@@ -48,13 +48,9 @@ impl From<crate::EqBandSetting> for EqBandSetting {
     }
 }
 
-impl Into<crate::EqBandSetting> for EqBandSetting {
-    fn into(self) -> crate::EqBandSetting {
-        crate::EqBandSetting {
-            cutoff: self.cutoff,
-            q: self.q,
-            gain: self.gain,
-        }
+impl EqBandSetting {
+    pub fn into_raw(self, band: usize) -> crate::EqBandSetting {
+        crate::EqBandSetting::new(band, self.cutoff, self.q, self.gain)
     }
 }
 

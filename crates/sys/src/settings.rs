@@ -3,7 +3,7 @@ use std::ffi::{c_char, c_int, c_uchar, c_void, CString};
 use crate::{
     set_str_setting, set_value_setting,
     types::user_settings::{NewGlobalSettings, UserSettings},
-    EqBandSetting, OptItems, SettingsList, Viewport, EQ_NUM_BANDS, NB_SCREENS,
+    OptItems, SettingsList, Viewport, EQ_NUM_BANDS, NB_SCREENS,
 };
 
 pub fn get_global_settings() -> UserSettings {
@@ -246,14 +246,10 @@ pub fn save_settings(settings: NewGlobalSettings, from_disk: bool) {
         set_value_setting!(settings.eq_enabled, crate::global_settings.eq_enabled);
 
         if let Some(eq_band_settings) = settings.eq_band_settings {
-            let mut array = [EqBandSetting {
-                cutoff: 0,
-                gain: 0,
-                q: 0,
-            }; EQ_NUM_BANDS];
+            let mut array = crate::global_settings.eq_band_settings;
 
-            for (i, eq_band_setting) in eq_band_settings.into_iter().enumerate() {
-                array[i] = eq_band_setting.into();
+            for (i, eq_band_setting) in eq_band_settings.into_iter().take(EQ_NUM_BANDS).enumerate() {
+                array[i] = eq_band_setting.into_raw(i);
             }
 
             crate::global_settings.eq_band_settings = array;

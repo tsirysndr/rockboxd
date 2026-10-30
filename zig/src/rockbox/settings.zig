@@ -12,10 +12,19 @@ pub const ReplaygainSettings = extern struct {
 };
 
 pub const EqBandSetting = extern struct {
+    type: c_int,
     cutoff: c_int,
-    gain: c_int,
     q: c_int,
+    gain: c_int,
 };
+
+test "EQ band matches the C layout" {
+    try std.testing.expectEqual(@as(usize, 16), @sizeOf(EqBandSetting));
+    try std.testing.expectEqual(@as(usize, 0), @offsetOf(EqBandSetting, "type"));
+    try std.testing.expectEqual(@as(usize, 4), @offsetOf(EqBandSetting, "cutoff"));
+    try std.testing.expectEqual(@as(usize, 8), @offsetOf(EqBandSetting, "q"));
+    try std.testing.expectEqual(@as(usize, 12), @offsetOf(EqBandSetting, "gain"));
+}
 
 pub const StorageType = extern union { int_val: c_int };
 
