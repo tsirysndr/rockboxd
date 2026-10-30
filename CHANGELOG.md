@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026.10.30]
+
+### Changed
+- `crates`: bump `rockbox-dsp` to **0.5.0** and `rockbox-playback` to **0.9.0**, and update their dependent version requirements.
+- `rockbox-dsp`: raw EQ settings now include the upstream filter-type field; use `eq_band_setting::new(band, cutoff, q, gain)` to preserve the traditional low-shelf, peak, and high-shelf shapes.
+
+### Fixed
+- `eq`: align Rust and Zig EQ band bindings with the updated Rockbox C layout, preventing misread EQ values and misaligned settings following the EQ array.
+- `rockbox-dsp`: synchronize vendored EQ sources with the native bindings so repository and standalone builds use the same layout; rebuild native DSP code when its headers change.
+- `rockbox-playback`: reserve headroom for positive bass/treble gains before conversion to 16-bit PCM, preventing tone-boost clipping on loud input. Overall level is reduced while preserving the tone balance, and neutral settings restore unity gain.
+
 ## [2026.10.29]
 
 ### Added
