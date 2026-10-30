@@ -248,7 +248,8 @@ pub fn save_settings(settings: NewGlobalSettings, from_disk: bool) {
         if let Some(eq_band_settings) = settings.eq_band_settings {
             let mut array = crate::global_settings.eq_band_settings;
 
-            for (i, eq_band_setting) in eq_band_settings.into_iter().take(EQ_NUM_BANDS).enumerate() {
+            for (i, eq_band_setting) in eq_band_settings.into_iter().take(EQ_NUM_BANDS).enumerate()
+            {
                 array[i] = eq_band_setting.into_raw(i);
             }
 
