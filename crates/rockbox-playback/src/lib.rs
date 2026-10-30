@@ -1880,9 +1880,14 @@ struct IcyLive {
 
 impl Engine {
     fn new(shared: Arc<Shared>, rx: Receiver<Command>, cfg: EngineConfig) -> Self {
+        // `Dsp::new` resets the process-global pipeline, so hold the lock
+        // while configuring it: another thread may be measuring settings it
+        // applied earlier (see `rockbox_dsp::lock_pipeline`).
+        let dsp_lock = rockbox_dsp::lock_pipeline();
         let mut dsp = rockbox_dsp::Dsp::new(cfg.output_rate);
         apply_replaygain_mode(&mut dsp, &cfg.replaygain);
         apply_dsp_settings(&mut dsp, &cfg.dsp);
+        drop(dsp_lock);
         let dsp_state = cfg.dsp.clone();
         let (shuffle, repeat) = (cfg.shuffle, cfg.repeat);
         Engine {
@@ -3474,8 +3479,11 @@ mod dsp_tests {
     use super::*;
 
     // Keep all native-DSP checks in one test: the C DSP is a singleton.
+    // The lock keeps any other test that builds a pipeline — an `Engine`,
+    // say — from resetting the settings measured below.
     #[test]
     fn tone_boosts_reserve_headroom_and_neutral_restores_level() {
+        let _pipeline = rockbox_dsp::lock_pipeline();
         let mut dsp = rockbox_dsp::Dsp::new(44100);
         apply_dsp_settings(&mut dsp, &DspSettings::default());
         for (bass, treble, hz) in [(6, 0, 40.0), (0, 6, 15000.0), (6, 6, 40.0)] {
@@ -3520,6 +3528,69 @@ mod dsp_tests {
             assert!(
                 (31000..=31200).contains(&peak),
                 "neutral retained attenuation: {peak}"
+            );
+        }
+    }
+
+    /// Regression guard for the pipeline lock. Building an `Engine` resets
+    /// the process-global DSP, so before `lock_pipeline` existed this ran
+    /// concurrently with the tone test above and cleared the prescale it was
+    /// measuring — the tone test failed, deterministically but confusingly,
+    /// in whichever run scheduled the two together.
+    #[test]
+    fn building_a_pipeline_does_not_disturb_a_concurrent_one() {
+        let build = || {
+            let _dsp_lock = rockbox_dsp::lock_pipeline();
+            let mut dsp = rockbox_dsp::Dsp::new(44100);
+            apply_dsp_settings(&mut dsp, &DspSettings::default());
+            apply_tone(
+                &mut dsp,
+                ToneControls {
+                    bass_db: 6,
+                    ..ToneControls::default()
+                },
+            );
+            // Measure while still holding the lock: a boost must survive any
+            // other thread that is also building a pipeline right now.
+            let render = |dsp: &mut rockbox_dsp::Dsp, amplitude: f64| {
+                let input: Vec<i16> = (0..8192)
+                    .flat_map(|i| {
+                        let sample = (amplitude
+                            * 32767.0
+                            * (std::f64::consts::TAU * 40.0 * i as f64 / 44100.0).sin())
+                            as i16;
+                        [sample, sample]
+                    })
+                    .collect();
+                dsp.flush();
+                let mut out = Vec::new();
+                dsp.process(&input, &mut out);
+                out
+            };
+            let quiet = render(&mut dsp, 0.1);
+            let loud = render(&mut dsp, 0.95);
+            let rms = |samples: &[i16]| {
+                let tail = &samples[samples.len() / 2..];
+                (tail.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / tail.len() as f64).sqrt()
+            };
+            // `dsp` drops before `_dsp_lock` (reverse declaration order), so
+            // the pipeline is never left configured outside the lock.
+            rms(&loud) / rms(&quiet)
+        };
+
+        // Contend the lock from several threads, each configuring the same
+        // global pipeline and checking its own settings held.
+        let threads: Vec<_> = (0..4)
+            .map(|_| std::thread::spawn(build))
+            .collect();
+        let mut ratios = vec![build()];
+        for t in threads {
+            ratios.push(t.join().unwrap());
+        }
+        for ratio in ratios {
+            assert!(
+                (ratio - 9.5).abs() < 0.05,
+                "a concurrent pipeline clobbered the tone settings: {ratio}"
             );
         }
     }

@@ -16,7 +16,7 @@
 #![allow(non_camel_case_types)]
 
 use std::ffi::{c_int, c_long, c_uint, c_void};
-use std::sync::Once;
+use std::sync::{Mutex, MutexGuard, Once};
 
 /* enum dsp_ids */
 pub const CODEC_IDX_AUDIO: c_uint = 0;
@@ -243,10 +243,36 @@ extern "C" {
 
 static DSP_INIT: Once = Once::new();
 
+/// Serializes use of the process-global DSP pipeline.
+static DSP_PIPELINE: Mutex<()> = Mutex::new(());
+
+/// Take exclusive use of the process-global DSP pipeline.
+///
+/// [`Dsp`] is a handle to one static `dsp_config`, and several of the C
+/// stages keep their settings in file-scope globals rather than per-config
+/// state — upstream Rockbox does this deliberately so tone controls behave
+/// like hardware ones and apply to every stream. Constructing a `Dsp` also
+/// issues `DSP_RESET`, which clears what another handle just configured.
+///
+/// So a caller that configures the pipeline and then depends on those
+/// settings for a run of [`Dsp::process`] calls must hold this guard across
+/// the whole sequence, not just the configuration. Test code is the usual
+/// case: without it, one test resets or re-tunes the pipeline that another
+/// is midway through measuring, and the failure surfaces in whichever test
+/// read the clobbered settings.
+///
+/// The guard is re-acquired after poisoning, so one failing test does not
+/// cascade into unrelated ones.
+pub fn lock_pipeline() -> MutexGuard<'static, ()> {
+    DSP_PIPELINE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Safe wrapper around the audio DSP instance for interleaved 16-bit stereo.
 ///
 /// The underlying `dsp_config` is a static singleton (`CODEC_IDX_AUDIO`), so
-/// only one `Dsp` may exist at a time and it is not `Send`/`Sync`.
+/// only one `Dsp` may exist at a time and it is not `Send`/`Sync`. When more
+/// than one may exist concurrently — across test threads, say — serialize
+/// them with [`lock_pipeline`].
 pub struct Dsp {
     cfg: *mut dsp_config,
     /// Tone-control headroom in dB, see [`Dsp::set_tone_prescale`].
