@@ -3580,9 +3580,7 @@ mod dsp_tests {
 
         // Contend the lock from several threads, each configuring the same
         // global pipeline and checking its own settings held.
-        let threads: Vec<_> = (0..4)
-            .map(|_| std::thread::spawn(build))
-            .collect();
+        let threads: Vec<_> = (0..4).map(|_| std::thread::spawn(build)).collect();
         let mut ratios = vec![build()];
         for t in threads {
             ratios.push(t.join().unwrap());
