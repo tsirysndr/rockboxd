@@ -299,7 +299,9 @@ player.set_eq_enabled(true);                   // or toggle it directly
 player.set_eq_band(5, EqBand { cutoff_hz: 1000, q: 1.0, gain_db: -3.0 });
 player.set_eq_precut(6.0);                      // headroom against clipping
 
-// Tone controls — set both, or one axis at a time.
+// Tone controls reserve headroom for positive gains, lowering overall level
+// to avoid clipping before output volume is applied.
+// Set both, or one axis at a time.
 player.set_tone(ToneControls { bass_db: 4, treble_db: 2, ..Default::default() });
 player.set_bass(6);                            // leaves treble & cutoffs intact
 player.set_treble(-2);

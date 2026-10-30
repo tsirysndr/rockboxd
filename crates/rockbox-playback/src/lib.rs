@@ -302,6 +302,9 @@ impl EqPreset {
 }
 
 /// Bass/treble shelving tone controls (0/0 dB disables the stage).
+/// Positive gains reserve headroom equal to the larger boost before the
+/// DSP converts to 16-bit PCM. This lowers overall level while preserving
+/// the bass/treble balance; output volume cannot undo clipping in the DSP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ToneControls {
     pub bass_db: i32,
@@ -3155,6 +3158,7 @@ fn apply_tone(dsp: &mut rockbox_dsp::Dsp, t: ToneControls) {
     // Cutoffs must be set before set_tone: its prescale step recomputes the
     // shelf coefficients.
     dsp.set_tone_cutoffs(t.bass_cutoff_hz, t.treble_cutoff_hz);
+    dsp.set_tone_prescale(t.bass_db.max(t.treble_db).max(0));
     dsp.set_tone(t.bass_db, t.treble_db);
 }
 
@@ -3468,6 +3472,57 @@ mod dsp_tests {
     //! Pure tests for the DSP config helpers — no audio device required.
 
     use super::*;
+
+    // Keep all native-DSP checks in one test: the C DSP is a singleton.
+    #[test]
+    fn tone_boosts_reserve_headroom_and_neutral_restores_level() {
+        let mut dsp = rockbox_dsp::Dsp::new(44100);
+        apply_dsp_settings(&mut dsp, &DspSettings::default());
+        for (bass, treble, hz) in [(6, 0, 40.0), (0, 6, 15000.0), (6, 6, 40.0)] {
+            let render = |dsp: &mut rockbox_dsp::Dsp, amplitude: f64| {
+                let input: Vec<i16> = (0..44100)
+                    .flat_map(|i| {
+                        let sample = (amplitude
+                            * 32767.0
+                            * (std::f64::consts::TAU * hz * i as f64 / 44100.0).sin())
+                            as i16;
+                        [sample, sample]
+                    })
+                    .collect();
+                dsp.flush();
+                let mut out = Vec::new();
+                dsp.process(&input, &mut out);
+                out
+            };
+            apply_tone(
+                &mut dsp,
+                ToneControls {
+                    bass_db: bass,
+                    treble_db: treble,
+                    ..ToneControls::default()
+                },
+            );
+            let quiet = render(&mut dsp, 0.1);
+            let loud = render(&mut dsp, 0.95);
+            let peak = loud.iter().map(|&s| i32::from(s).abs()).max().unwrap();
+            assert!(peak < 32760, "tone {bass}/{treble} clipped: {peak}");
+            let rms = |samples: &[i16]| {
+                let tail = &samples[samples.len() / 2..];
+                (tail.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / tail.len() as f64).sqrt()
+            };
+            assert!(
+                (rms(&loud) / rms(&quiet) - 9.5).abs() < 0.05,
+                "boost must remain linear on loud input"
+            );
+            apply_tone(&mut dsp, ToneControls::default());
+            let neutral = render(&mut dsp, 0.95);
+            let peak = neutral.iter().map(|&s| i32::from(s).abs()).max().unwrap();
+            assert!(
+                (31000..=31200).contains(&peak),
+                "neutral retained attenuation: {peak}"
+            );
+        }
+    }
 
     #[test]
     fn preset_builds_full_enabled_equalizer() {

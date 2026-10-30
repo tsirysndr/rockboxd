@@ -92,6 +92,8 @@ fn main() {
 
     println!("cargo:rerun-if-changed=shim");
     println!("cargo:rerun-if-changed=vendor");
+    // Header-only ABI changes must also rebuild the native library.
+    println!("cargo:rerun-if-changed={}", dsp.display());
     for src in DSP_SOURCES {
         println!("cargo:rerun-if-changed={}", dsp.join(src).display());
     }

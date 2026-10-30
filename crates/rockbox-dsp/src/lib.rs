@@ -95,9 +95,33 @@ pub struct dsp_buffer {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct eq_band_setting {
+    pub type_: c_int,
     pub cutoff: c_int,
     pub q: c_int,
     pub gain: c_int,
+}
+
+pub const EQ_FILTER_LOW_SHELF: c_int = 0;
+pub const EQ_FILTER_PEAK: c_int = 1;
+pub const EQ_FILTER_HIGH_SHELF: c_int = 2;
+
+impl eq_band_setting {
+    /// Native units, with the traditional filter shape for this band.
+    pub fn new(band: usize, cutoff: c_int, q: c_int, gain: c_int) -> Self {
+        assert!(band < EQ_NUM_BANDS);
+        Self {
+            type_: if band == 0 {
+                EQ_FILTER_LOW_SHELF
+            } else if band == EQ_NUM_BANDS - 1 {
+                EQ_FILTER_HIGH_SHELF
+            } else {
+                EQ_FILTER_PEAK
+            },
+            cutoff,
+            q,
+            gain,
+        }
+    }
 }
 
 /// `struct compressor_settings` (compressor.h) — threshold in dB (0 = off),
@@ -402,17 +426,20 @@ impl Dsp {
     /// plain units here; the ×10 fixed-point convention is applied inside.
     pub fn set_eq_band(&mut self, band: usize, cutoff_hz: i32, q: f32, gain_db: f32) {
         assert!(band < EQ_NUM_BANDS);
-        let setting = eq_band_setting {
-            cutoff: cutoff_hz,
-            q: (q * 10.0).round() as c_int,
-            gain: (gain_db * 10.0).round() as c_int,
-        };
+        let setting = eq_band_setting::new(
+            band,
+            cutoff_hz,
+            (q * 10.0).round() as c_int,
+            (gain_db * 10.0).round() as c_int,
+        );
         unsafe { dsp_set_eq_coefs(band as c_int, &setting) };
     }
 
     /// Configure one EQ band with native Rockbox units — `q` and `gain` in
     /// tenths (`q = 70` → Q 7.0, `gain = -125` → −12.5 dB), exactly the
     /// format of rockboxd's `[[eq_band_settings]]` in settings.toml.
+    /// Use [`eq_band_setting::new`] for the traditional filter shapes;
+    /// `setting.type_` can override the shape independently of the band.
     pub fn set_eq_band_raw(&mut self, band: usize, setting: eq_band_setting) {
         assert!(band < EQ_NUM_BANDS);
         unsafe { dsp_set_eq_coefs(band as c_int, &setting) };
@@ -567,6 +594,50 @@ mod tests {
         let mut out = Vec::new();
         dsp.process(input, &mut out);
         out
+    }
+
+    #[test]
+    fn eq_filters_preserve_shapes_and_gain() {
+        let _guard = DSP_LOCK.lock().unwrap();
+        let mut dsp = Dsp::new(44100);
+        dsp.set_eq_precut(0.0);
+        for band in 0..EQ_NUM_BANDS {
+            dsp.set_eq_band(band, 1000, 1.0, 0.0);
+        }
+        dsp.eq_enable(true);
+        // Low shelf, middle peak, high shelf: test both boosts and cuts.
+        for (band, cutoff, frequency) in [(0, 200, 40.0), (4, 1000, 1000.0), (9, 3500, 15000.0)] {
+            let input = sine(frequency, 0.1);
+            let flat = rms(&run(&mut dsp, &input));
+            for gain in [-6.0, 6.0] {
+                dsp.set_eq_band(band, cutoff, 0.7, gain);
+                let db = 20.0 * (rms(&run(&mut dsp, &input)) / flat).log10();
+                assert!(
+                    (db - gain as f64).abs() < 0.8,
+                    "band {band}: expected {gain} dB, got {db}"
+                );
+            }
+            dsp.set_eq_band(band, cutoff, 0.7, 0.0);
+        }
+        // The raw API must honor the explicit type, even on band zero.
+        let input = sine(1000.0, 0.1);
+        let flat = rms(&run(&mut dsp, &input));
+        let mut setting = eq_band_setting::new(0, 1000, 10, 60);
+        setting.type_ = EQ_FILTER_PEAK;
+        dsp.set_eq_band_raw(0, setting);
+        let db = 20.0 * (rms(&run(&mut dsp, &input)) / flat).log10();
+        assert!((db - 6.0).abs() < 0.5, "raw peak gain: {db}");
+        dsp.set_eq_band(0, 200, 0.7, 0.0);
+        dsp.eq_enable(false);
+    }
+
+    #[test]
+    fn eq_band_layout_matches_native_header() {
+        assert_eq!(std::mem::size_of::<eq_band_setting>(), 16);
+        assert_eq!(std::mem::offset_of!(eq_band_setting, type_), 0);
+        assert_eq!(std::mem::offset_of!(eq_band_setting, cutoff), 4);
+        assert_eq!(std::mem::offset_of!(eq_band_setting, q), 8);
+        assert_eq!(std::mem::offset_of!(eq_band_setting, gain), 12);
     }
 
     /// The bass knob has to *boost*, not just scoop out the midrange: the

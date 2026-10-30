@@ -80,7 +80,11 @@ Per `dsp_filter.c`, gain and Q values are fixed-point ×10:
 
 The safe wrapper's `set_eq_band(band, hz, q, gain_db)` takes plain units
 and applies the ×10 internally; `set_eq_band_raw` takes native units
-(e.g. straight from rockboxd's `[[eq_band_settings]]`).
+(e.g. straight from rockboxd's `[[eq_band_settings]]`). Construct raw settings
+with `eq_band_setting::new(band, cutoff, q, gain)` to keep the traditional
+low-shelf / peak / high-shelf shapes. The native struct also includes `type_`
+(`EQ_FILTER_LOW_SHELF`, `EQ_FILTER_PEAK`, or `EQ_FILTER_HIGH_SHELF`). Both
+in-repository and vendored builds use this layout.
 
 > 📖 **Reference** — these are the same controls as Rockbox's on-device sound
 > menu. See the official

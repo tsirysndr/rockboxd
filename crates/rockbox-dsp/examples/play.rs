@@ -222,14 +222,7 @@ fn decode_loop(
                 band.q as f32 / 10.0,
                 band.gain as f32 / 10.0
             );
-            dsp.set_eq_band_raw(
-                i,
-                eq_band_setting {
-                    cutoff: band.cutoff,
-                    q: band.q,
-                    gain: band.gain,
-                },
-            );
+            dsp.set_eq_band_raw(i, eq_band_setting::new(i, band.cutoff, band.q, band.gain));
         }
         dsp.eq_enable(true);
     } else {
