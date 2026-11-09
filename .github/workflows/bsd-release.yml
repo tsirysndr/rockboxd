@@ -81,9 +81,6 @@ jobs:
           path: .ci-tooling
       - uses: fluentci-io/setup-fluentci@next
       - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
-      - name: Set up bun
-        run: fluentci run setup-bun setup --version latest | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
-        shell: bash
       - name: Build Web UI
         working-directory: webui/rockbox
         run: |

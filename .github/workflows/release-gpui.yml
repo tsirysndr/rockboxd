@@ -95,9 +95,6 @@ jobs:
           deno run build
           rm -r node_modules
 
-      - name: Set up bun
-        run: fluentci run setup-bun setup --version latest | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
-        shell: bash
       - name: Install admin UI dependencies
         working-directory: crates/s3/s3webui
         run: bun install --frozen-lockfile
