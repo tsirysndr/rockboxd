@@ -35,6 +35,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
       - name: Resolve version
         id: vars
         run: |
@@ -47,19 +54,23 @@ jobs:
           else
             echo "archive=rockbox-desktop-${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./.github/actions/setup-dagger
+      - name: Set up the pinned Dagger beta with FluentCI
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
+        shell: bash
         if: runner.os == 'Linux'
-      - name: Run desktop with Dagger
+      - name: Run desktop with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: dagger --progress logs -v api call -m .dagger/ci desktop --source . --platform "$PLATFORM" --tag "$TAG" export --path .
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","desktop","--source",".","--platform","$PLATFORM","--tag","$TAG","export","--path","."]'
         if: runner.os == 'Linux'
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
+      - name: Set up zig
+        run: fluentci run setup-zig setup --version 0.16.0 | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
         if: runner.os != 'Linux'
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Set up rust
+        run: fluentci run setup-rust setup --toolchain stable | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
         if: runner.os != 'Linux'
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -78,10 +89,9 @@ jobs:
       - name: Set Rust flags
         run: echo "RUSTFLAGS=-A warnings" >> $GITHUB_ENV
         if: runner.os != 'Linux'
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - name: Set up deno
+        run: fluentci run setup-deno setup --version 2.x | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
         if: runner.os != 'Linux'
       - name: Build Web UI
         run: |
@@ -90,10 +100,9 @@ jobs:
           deno run build
           rm -r node_modules
         if: runner.os != 'Linux'
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Set up bun
+        run: fluentci run setup-bun setup --version latest | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
         if: runner.os != 'Linux'
       - name: Install admin UI dependencies
         working-directory: crates/s3/s3webui
@@ -109,14 +118,10 @@ jobs:
         run: bash scripts/build-headless.sh
         if: runner.os != 'Linux'
       - name: Build rockbox-embed
-        run: "rm -f target/release/librockbox_embed.a\ncargo build --release --locked -p rockbox-embed\nnm --defined-only\
-          \ target/release/librockbox_embed.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT\
-          \ in librockbox_embed.a \u2014 abort\"; exit 1; }\n"
+        run: "rm -f target/release/librockbox_embed.a\ncargo build --release --locked -p rockbox-embed\nnm --defined-only target/release/librockbox_embed.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in librockbox_embed.a — abort\"; exit 1; }\n"
         if: runner.os != 'Linux'
       - name: Build librockboxd.a
-        run: "rm -f zig/zig-out/lib/librockboxd.a\ncd zig\nzig build lib -Doptimize=ReleaseFast\ncd ..\nnm --defined-only\
-          \ zig/zig-out/lib/librockboxd.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in\
-          \ librockboxd.a \u2014 abort\"; exit 1; }\n"
+        run: "rm -f zig/zig-out/lib/librockboxd.a\ncd zig\nzig build lib -Doptimize=ReleaseFast\ncd ..\nnm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in librockboxd.a — abort\"; exit 1; }\n"
         if: runner.os != 'Linux'
       - name: Build desktop app
         working-directory: desktop
@@ -137,3 +142,6 @@ jobs:
           tag_name: ${{ steps.vars.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash

@@ -25,41 +25,36 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
       - name: Determine version
         id: vars
         run: |
           echo "version=${{ inputs.tag || github.ref_name }}" >> $GITHUB_OUTPUT
-      - uses: ./.github/actions/setup-dagger
-      - name: Run linux-x86_64-release with Dagger
+      - name: Set up the pinned Dagger beta with FluentCI
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
+        shell: bash
+      - name: Run linux-x86_64-release with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: dagger --progress logs -v api call -m .dagger/ci linux-release --source . --platform "$PLATFORM" --tag "$TAG" export --path artifacts/release
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","linux-release","--source",".","--platform","$PLATFORM","--tag","$TAG","export","--path","artifacts/release"]'
       - name: Ensure GitHub release exists
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload release assets with Dagger
-        shell: bash
+      - name: Upload release assets with FluentCI
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci github-assets --directory "$GITHUB_WORKSPACE/artifacts/release" --tag "$RELEASE_TAG" --create=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.vars.outputs.version }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          files=(artifacts/release/*)
-          args=()
-          for file in "${files[@]}"; do
-            [[ -f "$file" ]] || continue
-            args+=(--files "${file#artifacts/release/}")
-          done
-          ((${#args[@]} > 0)) || { echo "No release assets found" >&2; exit 1; }
-          dagger --progress logs -v api call -m .dagger/modules/github-assets upload \
-            --assets artifacts/release "${args[@]}" --repository "$GITHUB_REPOSITORY" \
-            --tag "$RELEASE_TAG" --token env:GH_TOKEN --clobber \
-            --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
       - name: Check Gemfury secrets
         id: gemfury
         env:
@@ -72,21 +67,17 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "Gemfury secrets not set; skipping push"
           fi
-      - name: Push .deb and .rpm to Gemfury
+      - name: Set up gemfury
+        run: fluentci run setup-gemfury setup --sudo | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
         if: steps.gemfury.outputs.available == 'true'
-        env:
+        env: &id001
           FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
           FURY_ACCOUNT: ${{ secrets.FURY_ACCOUNT }}
+      - name: Publish packages with FluentCI
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci gemfury --directory "$GITHUB_WORKSPACE/artifacts/release"
+        if: steps.gemfury.outputs.available == 'true'
+        env: *id001
+    defaults:
+      run:
         shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          files=(artifacts/release/*.deb artifacts/release/*.rpm)
-          args=()
-          for file in "${files[@]}"; do
-            args+=(--files "${file#artifacts/release/}")
-          done
-          ((${#args[@]} > 0)) || { echo "No packages found" >&2; exit 1; }
-          dagger --progress logs -v api call -m .dagger/modules/gemfury upload \
-            --packages artifacts/release "${args[@]}" --account "$FURY_ACCOUNT" \
-            --token env:FURY_TOKEN --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"

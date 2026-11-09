@@ -3,7 +3,7 @@ name: webui
   push:
     branches:
       - master
-  pull_request: null
+  pull_request:
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -11,6 +11,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: ./.github/actions/setup-dagger
-      - name: Run web-test with Dagger
-        run: dagger --progress logs -v api call -m .dagger/ci web-test --source . export --path .
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
+      - name: Set up the pinned Dagger beta with FluentCI
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
+        shell: bash
+      - name: Run web-test with FluentCI
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","web-test","--source",".","export","--path","."]'
+    defaults:
+      run:
+        shell: bash

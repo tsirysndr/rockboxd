@@ -20,10 +20,16 @@ jobs:
         with:
           submodules: true
 
-      - uses: mlugg/setup-zig@v2
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
         with:
-          version: 0.16.0
-
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
+      - name: Set up zig
+        run: fluentci run setup-zig setup --version 0.16.0 | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -40,10 +46,12 @@ jobs:
           brew install llvm@21 cmake protobuf
           echo "/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin" >> $GITHUB_PATH
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - uses: denoland/setup-deno@v2
-
+      - name: Set up rust
+        run: fluentci run setup-rust setup --toolchain stable | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
+      - name: Set up deno
+        run: fluentci run setup-deno setup --version 2.9.7 | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Rust flags
         run: echo "RUSTFLAGS=-A warnings" >> $GITHUB_ENV
 
@@ -53,11 +61,9 @@ jobs:
           deno install
           deno run build
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
+      - name: Set up bun
+        run: fluentci run setup-bun setup --version latest | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Install admin UI dependencies
         working-directory: crates/s3/s3webui
         run: bun install --frozen-lockfile
@@ -96,3 +102,6 @@ jobs:
           path: |
             target/release/rockbox
             zig/zig-out/bin/rockboxd
+    defaults:
+      run:
+        shell: bash

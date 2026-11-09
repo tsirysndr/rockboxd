@@ -1,0 +1,5 @@
+[[modules]]
+name = "ci"
+path = ".fluentci/ci"
+sdk = "purescript"
+runtime = "component"

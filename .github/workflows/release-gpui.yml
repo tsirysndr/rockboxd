@@ -45,6 +45,13 @@ jobs:
         with:
           submodules: true
 
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
       - name: Resolve version
         id: vars
         run: |
@@ -52,12 +59,12 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "dmg=Rockbox-${VERSION}-gpui-${{ matrix.arch }}.dmg" >> "$GITHUB_OUTPUT"
 
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-
+      - name: Set up zig
+        run: fluentci run setup-zig setup --version 0.16.0 | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
+      - name: Set up rust
+        run: fluentci run setup-rust setup --toolchain stable | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
@@ -78,11 +85,9 @@ jobs:
           FLAGS="${{ matrix.rust_flags || '-A warnings' }}"
           echo "RUSTFLAGS=$FLAGS" >> $GITHUB_ENV
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
+      - name: Set up deno
+        run: fluentci run setup-deno setup --version 2.x | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Build Web UI
         run: |
           cd webui/rockbox
@@ -90,11 +95,9 @@ jobs:
           deno run build
           rm -r node_modules
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
+      - name: Set up bun
+        run: fluentci run setup-bun setup --version latest | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Install admin UI dependencies
         working-directory: crates/s3/s3webui
         run: bun install --frozen-lockfile
@@ -150,3 +153,6 @@ jobs:
           tag_name: ${{ steps.vars.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash

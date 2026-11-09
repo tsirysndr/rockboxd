@@ -74,11 +74,16 @@ jobs:
       # builds, so build them here on the Linux host — cross-platform-actions
       # syncs the working directory (including the freshly built dist/) into
       # the VM.
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
         with:
-          bun-version: latest
-
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
+      - name: Set up bun
+        run: fluentci run setup-bun setup --version latest | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+        shell: bash
       - name: Build Web UI
         working-directory: webui/rockbox
         run: |
@@ -233,3 +238,6 @@ jobs:
           tag_name: ${{ steps.vars.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
