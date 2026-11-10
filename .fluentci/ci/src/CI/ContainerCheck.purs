@@ -22,7 +22,7 @@ check = E.runJob do
     S.writeText (root <> "/source/.env") "excluded secret\n"
     S.writeText (root <> "/source/firmware/target/keep.h") "source code\n"
   let base = Q.container unit # C.from "alpine:3.23" # C.withWorkdir "/work"
-        # C.withDirectoryWith "/input" (LocalDirectory (root <> "/source")) (C.defaultWithDirectoryOpts { exclude = Just [ ".env" ] })
+        # C.withDirectoryWith "/input" (LocalDirectory (root <> "/source")) (C.defaultWithDirectoryOpts { exclude = Just [ "target", ".env" ] })
         # C.withEnvVariable "LITERAL" "spaces; $(false) $HOME"
       branch value = base # C.withExecWith [ "printf", "%s", value ] (C.defaultWithExecOpts { redirectStdout = Just "/work/result" })
       left = branch "left; $(false)"

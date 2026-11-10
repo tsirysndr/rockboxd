@@ -4,6 +4,10 @@ import Prelude
 import Native.Types
 import Native.Engine as E
 import CI.Support as S
+import Data.Argonaut.Core as J
+import Foreign.Object as Object
+import FluentCI.Host.Files as Files
+import Effect.Exception (throw)
 import Data.Array as A
 import Data.Maybe (Maybe(..))
 import Data.String as String
@@ -33,10 +37,16 @@ exists path = existsWith path defaultExistsOpts
 existsWith :: String -> { expectedType :: Maybe ExistsType } -> Directory -> Effect Boolean
 existsWith path opts dir = liftEffect do
   root <- E.materializeDirectory dir
-  text <- S.captureIn "." ([ "find", root ] <> (case opts.expectedType of
-    Just ExistsTypeRegularType -> [ "-type", "f" ]
-    Nothing -> []))
-  pure (A.elem (E.join root path) (String.split (String.Pattern "\n") (String.trim text)))
+  result <- S.taskResult (Files.exists "exists" path root)
+  case result.file_result >>= J.toBoolean of
+    Nothing -> throw "Native file existence query returned no boolean"
+    Just false -> pure false
+    Just true -> case opts.expectedType of
+      Nothing -> pure true
+      Just ExistsTypeRegularType -> do
+        metadata <- S.taskResult (Files.stat "stat" path root)
+        pure ((metadata.file_result >>= J.toObject >>= Object.lookup "kind" >>= J.toString) == Just "file")
+
 glob :: String -> Directory -> Effect (Array String)
 glob = E.glob
 withDirectory :: String -> Directory -> Directory -> Directory

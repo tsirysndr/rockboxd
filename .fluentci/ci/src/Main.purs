@@ -133,22 +133,22 @@ nif args = Engine.runJob do
 
 androidCheck :: { source :: String, platform :: String, output :: String, androidSdk :: String } -> Effect Unit
 androidCheck args = Engine.runJob do
-  result <- Runner.run (AndroidCheck) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing (Just (LocalDirectory args.androidSdk))
+  result <- Runner.run (AndroidCheck) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing (Just (AddDirectory EmptyDirectory "ndk" (Subdirectory (LocalDirectory args.androidSdk) "ndk") { exclude: Nothing }))
   Engine.exportDirectory args.output result
 
 androidApk :: { source :: String, platform :: String, output :: String, androidSdk :: String, features :: String, architectures :: String } -> Effect Unit
 androidApk args = Engine.runJob do
-  result <- Runner.run (AndroidApk) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { features = args.features, architectures = args.architectures }) Nothing (Just (LocalDirectory args.androidSdk))
+  result <- Runner.run (AndroidApk) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { features = args.features, architectures = args.architectures }) Nothing (Just (AddDirectory EmptyDirectory "." (LocalDirectory args.androidSdk) { exclude: Just [ "emulator", "system-images", "sources", "extras", "docs" ] }))
   Engine.exportDirectory args.output result
 
 androidRelease :: { source :: String, platform :: String, output :: String, androidSdk :: String } -> Effect Unit
 androidRelease args = Engine.runJob do
-  result <- Runner.run (AndroidRelease) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing (Just (LocalDirectory args.androidSdk))
+  result <- Runner.run (AndroidRelease) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing (Just (AddDirectory EmptyDirectory "." (LocalDirectory args.androidSdk) { exclude: Just [ "emulator", "system-images", "sources", "extras", "docs" ] }))
   Engine.exportDirectory args.output result
 
 androidFfi :: { source :: String, platform :: String, output :: String, androidSdk :: String, abi :: String } -> Effect Unit
 androidFfi args = Engine.runJob do
-  result <- Runner.run (AndroidFfi) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { abi = args.abi }) Nothing (Just (LocalDirectory args.androidSdk))
+  result <- Runner.run (AndroidFfi) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { abi = args.abi }) Nothing (Just (AddDirectory EmptyDirectory "ndk" (Subdirectory (LocalDirectory args.androidSdk) "ndk") { exclude: Nothing }))
   Engine.exportDirectory args.output result
 
 ruby :: { source :: String, platform :: String, output :: String, version :: String, artifacts :: String } -> Effect Unit

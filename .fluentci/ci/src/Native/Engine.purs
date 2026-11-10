@@ -72,7 +72,9 @@ copyTree source destination opts = do
   mkdir destination
   -- tar preserves executable modes and symlinks; exclusions apply before any
   -- checkout is copied into a container (including secrets and generated SDKs).
-  S.run ([ "tar", "-C", source ] <> A.concatMap (\p -> [ "--exclude=" <> p, "--exclude=./" <> p ]) (fromMaybe [] opts.exclude) <> [ "-cf", archive, "." ])
+  host <- S.os
+  let tar = if S.isMac host then "gtar" else "tar"
+  S.run ([ tar, "-C", source, "--anchored" ] <> A.concatMap (\p -> [ "--exclude=./" <> p ] <> (if String.take 3 p == "**/" then [ "--exclude=./" <> String.drop 3 p ] else [])) (fromMaybe [] opts.exclude) <> [ "-cf", archive, "." ])
   S.run [ "tar", "-C", destination, "-xf", archive ]
 
 materializeFile :: File -> Effect String
