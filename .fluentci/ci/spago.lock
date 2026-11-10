@@ -6,6 +6,7 @@
         "core": {
           "dependencies": [
             "aff",
+            "argonaut-codecs",
             "argonaut-core",
             "arrays",
             "console",
@@ -14,8 +15,11 @@
             "exceptions",
             "fluentci",
             "foldable-traversable",
+            "foreign-object",
+            "integers",
             "maybe",
             "prelude",
+            "refs",
             "strings",
             "tuples"
           ]

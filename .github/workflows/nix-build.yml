@@ -31,44 +31,18 @@ jobs:
       - name: Set up determinate-nix
         run: fluentci run setup-determinate-nix setup --sudo --trusted-users '["runner"]' --extra-conf '["experimental-features = nix-command flakes"]' | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
         shell: bash
-      - name: Configure Cachix with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci cachix --directory "$GITHUB_WORKSPACE" --operation setup --cache rockbox
-        env:
-          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
-        if: runner.os == 'Linux'
-      - name: nix flake show
-        run: nix flake show
-        if: runner.os != 'Linux'
-      - name: nix build .#rockbox-rustlibs
-        run: nix build --print-build-logs ".#rockbox-rustlibs"
-        if: runner.os != 'Linux'
-      - name: nix build ${{ inputs.target }}
-        run: "target=\"${{ inputs.target }}\"\nif out=$(nix eval --raw \"${target}.drvPath\" 2>&1); then\n  nix build --print-build-logs \"$target\"\nelif grep -q \"does not provide attribute\" <<< \"$out\"; then\n  echo \"==> $target is not packaged for this system — skipping.\"\nelse\n  echo \"$out\" >&2\n  exit 1\nfi\n"
-        if: runner.os != 'Linux'
       - name: Rust static libraries with FluentCI
-        if: runner.os == 'Linux'
         env:
           FLAKE_TARGET: .#rockbox-rustlibs
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |-
-          fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","nix-build","--source",".","--target","$FLAKE_TARGET","export","--path","artifacts/nix-rustlibs"]'
-          fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci import-nix --directory "$GITHUB_WORKSPACE/artifacts/nix-rustlibs" --cache rockbox
+          fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci nix-build --source "$GITHUB_WORKSPACE" --target "$FLAKE_TARGET" --cache rockbox
       - name: Requested flake attribute with FluentCI
-        if: runner.os == 'Linux'
         env:
-          FLAKE_TARGET: ${{ inputs.target }}
+          FLAKE_TARGET: ${{ inputs.target || '.#rockboxd' }}
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |-
-          fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","nix-build","--source",".","--target","$FLAKE_TARGET","export","--path","artifacts/nix-target"]'
-          fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci import-nix --directory "$GITHUB_WORKSPACE/artifacts/nix-target" --cache rockbox
-      - name: Push result to Cachix
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci cachix --directory "$GITHUB_WORKSPACE" --operation push --cache rockbox
-        env:
-          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-        if: runner.os == 'macOS'
+          fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci nix-build --source "$GITHUB_WORKSPACE" --target "$FLAKE_TARGET" --cache rockbox
     defaults:
       run:
         shell: bash

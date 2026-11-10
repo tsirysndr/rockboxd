@@ -9,10 +9,54 @@ name: Publish Docker Image
 env:
   GHCR_IMAGE: ghcr.io/tsirysndr/rockbox
   DOCKERHUB_IMAGE: tsiry/rockbox
-  TAG: ${{ github.event.inputs.version }}
+  TAG: ${{ inputs.version || 'latest' }}
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Checkout FluentCI tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
+      - uses: docker/setup-buildx-action@v3
+      - name: Build OCI image with PureScript
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci image --source "$GITHUB_WORKSPACE" --tag "$TAG" --platform "$PLATFORM" --output "$GITHUB_WORKSPACE/rockbox-image-$ARCH.tar"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.arch }}
+          path: rockbox-image-${{ matrix.arch }}.tar
+          if-no-files-found: error
+    defaults:
+      run:
+        shell: bash
+    name: Build ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            os: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            os: ubuntu-24.04-arm
+  publish:
+    needs:
+      - build
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -39,21 +83,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
-      - name: Build multi-platform image with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","image","--source",".","--tag","$TAG","export","--path","rockbox-image.tar"]'
-      - name: Publish OCI image to both registries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y skopeo
-          for image in "$GHCR_IMAGE" "$DOCKERHUB_IMAGE"; do
-            for tag in "$TAG" latest; do
-              skopeo copy --all --authfile "$HOME/.docker/config.json" \
-                oci-archive:rockbox-image.tar "docker://$image:$tag"
-            done
-          done
-    defaults:
-      run:
-        shell: bash
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+      - name: Publish architecture images and manifests
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci publish-image --directory "$GITHUB_WORKSPACE/images" --tag "$TAG" --registries '["ghcr.io/tsirysndr/rockbox","tsiry/rockbox"]'

@@ -73,14 +73,10 @@ jobs:
           path: .ci-tooling
       - uses: fluentci-io/setup-fluentci@next
       - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
-        if: runner.os == 'Linux'
       - name: Run ffi with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","ffi","--source",".","--platform","$PLATFORM","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci ffi --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --output "$GITHUB_WORKSPACE"
         if: runner.os == 'Linux'
       - name: Set up rust
         run: fluentci run setup-rust setup --toolchain stable | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
@@ -240,14 +236,11 @@ jobs:
           path: .ci-tooling
       - uses: fluentci-io/setup-fluentci@next
       - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run android-ffi with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           ABI: ${{ matrix.abi }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","android-ffi","--source",".","--platform","$PLATFORM","--android-sdk","$ANDROID_SDK_ROOT","--abi","$ABI","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci android-ffi --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT" --abi "$ABI" --output "$GITHUB_WORKSPACE"
       - uses: actions/upload-artifact@v4
         with:
           name: librockbox_ffi-${{ matrix.target }}
@@ -279,14 +272,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run package-ruby with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","ruby","--source",".","--platform","$PLATFORM","--artifacts","artifacts","--version","$BINDING_VERSION","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci ruby --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --artifacts "$GITHUB_WORKSPACE/artifacts" --version "$BINDING_VERSION" --output "$GITHUB_WORKSPACE"
       - uses: actions/upload-artifact@v4
         with:
           name: ruby-gems
@@ -317,14 +307,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run package-python with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","python","--source",".","--platform","$PLATFORM","--artifacts","artifacts","--version","$BINDING_VERSION","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci package-python --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --artifacts "$GITHUB_WORKSPACE/artifacts" --version "$BINDING_VERSION" --output "$GITHUB_WORKSPACE"
       - uses: actions/upload-artifact@v4
         with:
           name: python-wheels
@@ -355,14 +342,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run package-npm with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           BINDING_VERSION: ${{ needs.version.outputs.version }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","npm","--source",".","--platform","$PLATFORM","--artifacts","artifacts","--version","$BINDING_VERSION","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci npm --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --artifacts "$GITHUB_WORKSPACE/artifacts" --version "$BINDING_VERSION" --output "$GITHUB_WORKSPACE"
       - uses: actions/upload-artifact@v4
         with:
           name: npm-tarballs
@@ -402,7 +386,26 @@ jobs:
           lipo -create "${slices[@]}" -output universal/librockbox_ffi.a
           lipo -info universal/librockbox_ffi.a
       - name: Build iOS static archives (device + universal simulator)
-        run: "set -euxo pipefail\ndevice=\"artifacts/librockbox_ffi-ios-aarch64-apple-ios/librockbox_ffi.a\"\nsimarm=\"artifacts/librockbox_ffi-ios-aarch64-apple-ios-sim/librockbox_ffi.a\"\nsimx64=\"artifacts/librockbox_ffi-ios-x86_64-apple-ios/librockbox_ffi.a\"\nmkdir -p ios\n# Device slice (arm64) — copied straight through.\nif [ -f \"$device\" ]; then\n  cp \"$device\" ios/librockbox_ffi-device.a\n  lipo -info ios/librockbox_ffi-device.a\nfi\n# Simulator slice — the two arches share the ios-simulator platform,\n# so they must be lipo'd into one fat archive (one xcframework slice).\nsimslices=()\n[ -f \"$simarm\" ] && simslices+=(\"$simarm\")\n[ -f \"$simx64\" ] && simslices+=(\"$simx64\")\nif [ \"${#simslices[@]}\" -gt 0 ]; then\n  lipo -create \"${simslices[@]}\" -output ios/librockbox_ffi-sim.a\n  lipo -info ios/librockbox_ffi-sim.a\nfi\n"
+        run: |
+          set -euxo pipefail
+          device="artifacts/librockbox_ffi-ios-aarch64-apple-ios/librockbox_ffi.a"
+          simarm="artifacts/librockbox_ffi-ios-aarch64-apple-ios-sim/librockbox_ffi.a"
+          simx64="artifacts/librockbox_ffi-ios-x86_64-apple-ios/librockbox_ffi.a"
+          mkdir -p ios
+          # Device slice (arm64) — copied straight through.
+          if [ -f "$device" ]; then
+            cp "$device" ios/librockbox_ffi-device.a
+            lipo -info ios/librockbox_ffi-device.a
+          fi
+          # Simulator slice — the two arches share the ios-simulator platform,
+          # so they must be lipo'd into one fat archive (one xcframework slice).
+          simslices=()
+          [ -f "$simarm" ] && simslices+=("$simarm")
+          [ -f "$simx64" ] && simslices+=("$simx64")
+          if [ "${#simslices[@]}" -gt 0 ]; then
+            lipo -create "${simslices[@]}" -output ios/librockbox_ffi-sim.a
+            lipo -info ios/librockbox_ffi-sim.a
+          fi
       - name: Assemble RockboxFFI.xcframework
         run: |
           set -euxo pipefail
@@ -418,7 +421,16 @@ jobs:
           xcodebuild -create-xcframework "${args[@]}" -output RockboxFFI.xcframework
           echo "=== xcframework slices ===" && ls RockboxFFI.xcframework
       - name: Stage vendored SwiftPM package
-        run: "set -euxo pipefail\npkg=\"rockbox-ffi-swift-macos\"\nrm -rf \"$pkg\"\nmkdir -p \"$pkg\"\n# SwiftPM sources only — never the local .build cache.\ncp -R bindings/swift/Package.swift bindings/swift/README.md \\\n      bindings/swift/Sources \"$pkg/\"\nmkdir -p \"$pkg/Libs\"\ncp universal/librockbox_ffi.a \"$pkg/Libs/librockbox_ffi.a\"\n"
+        run: |
+          set -euxo pipefail
+          pkg="rockbox-ffi-swift-macos"
+          rm -rf "$pkg"
+          mkdir -p "$pkg"
+          # SwiftPM sources only — never the local .build cache.
+          cp -R bindings/swift/Package.swift bindings/swift/README.md \
+                bindings/swift/Sources "$pkg/"
+          mkdir -p "$pkg/Libs"
+          cp universal/librockbox_ffi.a "$pkg/Libs/librockbox_ffi.a"
       - name: Pack deterministically
         env:
           TZ: UTC

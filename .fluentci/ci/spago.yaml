@@ -1,6 +1,10 @@
 package:
   name: music-player-ci
   dependencies:
+    - refs
+    - integers
+    - argonaut-codecs
+    - foreign-object
     - strings
     - argonaut-core
     - aff

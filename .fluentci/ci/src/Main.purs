@@ -1,19 +1,21 @@
-module Main (dagger, githubAssets, gemfury, flakehub, cachix, importNix, check, python, setupDagger) where
+module Main (publishImage, containerCheck, nixBuild, nixPackage, nixConsume, linuxCheck, linuxRelease, linuxArmhfRelease, build, embed, desktop, goTest, ffi, nif, androidCheck, androidApk, androidRelease, androidFfi, ruby, packagePython, npm, format, webTest, image, githubAssets, gemfury, flakehub, cachix, check, python) where
 
+import CI.Nix as Nix
+import Native.Engine as Engine
+import Native.Types (Directory(..))
+import CI.Runner as Runner
+import CI.Image as Image
+import CI.Job (Job(..))
+import Data.Maybe (Maybe(..))
+import CI.ContainerCheck as ContainerCheck
+import CI.PublishImage as PublishImage
 import Prelude
 import CI.Support as S
-import CI.Dagger as Dagger
 import CI.Gemfury as Gemfury
 import Data.Array as A
 import Data.String as String
 import Effect (Effect)
 import Effect.Exception (throw)
-
--- | Run an existing typed container graph without changing its build environment.
--- | @param directory Directory for relative Dagger module/source paths.
--- | @param arguments Literal argv; environment references expand once in PureScript.
-dagger :: { directory :: String, arguments :: Array String } -> Effect Unit
-dagger = S.dagger
 
 -- | Upload release assets; optionally create a release with generated notes.
 -- | @param directory Directory containing release assets.
@@ -56,22 +58,6 @@ cachix args = do
     token <- S.env "CACHIX_AUTH_TOKEN" ""
     when (String.trim token /= "") (S.runIn args.directory [ command <> [ "push", args.cache, "./result" ] ])
 
--- | Import a container-built Nix closure and optionally push all its store paths.
--- | @param directory Exported closure directory containing store and store-paths.
--- | @param cache Cachix cache name.
-importNix :: { directory :: String, cache :: String } -> Effect Unit
-importNix args = do
-  paths <- S.files args.directory
-  when (A.elem (args.directory <> "/store-paths") paths) do
-    contents <- S.readText (args.directory <> "/store-paths")
-    let stores = A.filter (_ /= "") (map String.trim (String.split (String.Pattern "\n") contents))
-    unless (A.null stores) do
-      directory <- S.absolute args.directory
-      S.run ([ "nix", "copy", "--from", "file://" <> directory <> "/store" ] <> stores)
-      token <- S.env "CACHIX_AUTH_TOKEN" ""
-      when (String.trim token /= "") do
-        S.run ([ "nix", "run", "--no-write-lock-file", "--inputs-from", ".", "nixpkgs#cachix", "--", "push", args.cache ] <> stores)
-
 -- | Verify literal argv expansion and lint every GitHub workflow.
 -- | @param directory Repository checkout whose workflows should be linted.
 check :: { directory :: String } -> Effect Unit
@@ -98,6 +84,113 @@ python args = do
   previous <- S.readText destination
   S.writeText destination (previous <> "PATH=" <> prefix <> "/bin:" <> path <> "\nVIRTUAL_ENV=" <> prefix <> "\n")
 
--- | Install the repository-pinned Dagger beta with verified upstream checksums.
-setupDagger :: Effect Unit
-setupDagger = Dagger.setup
+
+-- Native PureScript jobs; commands are literal argument vectors.
+linuxCheck :: { source :: String, platform :: String, output :: String } -> Effect Unit
+linuxCheck args = Engine.runJob do
+  result <- Runner.run (if args.platform == "linux/arm64" then LinuxArm64Check else LinuxX64Check) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing Nothing
+  Engine.exportDirectory args.output result
+
+linuxRelease :: { source :: String, platform :: String, output :: String, tag :: String } -> Effect Unit
+linuxRelease args = Engine.runJob do
+  result <- Runner.run (if args.platform == "linux/arm64" then LinuxArm64Release else LinuxX64Release) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { tag = args.tag }) Nothing Nothing
+  Engine.exportDirectory args.output result
+
+linuxArmhfRelease :: { source :: String, platform :: String, output :: String, tag :: String } -> Effect Unit
+linuxArmhfRelease args = Engine.runJob do
+  result <- Runner.run (LinuxArmhfRelease) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { tag = args.tag }) Nothing Nothing
+  Engine.exportDirectory args.output result
+
+build :: { source :: String, platform :: String, output :: String, tag :: String } -> Effect Unit
+build args = Engine.runJob do
+  result <- Runner.run (Build) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { tag = args.tag }) Nothing Nothing
+  Engine.exportDirectory args.output result
+
+embed :: { source :: String, platform :: String, output :: String, tag :: String } -> Effect Unit
+embed args = Engine.runJob do
+  result <- Runner.run (Embed) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { tag = args.tag }) Nothing Nothing
+  Engine.exportDirectory args.output result
+
+desktop :: { source :: String, platform :: String, output :: String, tag :: String } -> Effect Unit
+desktop args = Engine.runJob do
+  result <- Runner.run (Desktop) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { tag = args.tag }) Nothing Nothing
+  Engine.exportDirectory args.output result
+
+goTest :: { source :: String, platform :: String, output :: String } -> Effect Unit
+goTest args = Engine.runJob do
+  result <- Runner.run (GoTest) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing Nothing
+  Engine.exportDirectory args.output result
+
+ffi :: { source :: String, platform :: String, output :: String } -> Effect Unit
+ffi args = Engine.runJob do
+  result <- Runner.run (Ffi) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing Nothing
+  Engine.exportDirectory args.output result
+
+nif :: { source :: String, platform :: String, output :: String } -> Effect Unit
+nif args = Engine.runJob do
+  result <- Runner.run (Nif) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing Nothing
+  Engine.exportDirectory args.output result
+
+androidCheck :: { source :: String, platform :: String, output :: String, androidSdk :: String } -> Effect Unit
+androidCheck args = Engine.runJob do
+  result <- Runner.run (AndroidCheck) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing (Just (LocalDirectory args.androidSdk))
+  Engine.exportDirectory args.output result
+
+androidApk :: { source :: String, platform :: String, output :: String, androidSdk :: String, features :: String, architectures :: String } -> Effect Unit
+androidApk args = Engine.runJob do
+  result <- Runner.run (AndroidApk) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { features = args.features, architectures = args.architectures }) Nothing (Just (LocalDirectory args.androidSdk))
+  Engine.exportDirectory args.output result
+
+androidRelease :: { source :: String, platform :: String, output :: String, androidSdk :: String } -> Effect Unit
+androidRelease args = Engine.runJob do
+  result <- Runner.run (AndroidRelease) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing (Just (LocalDirectory args.androidSdk))
+  Engine.exportDirectory args.output result
+
+androidFfi :: { source :: String, platform :: String, output :: String, androidSdk :: String, abi :: String } -> Effect Unit
+androidFfi args = Engine.runJob do
+  result <- Runner.run (AndroidFfi) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { abi = args.abi }) Nothing (Just (LocalDirectory args.androidSdk))
+  Engine.exportDirectory args.output result
+
+ruby :: { source :: String, platform :: String, output :: String, version :: String, artifacts :: String } -> Effect Unit
+ruby args = Engine.runJob do
+  result <- Runner.run (Ruby) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { version = args.version }) (Just (LocalDirectory args.artifacts)) Nothing
+  Engine.exportDirectory args.output result
+
+packagePython :: { source :: String, platform :: String, output :: String, version :: String, artifacts :: String } -> Effect Unit
+packagePython args = Engine.runJob do
+  result <- Runner.run (Python) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { version = args.version }) (Just (LocalDirectory args.artifacts)) Nothing
+  Engine.exportDirectory args.output result
+
+npm :: { source :: String, platform :: String, output :: String, version :: String, artifacts :: String } -> Effect Unit
+npm args = Engine.runJob do
+  result <- Runner.run (Npm) unit { source: LocalDirectory args.source, platform: args.platform } (Runner.defaults { version = args.version }) (Just (LocalDirectory args.artifacts)) Nothing
+  Engine.exportDirectory args.output result
+
+format :: { source :: String, platform :: String, output :: String } -> Effect Unit
+format args = Engine.runJob do
+  result <- Runner.run (Format) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing Nothing
+  Engine.exportDirectory args.output result
+
+webTest :: { source :: String, platform :: String, output :: String } -> Effect Unit
+webTest args = Engine.runJob do
+  result <- Runner.run (WebTest) unit { source: LocalDirectory args.source, platform: args.platform } Runner.defaults Nothing Nothing
+  Engine.exportDirectory args.output result
+
+image :: { source :: String, tag :: String, platform :: String, output :: String } -> Effect Unit
+image args = Engine.runJob (Image.archive unit { source: LocalDirectory args.source, tag: args.tag, platform: args.platform, output: args.output })
+
+nixBuild :: { source :: String, target :: String, cache :: String } -> Effect Unit
+nixBuild = Nix.build
+
+nixPackage :: { source :: String, cache :: String } -> Effect Unit
+nixPackage = Nix.package
+
+nixConsume :: { ref :: String } -> Effect Unit
+nixConsume = Nix.consume
+
+
+containerCheck :: Effect Unit
+containerCheck = ContainerCheck.check
+
+publishImage :: { directory :: String, tag :: String, registries :: Array String } -> Effect Unit
+publishImage = PublishImage.publish

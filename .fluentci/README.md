@@ -1,38 +1,32 @@
-# FluentCI workflow entrypoints
+# FluentCI workflows
 
-GitHub installs `fluentci-io/setup-fluentci@next`, then calls published setup
-modules for toolchains. Local PureScript components run artifact discovery,
-release uploads, Gemfury credential handling, Cachix operations, and FlakeHub
-publishing with literal argv. No new shell scripts implement pipeline logic.
+GitHub installs `fluentci-io/setup-fluentci@next` and published `setup-*` modules.
+The `.fluentci/ci/src` PureScript component owns CI control flow, packaging,
+artifact uploads, Cachix and FlakeHub operations. Commands use literal argument
+vectors. FluentCI does not install or execute Dagger; `.dagger` is retained as
+legacy source.
 
-The existing typed `.dagger/` container graphs remain the build backend for jobs
-that already used them, preserving cross-compilation sysroots, glibc baselines,
-Android SDK mounts, and packaging. The `dagger` entrypoint expands environment
-references once in PureScript; it never evaluates a shell command. Existing
-native and BSD VM build commands remain in their original environments.
+Tooling is checked out at `github.workflow_sha` in `.ci-tooling`, independently
+of the selected release source. The toolchain action pins Node 24.13.1 and
+hydrates the ignored SDK before compilation. `github-env.mjs` persists setup
+module environment results between processes.
 
-Workflows check out tooling at `github.workflow_sha` into `.ci-tooling/`, so an
-older release source does not have to contain these modules. That tooling tree
-is excluded from container source inputs. GitHub setup results pass through the
-small `github-env.mjs` bridge to persist PATH and toolchain environment between
-CLI processes. The toolchain composite generates ignored `.sdk/` files from the installed CLI
-in a temporary workspace, then the component builds from committed npm and
-Spago lockfiles. Local source builds need the same SDK-generation step.
+The ported container recipes live in `CI/`, using the PureScript `Native/`
+executor to call Docker directly. It retains container images, compiler targets,
+source exclusions, named caches, and artifact layouts. Each job owns and cleans
+up its containers, temporary snapshots, and staging directories. Expected probe
+failures are explicit; build failures propagate synchronously to the component.
+Nix jobs run directly on GitHub runners after `setup-determinate-nix`.
 
-```sh
-fluentci run ci --help
-fluentci run ci dagger --directory . --arguments '["version"]'
-fluentci run ci github-assets --directory dist --tag v1.0.0 --create=false
-```
+`fluentci-check.yml` compiles the component, exercises a small real container on
+both x86_64 and native ARM64 runners, runs regression tests, and lints workflows.
+No project or Nix builds are performed by the container smoke test.
 
-Publishing commands are real writes. They run only in the corresponding release
-workflows. GitHub reads `GH_TOKEN`; Gemfury reads `FURY_TOKEN` and `FURY_ACCOUNT`;
-Cachix pushes read `CACHIX_AUTH_TOKEN`. Missing Gemfury/Cachix tokens skip pushes.
-FlakeHub keeps the workflow OIDC permission and selected visibility/output flags.
-Disabled workflows remain untouched. Legacy `.dagger/check.py` workflow migration
-assertions are retired; graph tests and module compilation remain available.
+Release commands perform real writes. GitHub uploads use `GH_TOKEN`; Gemfury
+uses `FURY_TOKEN` and `FURY_ACCOUNT`; Cachix pushes use `CACHIX_AUTH_TOKEN`.
+Missing publishing credentials skip the corresponding optional upload.
 
-The pinned Dagger `1.0.0-beta.21` CLI uses the local PureScript `setup-dagger`
-function: this beta is distributed by `dl.dagger.io`, while the shared setup
-module looks for GitHub Releases. The installer verifies the original four
-platform SHA-256 pins before extraction and persists PATH for later steps.
+Docker publishing builds each platform on its native GitHub runner, exports an
+OCI archive with Buildx, then publishes architecture images and multi-platform
+manifests to both registries. Registry loops and tag validation are PureScript.
+The source filter explicitly preserves `firmware/target`.

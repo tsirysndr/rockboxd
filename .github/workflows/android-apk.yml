@@ -31,15 +31,13 @@ jobs:
           path: .ci-tooling
       - uses: fluentci-io/setup-fluentci@next
       - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run android-apk with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           FEATURES: ${{ inputs.features }}
           ARCHITECTURES: ${{ inputs.architectures }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","android-apk","--source",".","--platform","$PLATFORM","--android-sdk","$ANDROID_SDK_ROOT","--features","$FEATURES","--architectures","$ARCHITECTURES","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci android-apk --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT" --features "$FEATURES" --architectures "$ARCHITECTURES" --output
+          "$GITHUB_WORKSPACE"
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

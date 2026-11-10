@@ -28,13 +28,10 @@ jobs:
           path: .ci-tooling
       - uses: fluentci-io/setup-fluentci@next
       - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run android-release with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","android-release","--source",".","--platform","$PLATFORM","--android-sdk","$ANDROID_SDK_ROOT","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci android-release --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --android-sdk "$ANDROID_SDK_ROOT" --output "$GITHUB_WORKSPACE"
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:

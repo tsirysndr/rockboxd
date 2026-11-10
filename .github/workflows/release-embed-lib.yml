@@ -67,15 +67,11 @@ jobs:
           OS="${{ matrix.os_label }}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "archive=librockboxd_${VERSION}_${ARCH}-${OS}.tar.gz" >> "$GITHUB_OUTPUT"
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
-        if: runner.os == 'Linux'
       - name: Run embed with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","embed","--source",".","--platform","$PLATFORM","--tag","$TAG","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci embed --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --tag "$TAG" --output "$GITHUB_WORKSPACE"
         if: runner.os == 'Linux'
       - name: Set up zig
         run: fluentci run setup-zig setup --version 0.16.0 | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
@@ -98,7 +94,10 @@ jobs:
         if: runner.os != 'Linux'
       - name: Install macOS dependencies
         if: runner.os != 'Linux' && (runner.os == 'macOS')
-        run: "# llvm@22 crashes in setSymbolInRelocationInfo on Mach-O — use llvm@21\nbrew install llvm@21 cmake protobuf\necho \"/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin\" >> $GITHUB_PATH\n"
+        run: |
+          # llvm@22 crashes in setSymbolInRelocationInfo on Mach-O — use llvm@21
+          brew install llvm@21 cmake protobuf
+          echo "/opt/homebrew/opt/llvm@21/bin:/usr/local/opt/llvm@21/bin" >> $GITHUB_PATH
       - name: Set Rust flags
         run: |
           FLAGS="${{ matrix.rust_flags || '-A warnings' }}"
@@ -126,10 +125,24 @@ jobs:
         run: bash scripts/build-headless.sh
         if: runner.os != 'Linux'
       - name: Build rockbox-embed
-        run: "rm -f target/release/librockbox_embed.a\ncargo build --release -p rockbox-embed\necho \"--- verify rb_daemon_start is present ---\"\nnm --defined-only target/release/librockbox_embed.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in librockbox_embed.a — abort\"; exit 1; }\n"
+        run: |
+          rm -f target/release/librockbox_embed.a
+          cargo build --release -p rockbox-embed
+          echo "--- verify rb_daemon_start is present ---"
+          nm --defined-only target/release/librockbox_embed.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockbox_embed.a — abort"; exit 1; }
         if: runner.os != 'Linux'
       - name: Build librockboxd.a
-        run: "rm -f zig/zig-out/lib/librockboxd.a\ncd zig\nzig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}\ncd ..\necho \"--- verify rb_daemon_start survived into librockboxd.a ---\"\nnm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \\\n  | grep rb_daemon_start \\\n  || { echo \"rb_daemon_start NOT in librockboxd.a — abort\"; exit 1; }\n"
+        run: |
+          rm -f zig/zig-out/lib/librockboxd.a
+          cd zig
+          zig build lib -Doptimize=ReleaseFast ${{ matrix.zig_cpu }}
+          cd ..
+          echo "--- verify rb_daemon_start survived into librockboxd.a ---"
+          nm --defined-only zig/zig-out/lib/librockboxd.a 2>/dev/null \
+            | grep rb_daemon_start \
+            || { echo "rb_daemon_start NOT in librockboxd.a — abort"; exit 1; }
         if: runner.os != 'Linux'
       - name: Clean build artifacts
         run: |

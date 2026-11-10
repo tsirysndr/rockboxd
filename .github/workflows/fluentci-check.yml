@@ -1,0 +1,40 @@
+name: FluentCI checks
+on:
+  push:
+    paths:
+      - .fluentci/**
+      - .github/**
+      - fluentci.toml
+  pull_request:
+    paths:
+      - .fluentci/**
+      - .github/**
+      - fluentci.toml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tooling
+      - uses: fluentci-io/setup-fluentci@next
+      - uses: ./.ci-tooling/.github/actions/fluentci-toolchain
+      - name: Set up Go
+        run: fluentci run setup-go setup --version 1.26.2 | node "$GITHUB_WORKSPACE/.ci-tooling/.fluentci/github-env.mjs"
+      - name: Exercise native container execution
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci container-check
+      - name: Regression tests
+        run: node --test .ci-tooling/.fluentci/tests/native.test.mjs
+      - name: Lint workflows
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci check --directory "$GITHUB_WORKSPACE"

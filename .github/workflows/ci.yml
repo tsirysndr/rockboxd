@@ -27,14 +27,11 @@ jobs:
         id: vars
         run: |
           echo "version=${{ inputs.tag || github.ref_name }}" >> $GITHUB_OUTPUT
-      - name: Set up the pinned Dagger beta with FluentCI
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci setup-dagger
-        shell: bash
       - name: Run linux-release with FluentCI
         env:
           PLATFORM: ${{ runner.arch == 'ARM64' && 'linux/arm64' || 'linux/amd64' }}
           TAG: ${{ steps.vars.outputs.version }}
-        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci dagger --directory "$GITHUB_WORKSPACE" --arguments '["--progress","logs","-v","api","call","-m",".dagger/ci","build","--source",".","--platform","$PLATFORM","--tag","$TAG","export","--path","."]'
+        run: fluentci run --work-dir "$GITHUB_WORKSPACE/.ci-tooling" ci build --source "$GITHUB_WORKSPACE" --platform "$PLATFORM" --tag "$TAG" --output "$GITHUB_WORKSPACE"
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
